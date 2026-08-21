@@ -221,6 +221,13 @@ def test_parse_retry_after_handles_seconds_dates_and_garbage() -> None:
     assert parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT", 1.0) == 0.0
 
 
+def test_parse_retry_after_never_returns_a_delay_that_cannot_be_waited() -> None:
+    """asyncio.sleep(nan) never wakes up, so a header can hold the call forever."""
+    assert parse_retry_after("nan", 1.0) == 1.0
+    assert parse_retry_after("inf", 1.0) == 60.0
+    assert parse_retry_after("-5", 1.0) == 0.0
+
+
 def test_json_errors_are_reported_as_service_errors() -> None:
     assert issubclass(ReauthorizationRequired, ExternalServiceError)
     assert json  # keep the import honest for the type of payloads above

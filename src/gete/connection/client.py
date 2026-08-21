@@ -13,6 +13,7 @@ import asyncio
 import datetime
 import email.utils
 import logging
+import math
 import types
 from functools import cache
 from typing import Any, Self
@@ -51,9 +52,16 @@ def parse_retry_after(header: str | None, default: float) -> float:
     if not header:
         return default
     try:
-        return min(float(header), MAX_RETRY_AFTER_SECONDS)
+        seconds = float(header)
     except ValueError:
         pass
+    else:
+        # "nan" parses as a float and asyncio.sleep(nan) never wakes up, so a
+        # header from the service could hold the tool call forever.
+        if math.isnan(seconds):
+            logger.warning("Retry-After %r is not a delay; using the default", header)
+            return default
+        return _within_bounds(seconds)
     try:
         parsed = email.utils.parsedate_to_datetime(header)
     except (TypeError, ValueError):
@@ -61,8 +69,14 @@ def parse_retry_after(header: str | None, default: float) -> float:
             "could not parse Retry-After %r; using the default delay", header
         )
         return default
-    delta = (parsed - datetime.datetime.now(parsed.tzinfo)).total_seconds()
-    return max(0.0, min(delta, MAX_RETRY_AFTER_SECONDS))
+    return _within_bounds(
+        (parsed - datetime.datetime.now(parsed.tzinfo)).total_seconds()
+    )
+
+
+def _within_bounds(seconds: float) -> float:
+    """A delay that can be waited: never negative, never longer than the cap."""
+    return max(0.0, min(seconds, MAX_RETRY_AFTER_SECONDS))
 
 
 @cache
