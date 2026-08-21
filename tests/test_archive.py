@@ -7,6 +7,7 @@ import json
 import tarfile
 from pathlib import Path
 
+import pytest
 import yaml
 from conftest import ProjectBuilder
 
@@ -17,6 +18,7 @@ from gete.archive import (
     requirements_text,
 )
 from gete.declaration import RESOLVED_FILE, load_project
+from gete.errors import DeclarationError
 
 ENTRY = "gete_entry.py"
 
@@ -161,3 +163,18 @@ def test_external_program_reports_errors_on_stderr_and_exits_one(
     assert code == 1
     assert out.getvalue() == ""
     assert "missing" in err.getvalue()
+
+
+def test_another_agents_problem_does_not_block_this_one(
+    project: ProjectBuilder,
+) -> None:
+    """Only this agent's problems and the project's stop it from being packed."""
+    prepare(project, name="mail")
+    project.write_agent("mail-triage", {"connections": ["salesforce"]})
+    assert build_archive(project.root / "agents" / "mail").agent_name == "mail"
+
+
+def test_this_agents_own_problem_still_blocks_it(project: ProjectBuilder) -> None:
+    prepare(project, name="mail", connections=["salesforce"])
+    with pytest.raises(DeclarationError, match="salesforce"):
+        build_archive(project.root / "agents" / "mail")

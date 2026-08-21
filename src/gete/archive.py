@@ -130,19 +130,27 @@ def _agent_in(project: Project, directory: Path) -> Agent:
 
 
 def _check(project: Project, agent: Agent) -> None:
-    own = project.display(agent.directory)
-    agents = project.display(project.agents_dir)
+    own = PurePosixPath(project.display(agent.directory))
+    agents = PurePosixPath(project.display(project.agents_dir))
     relevant = [
         problem
         for problem in validate_project(project)
         # This agent's problems, and everything outside agents/ (gete.yaml,
         # policies). Other agents' problems do not block this one.
-        if str(problem.source).startswith(own)
-        or not str(problem.source).startswith(agents)
+        if _under(problem.source, own) or not _under(problem.source, agents)
     ]
     if relevant:
         lines = "\n".join(f"  {problem}" for problem in relevant)
         raise DeclarationError(f"{agent.name} cannot be archived:\n{lines}")
+
+
+def _under(source: Path | str, directory: PurePosixPath) -> bool:
+    """Whether the problem's file lies in the directory.
+
+    Compared segment by segment: agents/mail is not part of agents/mail-triage,
+    and a text comparison would say it is.
+    """
+    return PurePosixPath(source).is_relative_to(directory)
 
 
 def _inside(agent: Agent, path: Path, what: str) -> str:
