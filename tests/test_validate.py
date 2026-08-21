@@ -213,3 +213,18 @@ def test_agents_without_declaration_are_skipped(project: ProjectBuilder) -> None
     (project.agents_dir / "notes").mkdir()
     project.write_agent("mail-triage")
     assert problems(project) == []
+
+
+def test_duplicate_policy_names_are_reported(project: ProjectBuilder) -> None:
+    project.write_policies("a", [{"name": "finance", "when": "always"}])
+    project.write_policies("b", [{"name": "finance", "when": "always"}])
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "policies": ["./policies/a.yaml", "./policies/b.yaml"],
+        }
+    )
+    project.write_agent("mail-triage")
+    assert any("finance" in p for p in problems(project))

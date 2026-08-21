@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from gete._yaml import read_yaml
+from gete.errors import DeclarationError
 from gete.schema import validate_document
 
 # Tools that do not say otherwise are treated as writes. Anything not declared
@@ -50,6 +51,22 @@ class Policy:
         )
 
 
+def duplicate_policy_names(entries: Iterable[Mapping[str, Any]]) -> list[str]:
+    """Names that appear more than once, in order of their second appearance.
+
+    A policy's name identifies it in logs and docs; two policies sharing one
+    could not be told apart there.
+    """
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for entry in entries:
+        name = str(entry["name"])
+        if name in seen and name not in duplicates:
+            duplicates.append(name)
+        seen.add(name)
+    return duplicates
+
+
 def load_policy_documents(paths: Iterable[Path]) -> list[dict[str, Any]]:
     """Read policy files in the given order and return their entries, schema-checked."""
     documents: list[dict[str, Any]] = []
@@ -57,6 +74,9 @@ def load_policy_documents(paths: Iterable[Path]) -> list[dict[str, Any]]:
         entries = read_yaml(path)
         validate_document("policy", entries, source=path)
         documents.extend(entries)
+    duplicates = duplicate_policy_names(documents)
+    if duplicates:
+        raise DeclarationError(f"policy names are not unique: {', '.join(duplicates)}")
     return documents
 
 
