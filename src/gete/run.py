@@ -1,6 +1,5 @@
 """gete run: a local conversation; tokens arrive the way Agent Engine sends them."""
 
-import os
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
@@ -29,6 +28,21 @@ def initial_state(
     return state
 
 
+def missing_tokens(
+    agent_name: str, connections: Iterable[str], state: Mapping[str, str]
+) -> list[str]:
+    """The connections initial_state found no token for, in declaration order.
+
+    Keyed through authorization_id like everything else, so the answer cannot
+    drift from the names the runtime actually looks under.
+    """
+    return [
+        connection_id
+        for connection_id in connections
+        if authorization_id(agent_name, connection_id) not in state
+    ]
+
+
 def find_agent(project: Project, name: str) -> Agent:
     for agent in project.agents:
         if agent.name == name:
@@ -48,8 +62,6 @@ async def converse(
     state: Mapping[str, str],
     prompts: Iterable[str],
     say: Callable[[str], None],
-    *,
-    environ: Mapping[str, str] = os.environ,
 ) -> None:
     """Run each prompt through ADK's Runner in one session and say the final answers."""
     from google.adk.runners import Runner

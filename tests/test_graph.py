@@ -78,3 +78,29 @@ def test_cli_prints_mermaid(project: ProjectBuilder) -> None:
         result = runner.invoke(main, ["graph", "finance"])
     assert result.exit_code == 0, result.output
     assert result.output.startswith("flowchart LR")
+
+
+def test_free_text_in_a_label_cannot_break_the_diagram(project: ProjectBuilder) -> None:
+    """A display name is prose; a quote in it would end the label early."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal": {
+                    "display_name": 'The "internal" API',
+                    "hosts": ["api.internal.example.com"],
+                    "oauth": {
+                        "authorization_url": "https://auth.internal.example.com/a",
+                        "token_url": "https://auth.internal.example.com/t",
+                        "scopes": {},
+                    },
+                }
+            },
+        }
+    )
+    project.write_agent("finance", {"connections": ["internal"]})
+    text = graph(project)
+    assert '"The "internal" API"' not in text
+    assert "#quot;internal#quot;" in text

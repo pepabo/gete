@@ -72,3 +72,13 @@ def test_unknown_agent_name_is_an_error(project: ProjectBuilder) -> None:
     project.write_agent("finance")
     with pytest.raises(DeclarationError, match="nope"):
         build_local_agent(load_project(project.root / "gete.yaml"), "nope")
+
+
+def test_the_connections_without_a_token_are_named(project: ProjectBuilder) -> None:
+    """The same authorization names the runtime reads, not a second spelling."""
+    from gete.run import missing_tokens
+
+    state = initial_state(
+        "finance", ["freee", "google"], {"GETE_TOKEN_FREEE": "a1b2c3"}
+    )
+    assert missing_tokens("finance", ["freee", "google"], state) == ["google"]

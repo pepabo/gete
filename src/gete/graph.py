@@ -9,6 +9,23 @@ from gete.connection import Registry
 from gete.declaration import Agent, Project
 
 
+def label(text: str) -> str:
+    """Text safe inside a Mermaid label. Display names and refs are prose.
+
+    A quote would end the label early and leave the rest as syntax; Mermaid
+    reads the HTML entity instead. Line breaks become its own <br/>.
+    """
+    return (
+        str(text)
+        .replace("&", "#amp;")
+        .replace('"', "#quot;")
+        .replace("<", "#lt;")
+        .replace(">", "#gt;")
+        .replace("\r\n", "<br/>")
+        .replace("\n", "<br/>")
+    )
+
+
 def mermaid(project: Project, names: list[str] | None = None) -> str:
     registry = Registry.from_catalog(project.connection_overrides)
     lines = ["flowchart LR"]
@@ -20,22 +37,24 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
         engine = _engine(agent)
         if engine and engine not in engines:
             engines.add(engine)
-            lines.append(f'  GE_{_ident(engine)}["Gemini Enterprise<br/>{engine}"]')
-        lines.append(f'  {node}["{agent.name}"]')
+            lines.append(
+                f'  GE_{_ident(engine)}["Gemini Enterprise<br/>{label(engine)}"]'
+            )
+        lines.append(f'  {node}["{label(agent.name)}"]')
         if engine:
             lines.append(f"  GE_{_ident(engine)} --> {node}")
         connected: set[str] = set()
         for index, tool in enumerate(agent.tools):
             tool_node = f"{node}_tool_{index}"
             if "builtin" in tool:
-                lines.append(f'  {node} --> {tool_node}["{tool["builtin"]}"]')
+                lines.append(f'  {node} --> {tool_node}["{label(tool["builtin"])}"]')
             elif "python" in tool:
                 spec = tool["python"]
                 ref = spec if isinstance(spec, str) else spec["ref"]
-                lines.append(f'  {node} --> {tool_node}["python<br/>{ref}"]')
+                lines.append(f'  {node} --> {tool_node}["python<br/>{label(ref)}"]')
             elif "mcp" in tool:
                 host = urlsplit(tool["mcp"]["url"]).hostname or "mcp"
-                lines.append(f'  {node} --> {tool_node}[("MCP<br/>{host}")]')
+                lines.append(f'  {node} --> {tool_node}[("MCP<br/>{label(host)}")]')
                 connection = tool["mcp"].get("connection")
                 if connection:
                     connected.add(connection)
@@ -46,7 +65,7 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
             display = registry.get(connection_id, include_retired=True).display_name
             lines.append(
                 f"  {node} -. {connection_id} .-> "
-                f'conn_{_ident(connection_id)}[("{display}")]'
+                f'conn_{_ident(connection_id)}[("{label(display)}")]'
             )
     return "\n".join(lines) + "\n"
 
