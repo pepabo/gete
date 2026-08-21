@@ -84,3 +84,31 @@ async def test_allow_list_limits_the_tools_offered(server_url: str) -> None:
     )
     tools = await toolset.get_tools(await tool_context({"finance-freee": TOKEN_A}))
     assert [tool.name for tool in tools] == ["lookup"]
+
+
+async def test_a_denied_tool_is_not_offered(server_url: str) -> None:
+    """deny_tools names a tool the server lists; it must not reach the model."""
+    toolset = mcp_toolset(
+        {"url": server_url, "connection": "freee"},
+        authorizations={"freee": "finance-freee"},
+        registry=CATALOG,
+        confirm=False,
+        denied=["whoami"],
+    )
+    tools = await toolset.get_tools(await tool_context({"finance-freee": TOKEN_A}))
+    assert [tool.name for tool in tools] == ["lookup"]
+
+
+async def test_a_named_tool_is_marked_for_confirmation(server_url: str) -> None:
+    """McpToolset marks the whole set, so a single name is set on the tool itself."""
+    toolset = mcp_toolset(
+        {"url": server_url, "connection": "freee"},
+        authorizations={"freee": "finance-freee"},
+        registry=CATALOG,
+        confirm=False,
+        confirm_names=["lookup"],
+    )
+    context = await tool_context({"finance-freee": TOKEN_A})
+    tools = {tool.name: tool for tool in await toolset.get_tools(context)}
+    assert await tools["lookup"].check_require_confirmation({}, context) is True
+    assert await tools["whoami"].check_require_confirmation({}, context) is False
