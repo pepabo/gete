@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+# Nothing in this workflow writes to the repository or the API.
+permissions:
+  contents: read
+
 # A newer push to the same branch cancels the run that is still going.
 concurrency:
   group: ci-${{ github.ref }}
@@ -92,6 +96,12 @@ jobs:
       - name: generated terraform is current
         working-directory: examples/minimal
         run: uv run gete terraform --out terraform --check
+
+      # The generated file is committed, so it has to stay formatted like
+      # the module. The terraform job only covers terraform/agent_engine.
+      - name: generated terraform is formatted
+        working-directory: examples/minimal/terraform
+        run: terraform fmt -check -diff
 
       - name: terraform validate on the example
         working-directory: examples/minimal/terraform
