@@ -1,11 +1,12 @@
 """What runs inside Agent Engine: the agent built from agent.resolved.yaml."""
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from gete.connection.runtime import authorization_id
-from gete.declaration import load_resolved
+from gete.declaration import Resolved, load_resolved, resolved_from_document
 from gete.policies import applicable, compose_instruction
 from gete.redact import RedactRules
 from gete.runtime.callbacks import bind_tool_call, redact_results
@@ -13,15 +14,23 @@ from gete.runtime.tools import build_tools
 
 
 def build(path: Path) -> Any:
-    """Build the ADK LlmAgent from a resolved declaration.
+    """Build the ADK LlmAgent from a resolved declaration on disk.
 
     Tests use this; it does not touch Vertex AI. The returned agent has the
     policies' text in front of its instruction, its tools, and the callbacks
     that carry the user's token to the tools and redact what they return.
     """
+    return _build(load_resolved(path))
+
+
+def build_document(document: Mapping[str, Any], directory: Path) -> Any:
+    """Build from a resolved document in memory, with paths relative to directory."""
+    return _build(resolved_from_document(document, directory))
+
+
+def _build(resolved: Resolved) -> Any:
     from google.adk.agents import LlmAgent
 
-    resolved = load_resolved(path)
     agent = resolved.agent
     policies = applicable(resolved.policies, resolved.data)
     rules = RedactRules.from_policies(policies)

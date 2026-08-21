@@ -1,0 +1,21 @@
+name: $name
+display_name: $name
+description: Describe what the agent does. Gemini Enterprise routes on this text.
+model: gemini-2.5-flash
+instruction: ./instruction.md
+
+# Services read with the user's own authorization. See `gete connections`.
+# connections: [freee]
+
+# tools:
+#   - builtin: google_search
+#   - mcp:
+#       url: https://mcp.example.com/mcp
+#       connection: freee
+#       effect: read
+#       does_not: Does not create or approve anything.
+
+# Where the agent is listed. The id is in the Gemini Enterprise console URL.
+# registration:
+#   gemini_enterprise:
+#     engine: my-app_1234567890

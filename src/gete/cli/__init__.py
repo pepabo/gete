@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -123,3 +124,92 @@ def register(names: tuple[str, ...], notice: Path) -> None:
     if summary.failed:
         click.echo(f"{len(summary.failed)} agent(s) could not be registered", err=True)
         sys.exit(1)
+
+
+@main.command()
+@click.argument("name")
+def init(name: str) -> None:
+    """Create agents/NAME from a template; create gete.yaml too if there is none."""
+    from gete.scaffold import init_agent, init_project
+
+    try:
+        root = find_project_file(Path.cwd()).parent
+        written: list[Path] = []
+    except GeteError:
+        root = Path.cwd()
+        written = init_project(root)
+    try:
+        written.extend(init_agent(root, name))
+    except GeteError as error:
+        click.echo(str(error), err=True)
+        sys.exit(1)
+    for path in written:
+        click.echo(str(path))
+    if not written:
+        click.echo("nothing to do; every file already exists")
+
+
+@main.command()
+def connections() -> None:
+    """List the connections agents can declare: catalog plus gete.yaml."""
+    from gete.connection import Registry
+    from gete.connections_listing import connections_table, format_table
+
+    try:
+        project = load_project(find_project_file(Path.cwd()))
+        registry = Registry.from_catalog(project.connection_overrides)
+    except GeteError:
+        registry = Registry.from_catalog()
+    click.echo(format_table(connections_table(registry)), nl=False)
+
+
+@main.command()
+@click.argument("names", nargs=-1)
+def graph(names: tuple[str, ...]) -> None:
+    """Print a Mermaid diagram of the agents, their engines, tools, and connections."""
+    from gete.graph import mermaid
+
+    try:
+        project = load_project(find_project_file(Path.cwd()))
+    except GeteError as error:
+        click.echo(str(error), err=True)
+        sys.exit(1)
+    click.echo(mermaid(project, list(names) or None), nl=False)
+
+
+@main.command()
+@click.argument("name")
+def run(name: str) -> None:
+    """Talk to an agent locally. Tokens come from GETE_TOKEN_<CONNECTION> variables."""
+    import asyncio
+    import os
+
+    from gete.run import build_local_agent, converse, initial_state
+
+    try:
+        project = load_project(find_project_file(Path.cwd()))
+        agent = build_local_agent(project, name)
+        declared = next(a for a in project.agents if a.name == name)
+    except GeteError as error:
+        click.echo(str(error), err=True)
+        sys.exit(1)
+    state = initial_state(name, declared.connections, os.environ)
+    missing = [c for c in declared.connections if f"{name}-{c}" not in state]
+    if missing:
+        click.echo(
+            f"no token for {', '.join(missing)}; set GETE_TOKEN_<CONNECTION>", err=True
+        )
+
+    def prompts() -> Any:
+        while True:
+            try:
+                line = click.prompt("you", prompt_suffix="> ")
+            except (EOFError, click.Abort):
+                return
+            if line.strip() in ("exit", "quit"):
+                return
+            yield line
+
+    asyncio.run(
+        converse(agent, state, prompts(), lambda text: click.echo(f"{name}> {text}"))
+    )

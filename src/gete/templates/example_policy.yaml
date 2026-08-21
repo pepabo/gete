@@ -1,0 +1,13 @@
+# Policies apply to every agent. gete fixes the shape; replace the text.
+- name: baseline
+  when: always
+  instruction_prefix: |
+    Do not approve, pay, send, or execute anything on the user's behalf.
+    Present the facts and let people decide.
+
+- name: write-confirmation
+  when: has_write_tools
+  instruction_prefix: |
+    Before using any tool that changes data, show exactly what will change
+    and wait for the user to confirm.
+  require_confirmation: write_tools
