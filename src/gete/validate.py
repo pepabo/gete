@@ -9,6 +9,7 @@ from gete.connection import Registry
 from gete.connection.checks import connection_problems
 from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
+from gete.policies import duplicate_policy_names
 from gete.schema import problems as schema_problems
 
 # Authorization ids are <name>-<connection> and must fit a DNS-style label.
@@ -49,14 +50,22 @@ def _registry(project: Project, found: list[Problem]) -> Registry:
 
 def _policy_problems(project: Project) -> list[Problem]:
     found: list[Problem] = []
+    entries: list[Any] = []
     for path in project.policy_files:
         source = project.display(path)
         if not path.is_file():
             found.append(Problem(source, "policy file does not exist"))
             continue
-        found.extend(
-            Problem(source, message)
-            for message in schema_problems("policy", read_yaml(path))
+        document = read_yaml(path)
+        messages = schema_problems("policy", document)
+        found.extend(Problem(source, message) for message in messages)
+        if not messages:
+            entries.extend(document)
+    for name in duplicate_policy_names(entries):
+        found.append(
+            Problem(
+                project.display(project.path), f"policies: name {name!r} is used twice"
+            )
         )
     return found
 
