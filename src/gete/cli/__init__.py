@@ -8,6 +8,7 @@ import click
 from gete.archive import build_archive, external_program
 from gete.declaration import find_project_file, load_project
 from gete.errors import GeteError
+from gete.register import NOTICE_FILE, register_project
 from gete.terraform import check_generated, write_generated
 from gete.validate import validate_project
 
@@ -89,3 +90,36 @@ def terraform(out: Path | None, check: bool) -> None:
         return
     for path in write_generated(project, out_dir):
         click.echo(str(path))
+
+
+@main.command()
+@click.argument("names", nargs=-1)
+@click.option(
+    "--notice",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=Path(NOTICE_FILE),
+    show_default=True,
+    help="Where to append the steps a person still has to take.",
+)
+def register(names: tuple[str, ...], notice: Path) -> None:
+    """Create or update authorizations and bring registrations in line.
+
+    Exits 0 when steps are left for a person (they are written to the notice
+    file) and 1 only when an agent could not be processed at all.
+    """
+    from gete.gcp import GcpClient
+
+    try:
+        project = load_project(find_project_file(Path.cwd()))
+        gcp = GcpClient(quota_project=str(project.data["project"]))
+        summary = register_project(project, gcp, notice, list(names) or None)
+    except GeteError as error:
+        click.echo(str(error), err=True)
+        sys.exit(1)
+    for line in summary.messages:
+        click.echo(line)
+    if summary.needs_human:
+        click.echo(f"steps for a person were written to {notice}")
+    if summary.failed:
+        click.echo(f"{len(summary.failed)} agent(s) could not be registered", err=True)
+        sys.exit(1)
