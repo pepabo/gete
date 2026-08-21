@@ -5,16 +5,30 @@
   "description": "An external service: where user tokens may be sent, what they look like, and how users authorize.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "display_name", "oauth"],
+  "required": [
+    "id",
+    "display_name",
+    "oauth"
+  ],
   "properties": {
-    "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
-    "display_name": {"type": "string", "minLength": 1},
-    "docs": {"$ref": "#/$defs/https_url"},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "docs": {
+      "$ref": "#/$defs/https_url"
+    },
     "hosts": {
       "description": "Host names the user token may be sent to, matched exactly.",
       "type": "array",
       "uniqueItems": true,
-      "items": {"$ref": "#/$defs/hostname"}
+      "items": {
+        "$ref": "#/$defs/hostname"
+      }
     },
     "base_url": {
       "description": "Root URL of the service when it differs per organization, such as GitHub Enterprise. Its host is added to hosts.",
@@ -24,25 +38,44 @@
       "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination.",
       "type": "array",
       "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1}
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "oauth": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["authorization_url", "token_url", "scopes"],
+      "required": [
+        "authorization_url",
+        "token_url",
+        "scopes"
+      ],
       "properties": {
-        "authorization_url": {"$ref": "#/$defs/https_url"},
-        "token_url": {"$ref": "#/$defs/https_url"},
+        "authorization_url": {
+          "$ref": "#/$defs/https_url"
+        },
+        "token_url": {
+          "$ref": "#/$defs/https_url"
+        },
         "scopes": {
           "description": "Scope to the explanation shown on the consent screen.",
           "type": "object",
-          "additionalProperties": {"type": "string", "minLength": 1}
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
         },
-        "scope_parameter": {"type": "string", "minLength": 1},
+        "scope_parameter": {
+          "type": "string",
+          "minLength": 1
+        },
         "authorization_query": {
           "description": "Query string for the authorization URL, used verbatim. Gemini Enterprise adds client_id and redirect_uri.",
           "type": "object",
-          "additionalProperties": {"type": "string"}
+          "additionalProperties": {
+            "type": "string"
+          }
         }
       }
     },
@@ -54,8 +87,14 @@
     "mcp": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["url"],
-      "properties": {"url": {"$ref": "#/$defs/https_url"}}
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "$ref": "#/$defs/https_url"
+        }
+      }
     },
     "retired": {
       "description": "Why the connection is no longer usable. validate fails with this text.",
@@ -65,20 +104,40 @@
     "verified": {
       "type": "object",
       "additionalProperties": false,
-      "properties": {"gemini_enterprise": {"type": "string", "format": "date"}}
+      "properties": {
+        "gemini_enterprise": {
+          "type": "string",
+          "format": "date"
+        }
+      }
     },
     "examples": {
       "description": "Shapes of tokens, not real ones. The catalog checks accepts_token against them.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "accepts": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "rejects": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        "accepts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rejects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     }
   },
   "$defs": {
-    "https_url": {"type": "string", "pattern": "^https://[^/?#\\s]+"},
+    "https_url": {
+      "type": "string",
+      "pattern": "^https://[^/?#\\s]+(?:[/?#]\\S*)?$"
+    },
     "hostname": {
       "type": "string",
       "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
