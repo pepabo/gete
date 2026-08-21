@@ -98,6 +98,35 @@ def test_missing_source_directory_is_reported(project: ProjectBuilder) -> None:
     assert any("src" in p for p in problems(project))
 
 
+def test_missing_requirements_file_is_reported(project: ProjectBuilder) -> None:
+    """archive reads it; without the rule the failure is a traceback at pack time."""
+    project.write_agent("mail-triage", {"requirements": "./requirements.txt"})
+    assert any("requirements.txt" in p for p in problems(project))
+
+
+def test_existing_requirements_file_passes(project: ProjectBuilder) -> None:
+    agent_dir = project.write_agent("mail-triage", {"requirements": "./req.txt"})
+    (agent_dir / "req.txt").write_text("httpx>=0.28\n")
+    assert problems(project) == []
+
+
+@pytest.mark.parametrize("name", ["ab", "a" * 28])
+def test_name_that_cannot_become_a_service_account_is_reported(
+    name: str, project: ProjectBuilder
+) -> None:
+    """<name>-ae is the service account id, and GCP wants 6 to 30 characters."""
+    project.write_agent(name)
+    assert any("service account" in p for p in problems(project))
+
+
+@pytest.mark.parametrize("name", ["abc", "a" * 27])
+def test_names_at_the_edges_of_the_service_account_length_pass(
+    name: str, project: ProjectBuilder
+) -> None:
+    project.write_agent(name)
+    assert problems(project) == []
+
+
 def test_python_ref_module_must_exist_below_source(project: ProjectBuilder) -> None:
     """Located, not imported: importing would need the deployed dependencies."""
     agent_dir = project.write_agent(

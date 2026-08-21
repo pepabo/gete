@@ -13,6 +13,12 @@ from gete.schema import problems as schema_problems
 # Authorization ids are <name>-<connection> and must fit a DNS-style label.
 MAX_AUTHORIZATION_ID_LENGTH = 63
 
+# The agent's service account is <name>-ae, and GCP wants an account id of 6
+# to 30 characters. Both ends are reached by names the agent schema accepts.
+SERVICE_ACCOUNT_SUFFIX = "-ae"
+MIN_SERVICE_ACCOUNT_ID_LENGTH = 6
+MAX_SERVICE_ACCOUNT_ID_LENGTH = 30
+
 # Agent Engine sets these itself and rejects a spec that repeats them.
 RESERVED_ENV_NAMES = frozenset({"GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"})
 
@@ -70,6 +76,15 @@ def _agent_problems(
             f"name {agent.name!r} differs from directory {agent.directory.name!r}; "
             "the module, service account, and archive are named after the directory"
         )
+    account = f"{agent.name}{SERVICE_ACCOUNT_SUFFIX}"
+    if not (
+        MIN_SERVICE_ACCOUNT_ID_LENGTH <= len(account) <= MAX_SERVICE_ACCOUNT_ID_LENGTH
+    ):
+        found.append(
+            f"name: service account {account!r} is not between "
+            f"{MIN_SERVICE_ACCOUNT_ID_LENGTH} and {MAX_SERVICE_ACCOUNT_ID_LENGTH} "
+            "characters; Terraform would be refused at apply time"
+        )
     known: set[str] = set()
     for connection_id in agent.connections:
         try:
@@ -90,6 +105,9 @@ def _agent_problems(
     source_dir = agent.source
     if source_dir is not None and not source_dir.is_dir():
         found.append(f"source: {project.display(source_dir)} is not a directory")
+    requirements = agent.requirements
+    if requirements is not None and not requirements.is_file():
+        found.append(f"requirements: {project.display(requirements)} does not exist")
     for index, tool in enumerate(agent.tools):
         found.extend(
             f"tools[{index}]: {message}"
