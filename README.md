@@ -18,7 +18,7 @@ Early development. Nothing can be deployed yet.
 ## Development
 
 ```sh
-uv sync
+uv sync --all-extras
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
 uv run mypy

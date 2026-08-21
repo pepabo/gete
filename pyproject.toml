@@ -18,6 +18,16 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.optional-dependencies]
+# The command line is not needed inside Agent Engine. Keeping it separate
+# keeps the runtime's dependency set small.
+cli = [
+    "click>=8.1",
+]
+
+[project.scripts]
+gete = "gete.cli:main"
+
 [dependency-groups]
 dev = [
     "mypy>=1.14",
@@ -41,6 +51,11 @@ packages = ["src/gete"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    # Raised while importing google.adk.tools; it is ADK's own deprecation,
+    # not something this code base can act on.
+    "ignore:BaseAgentConfig is deprecated:DeprecationWarning",
+]
 
 [tool.mypy]
 python_version = "3.12"

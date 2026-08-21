@@ -25,7 +25,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      - run: uv sync --frozen
+      - run: uv sync --frozen --all-extras
 
       # Catches a pyproject.toml change whose uv.lock was not regenerated;
       # otherwise the lock diff shows up in an unrelated pull request later.
