@@ -43,3 +43,23 @@ jobs:
 
       - name: test
         run: uv run pytest -q
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/agent_engine
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: fmt
+        run: terraform fmt -check -diff -recursive
+
+      # No backend and no credentials: this checks the module's syntax and
+      # the provider schema, not a deployment.
+      - name: validate
+        run: terraform init -backend=false -input=false && terraform validate

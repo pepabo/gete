@@ -37,8 +37,10 @@ coverage.xml
 # tags at build time and must never be committed.
 src/gete/_version.py
 
-# Terraform (this repository ships a module; state and providers never belong here)
+# Terraform (this repository ships a module; state, providers, and provider
+# locks belong to the root configurations that call it)
 .terraform/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 *.tfvars
