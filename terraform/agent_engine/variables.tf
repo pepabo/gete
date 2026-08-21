@@ -11,6 +11,14 @@ variable "location" {
 variable "name" {
   type        = string
   description = "The agent's name from agent.yaml. Names the service account and labels the engine."
+
+  # The service account id is "<name>-ae", and GCP wants 6 to 30 characters.
+  # Without this the module plans and fails halfway through an apply, with a
+  # service account created and the engine missing.
+  validation {
+    condition     = length("${var.name}-ae") >= 6 && length("${var.name}-ae") <= 30
+    error_message = "name must be 3 to 27 characters: the service account is \"${var.name}-ae\"."
+  }
 }
 
 variable "display_name" {
