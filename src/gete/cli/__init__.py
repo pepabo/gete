@@ -40,6 +40,9 @@ def validate(check_secrets: bool, import_check: bool, gete_source: Path | None) 
     from gete.importcheck import import_check as run_import_check
     from gete.secrets import check_secrets as run_check_secrets
 
+    if gete_source is not None and not import_check:
+        click.echo("--gete-source only has an effect with --import-check", err=True)
+        sys.exit(1)
     try:
         project = load_project(find_project_file(Path.cwd()))
         problems = validate_project(project)
@@ -51,26 +54,26 @@ def validate(check_secrets: bool, import_check: bool, gete_source: Path | None) 
                     project, GcpClient(quota_project=str(project.data["project"]))
                 )
             )
+        for problem in problems:
+            click.echo(str(problem))
+        if problems:
+            click.echo(f"{len(problems)} problem(s) found", err=True)
+            sys.exit(1)
+        if import_check:
+            failed = 0
+            for agent in project.agents:
+                result = run_import_check(agent.directory, gete_source=gete_source)
+                click.echo(
+                    f"{agent.name}: import check {'passed' if result.ok else 'FAILED'}"
+                )
+                if not result.ok:
+                    click.echo(result.output, err=True)
+                    failed += 1
+            if failed:
+                sys.exit(1)
     except GeteError as error:
         click.echo(str(error), err=True)
         sys.exit(1)
-    for problem in problems:
-        click.echo(str(problem))
-    if problems:
-        click.echo(f"{len(problems)} problem(s) found", err=True)
-        sys.exit(1)
-    if import_check:
-        failed = 0
-        for agent in project.agents:
-            result = run_import_check(agent.directory, gete_source=gete_source)
-            click.echo(
-                f"{agent.name}: import check {'passed' if result.ok else 'FAILED'}"
-            )
-            if not result.ok:
-                click.echo(result.output, err=True)
-                failed += 1
-        if failed:
-            sys.exit(1)
     click.echo(f"OK: {len(project.agents)} agent(s) validated")
 
 
