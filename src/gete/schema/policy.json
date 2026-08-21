@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gete:schema:policy",
+  "title": "policies",
+  "description": "A list of policies applied to every agent from the outside. gete fixes the shape; the text is the user's.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["name", "when"],
+    "properties": {
+      "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+      "when": {"enum": ["always", "has_write_tools", "has_connections", "has_secret_env"]},
+      "instruction_prefix": {"type": "string", "minLength": 1},
+      "redact": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "digit_only_keys": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pattern", "replacement"],
+              "properties": {
+                "pattern": {"type": "string", "minLength": 1},
+                "replacement": {"type": "string"}
+              }
+            }
+          }
+        }
+      },
+      "require_confirmation": {
+        "oneOf": [
+          {"enum": ["write_tools", "all"]},
+          {"type": "array", "items": {"type": "string", "minLength": 1}}
+        ]
+      },
+      "deny_tools": {"type": "array", "items": {"type": "string", "minLength": 1}}
+    }
+  }
+}

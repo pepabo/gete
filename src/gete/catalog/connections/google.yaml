@@ -1,0 +1,32 @@
+id: google
+display_name: Google Workspace
+docs: https://developers.google.com/workspace
+
+# One host per API. Listing googleapis.com as a whole would let a Workspace
+# authorization reach GCP APIs.
+hosts:
+  - gmail.googleapis.com
+  - calendar-json.googleapis.com
+  - sheets.googleapis.com
+  - drive.googleapis.com
+  - people.googleapis.com
+  - www.googleapis.com
+token_prefixes:
+  - ya29.
+
+oauth:
+  authorization_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  # Read-only. Asking for write access would let an agent send or approve
+  # on the user's behalf, and gete agents are not meant to.
+  scopes:
+    https://www.googleapis.com/auth/gmail.readonly: Read the subject, sender, and body of your mail
+    https://www.googleapis.com/auth/calendar.readonly: Read your calendar events
+
+examples:
+  accepts:
+    - "ya29.a0AfH6SMBx"
+  rejects:
+    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT: ID token or service account token
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub
+    - "a1b2c3d4e5f60718293a4b5c6d7e8f90" # no prefix, cannot be Google
