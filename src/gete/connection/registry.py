@@ -174,8 +174,15 @@ class Connection:
 class Registry:
     """All connections an installation knows about: the catalog plus gete.yaml."""
 
-    def __init__(self, connections: Iterable[Connection]) -> None:
+    def __init__(
+        self,
+        connections: Iterable[Connection],
+        documents: Mapping[str, Mapping[str, Any]] | None = None,
+    ) -> None:
         by_id = {connection.id: connection for connection in connections}
+        # The merged mappings the connections were built from, when known.
+        # resolve() embeds them so the runtime can rebuild the same registry.
+        self._documents = {key: dict(value) for key, value in (documents or {}).items()}
         self._connections = {
             connection_id: replace(
                 connection,
@@ -219,7 +226,18 @@ class Registry:
             # a misspelled key fails here without a separate partial check.
             validate_document("connection", merged, source=where)
             entries[connection_id] = merged
-        return cls(Connection.from_mapping(entry) for entry in entries.values())
+        return cls.from_documents(entries)
+
+    @classmethod
+    def from_documents(cls, documents: Mapping[str, Mapping[str, Any]]) -> "Registry":
+        """Build from complete connection mappings keyed by id, as resolve() embeds."""
+        return cls(
+            (Connection.from_mapping(entry) for entry in documents.values()), documents
+        )
+
+    def documents(self) -> dict[str, dict[str, Any]]:
+        """The mappings this registry was built from, keyed by id."""
+        return {key: dict(value) for key, value in self._documents.items()}
 
     def ids(self) -> list[str]:
         return sorted(self._connections)
