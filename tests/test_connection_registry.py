@@ -183,16 +183,11 @@ def test_mcp_host_must_be_a_declared_host() -> None:
         "mcp.example.com" in problem
         for problem in connection_problems(entry, Registry([entry]))
     )
-    assert (
-        connection_problems(
-            connection(
-                hosts=["api.example.com", "mcp.example.com"],
-                mcp={"url": "https://mcp.example.com/mcp"},
-            ),
-            Registry([entry]),
-        )
-        == []
+    good = connection(
+        hosts=["api.example.com", "mcp.example.com"],
+        mcp={"url": "https://mcp.example.com/mcp"},
     )
+    assert connection_problems(good, Registry([good])) == []
 
 
 def test_examples_are_checked_against_accepts_token() -> None:
@@ -202,3 +197,58 @@ def test_examples_are_checked_against_accepts_token() -> None:
     problems = connection_problems(entry, Registry([entry]))
     assert any("other_1" in problem for problem in problems)
     assert any("ex_1" in problem for problem in problems)
+
+
+def test_declared_prefix_wins_over_the_dot_heuristic(catalog: Registry) -> None:
+    """Google also issues ya29.c.<payload> tokens; two dots must not make them JWTs."""
+    google = catalog.get("google")
+    assert google.accepts_token("ya29.c.Ko8BuAT7abcdef")
+    assert google.accepts_token("ya29.a0AfH6SMB")
+
+
+def test_prefixed_connection_still_refuses_jwts_and_foreign_tokens(
+    catalog: Registry,
+) -> None:
+    github = catalog.get("github")
+    assert not github.accepts_token("eyJhbGciOiJSUzI1NiJ9.e30.sig")
+    assert not github.accepts_token("a.b.c")
+
+
+def test_two_prefixless_connections_are_reported_on_both_sides() -> None:
+    """Elimination cannot tell two services apart when neither announces itself."""
+    freee = connection(id="freee", token_prefixes=[])
+    internal = connection(id="internal", token_prefixes=[])
+    registry = Registry([freee, internal])
+    assert any(
+        "internal" in p for p in connection_problems(registry.get("freee"), registry)
+    )
+    assert any(
+        "freee" in p for p in connection_problems(registry.get("internal"), registry)
+    )
+
+
+def test_www_googleapis_is_too_broad() -> None:
+    """storage, compute, and oauth2 share www.googleapis.com with Workspace APIs."""
+    entry = connection(hosts=["www.googleapis.com"])
+    problems = connection_problems(entry, Registry([entry]))
+    assert any("www.googleapis.com" in p for p in problems)
+
+
+def test_connection_checks_use_the_registry_view_of_the_connection() -> None:
+    """A bare from_mapping() connection knows no foreign prefixes; the checks must."""
+    bare = connection(
+        token_prefixes=[], examples={"accepts": ["gho_looks_like_github"]}
+    )
+    registry = Registry([bare, Registry.from_catalog().get("github")])
+    assert any(
+        "gho_looks_like_github" in p for p in connection_problems(bare, registry)
+    )
+
+
+def test_github_does_not_accept_classic_personal_access_tokens(
+    catalog: Registry,
+) -> None:
+    """OAuth never issues ghp_ tokens; accepting them widens the door for nothing."""
+    assert not catalog.get("github").accepts_token(
+        "ghp_16C7e42F292c6912E7710c838347Ae178B4a"
+    )
