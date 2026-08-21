@@ -53,8 +53,11 @@ def test_slack_is_retired_with_a_reason() -> None:
 
 def test_google_hosts_are_specific_apis_not_the_whole_domain() -> None:
     """A Workspace authorization must not be usable against GCP APIs."""
-    assert "googleapis.com" not in CATALOG["google"]["hosts"]
-    assert all(host.endswith(".googleapis.com") for host in CATALOG["google"]["hosts"])
+    hosts = CATALOG["google"]["hosts"]
+    assert "googleapis.com" not in hosts
+    # www.googleapis.com serves storage, compute, and oauth2 as well.
+    assert "www.googleapis.com" not in hosts
+    assert all(host.endswith(".googleapis.com") for host in hosts)
 
 
 def test_catalog_files_are_read_with_dates_as_strings() -> None:

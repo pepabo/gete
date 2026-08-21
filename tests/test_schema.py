@@ -202,3 +202,24 @@ def test_yaml_dates_stay_strings(tmp_path: Path) -> None:
     path = tmp_path / "c.yaml"
     path.write_text("verified:\n  gemini_enterprise: 2026-08-20\n")
     assert read_yaml(path) == {"verified": {"gemini_enterprise": "2026-08-20"}}
+
+
+@pytest.mark.parametrize("url", ["https://", "https:// evil .com/x", "https://a b/c"])
+def test_mcp_url_is_held_to_the_same_https_shape_as_connections(url: str) -> None:
+    with pytest.raises(DeclarationError, match="tools"):
+        validate_document(
+            "agent", {**AGENT, "tools": [{"mcp": {"url": url}}]}, source="a.yaml"
+        )
+
+
+def test_redact_patterns_must_be_valid_regular_expressions() -> None:
+    """A pattern that does not compile would disable a security control at runtime."""
+    policy = [
+        {
+            "name": "x",
+            "when": "always",
+            "redact": {"patterns": [{"pattern": "(unclosed", "replacement": "X"}]},
+        }
+    ]
+    with pytest.raises(DeclarationError, match="pattern"):
+        validate_document("policy", policy, source="p.yaml")

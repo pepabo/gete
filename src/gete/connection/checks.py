@@ -2,7 +2,7 @@
 
 from urllib.parse import urlsplit
 
-from gete.connection.registry import Connection, Registry
+from gete.connection.registry import GOOGLE_ACCESS_TOKEN_PREFIX, Connection, Registry
 
 # Platform domains under which unrelated parties host services. Hosts are
 # matched exactly, so listing one of these is almost certainly a mistake
@@ -10,6 +10,8 @@ from gete.connection.registry import Connection, Registry
 TOO_BROAD_HOSTS = frozenset(
     {
         "googleapis.com",
+        # Serves storage, compute, and oauth2 next to the Workspace APIs.
+        "www.googleapis.com",
         "google.com",
         "amazonaws.com",
         "cloudfront.net",
@@ -25,12 +27,16 @@ TOO_BROAD_HOSTS = frozenset(
 
 # Shapes every connection must refuse, whatever it declares.
 _JWT_EXAMPLE = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
-_GOOGLE_ACCESS_TOKEN_EXAMPLE = "ya29.a0AfH6SMB"
-_GOOGLE_ACCESS_TOKEN_PREFIX = "ya29."
+_GOOGLE_ACCESS_TOKEN_EXAMPLE = GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB"
 
 
 def connection_problems(connection: Connection, registry: Registry) -> list[str]:
     """Describe what is wrong with the connection, or return an empty list."""
+    # A connection taken from the registry knows the other connections'
+    # prefixes; one built with from_mapping() alone does not, and would pass
+    # checks it should fail.
+    if connection.id in registry.ids():
+        connection = registry.get(connection.id, include_retired=True)
     problems: list[str] = []
     if not connection.hosts:
         problems.append("hosts: at least one host is required")
@@ -42,6 +48,13 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
     for other in registry.all(include_retired=True):
         if other.id == connection.id:
             continue
+        if not connection.token_prefixes and not other.token_prefixes:
+            # Two services that do not announce themselves would accept each
+            # other's tokens; elimination can only tell one such service apart.
+            problems.append(
+                f"token_prefixes: empty, like {other.id}; only one connection may "
+                "accept tokens by elimination"
+            )
         for prefix in connection.token_prefixes:
             for theirs in other.token_prefixes:
                 if prefix.startswith(theirs) or theirs.startswith(prefix):
@@ -57,7 +70,7 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
     if connection.accepts_token(_JWT_EXAMPLE):
         problems.append("a JWT-shaped token is accepted")
     claims_google = any(
-        prefix.startswith(_GOOGLE_ACCESS_TOKEN_PREFIX)
+        prefix.startswith(GOOGLE_ACCESS_TOKEN_PREFIX)
         for prefix in connection.token_prefixes
     )
     if not claims_google and connection.accepts_token(_GOOGLE_ACCESS_TOKEN_EXAMPLE):
