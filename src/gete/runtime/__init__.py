@@ -37,7 +37,13 @@ def build(path: Path) -> Any:
         instruction=compose_instruction(
             resolved.policies, resolved.data, agent.instruction_text()
         ),
-        tools=build_tools(agent, policies),
+        tools=build_tools(
+            agent,
+            policies,
+            authorizations=authorizations,
+            registry=resolved.registry,
+            confirmation=resolved.confirmation,
+        ),
         before_tool_callback=bind_tool_call(authorizations, resolved.registry, rules),
         after_tool_callback=redact_results(rules),
     )

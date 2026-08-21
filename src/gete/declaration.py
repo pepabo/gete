@@ -34,6 +34,9 @@ AGENT_FILE = "agent.yaml"
 RESOLVED_FILE = "agent.resolved.yaml"
 DEFAULT_AGENTS_DIR = "agents"
 RESOLVED_KEY = "resolved"
+# Until Gemini Enterprise is known to surface ADK's confirmation flow, the
+# policy text and the agent's own two-step tools are what governs writes.
+DEFAULT_CONFIRMATION = "instruction"
 
 
 @dataclass(frozen=True)
@@ -208,6 +211,7 @@ def resolve(project: Project, agent: Agent) -> dict[str, Any]:
         RESOLVED_KEY: {
             "policies": load_policy_documents(project.policy_files),
             "connections": registry.documents(),
+            "confirmation": project.data.get("confirmation", DEFAULT_CONFIRMATION),
             "gete_version": version("gete"),
         },
     }
@@ -238,6 +242,10 @@ class Resolved:
     @property
     def registry(self) -> Registry:
         return Registry.from_documents(self._resolved["connections"])
+
+    @property
+    def confirmation(self) -> str:
+        return str(self._resolved.get("confirmation", DEFAULT_CONFIRMATION))
 
     @property
     def gete_version(self) -> str:

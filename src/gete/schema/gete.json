@@ -5,9 +5,15 @@
   "description": "Project-wide declaration: where agents are deployed, which policies apply, and which connections exist.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "project", "location"],
+  "required": [
+    "version",
+    "project",
+    "location"
+  ],
   "properties": {
-    "version": {"const": 1},
+    "version": {
+      "const": 1
+    },
     "project": {
       "description": "GCP project that holds the reasoning engines, service accounts, and secrets.",
       "type": "string",
@@ -17,13 +23,18 @@
       "description": "Region of the reasoning engines. Agent Engine has no global region. Spliced into the Vertex AI host name, so the shape is part of a URL.",
       "type": "string",
       "pattern": "^[a-z]+(-[a-z0-9]+)+$",
-      "not": {"const": "global"}
+      "not": {
+        "const": "global"
+      }
     },
     "gemini_enterprise": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "project_number": {"type": "string", "pattern": "^[0-9]+$"},
+        "project_number": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
         "location": {
           "description": "Where Gemini Enterprise holds the engine, usually global. Becomes a path segment of every Discovery Engine URL.",
           "type": "string",
@@ -31,23 +42,53 @@
         }
       }
     },
-    "agents_dir": {"type": "string", "minLength": 1},
-    "policies": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "agents_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "connections": {
       "description": "Overrides for catalog entries, or private definitions. Each value has the connection shape; catalog ids may give only the differing keys.",
       "type": "object",
-      "propertyNames": {"pattern": "^[a-z][a-z0-9-]*$"},
-      "additionalProperties": {"type": "object"}
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "type": "object"
+      }
     },
     "terraform": {
       "type": "object",
       "additionalProperties": false,
-      "properties": {"module_source": {"type": "string", "minLength": 1}}
+      "properties": {
+        "module_source": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "registration": {
       "type": "object",
       "additionalProperties": false,
-      "properties": {"notice_template": {"type": "string", "minLength": 1}}
+      "properties": {
+        "notice_template": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "confirmation": {
+      "description": "How require_confirmation policies take effect. instruction: through the policy text and the agent's own two-step tools. adk: tools are marked with ADK's require_confirmation; choose it once Gemini Enterprise is known to surface ADK confirmations.",
+      "enum": [
+        "instruction",
+        "adk"
+      ]
     }
   }
 }
