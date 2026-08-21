@@ -108,8 +108,9 @@
           ],
           "properties": {
             "engine": {
+              "description": "Id of the Gemini Enterprise engine. Spliced into the Discovery Engine URL path, so a slash would address another resource.",
               "type": "string",
-              "minLength": 1
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
             }
           }
         }
