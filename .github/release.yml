@@ -1,0 +1,6 @@
+# GitHub Release の自動生成ノートから、tagpr 自身が作るリリース PR を除く。
+# 除かないと「v0.1.0 をリリース」という行がリリースノートに毎回混ざる
+changelog:
+  exclude:
+    labels:
+      - tagpr
