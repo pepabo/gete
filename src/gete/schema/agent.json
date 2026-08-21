@@ -5,7 +5,13 @@
   "description": "One agent: who it is, what it says, what it touches, where it runs, where it is listed.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "display_name", "description", "model", "instruction"],
+  "required": [
+    "name",
+    "display_name",
+    "description",
+    "model",
+    "instruction"
+  ],
   "properties": {
     "name": {
       "description": "RFC 1034 label. Becomes the Terraform module name, the service account name, and the prefix of authorization ids.",
@@ -13,23 +19,52 @@
       "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$",
       "maxLength": 63
     },
-    "display_name": {"type": "string", "minLength": 1},
-    "description": {"type": "string", "minLength": 1},
-    "model": {"type": "string", "minLength": 1},
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
     "instruction": {
       "description": "Path relative to agent.yaml, or the instruction text itself.",
       "type": "string",
       "minLength": 1
     },
-    "starter_prompts": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "starter_prompts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "connections": {
       "type": "array",
       "uniqueItems": true,
-      "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      }
     },
-    "source": {"type": "string", "minLength": 1},
-    "requirements": {"type": "string", "minLength": 1},
-    "tools": {"type": "array", "items": {"$ref": "#/$defs/tool"}},
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requirements": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tool"
+      }
+    },
     "runtime": {
       "type": "object",
       "additionalProperties": false,
@@ -38,14 +73,25 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "env": {"$ref": "#/$defs/string_map"},
+            "env": {
+              "$ref": "#/$defs/string_map"
+            },
             "secret_env": {
               "description": "Environment variable name to Secret Manager secret name. The latest version is used.",
               "$ref": "#/$defs/string_map"
             },
-            "min_instances": {"type": "integer", "minimum": 0},
-            "max_instances": {"type": "integer", "minimum": 1},
-            "python_version": {"type": "string", "pattern": "^3\\.[0-9]+$"}
+            "min_instances": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_instances": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "python_version": {
+              "type": "string",
+              "pattern": "^3\\.[0-9]+$"
+            }
           }
         }
       }
@@ -57,8 +103,15 @@
         "gemini_enterprise": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["engine"],
-          "properties": {"engine": {"type": "string", "minLength": 1}}
+          "required": [
+            "engine"
+          ],
+          "properties": {
+            "engine": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       }
     }
@@ -66,12 +119,19 @@
   "$defs": {
     "string_map": {
       "type": "object",
-      "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
-      "additionalProperties": {"type": "string"}
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "effect": {
       "description": "Whether the tool only reads. Defaults to write, so anything not declared read-only is governed as a write.",
-      "enum": ["read", "write"]
+      "enum": [
+        "read",
+        "write"
+      ]
     },
     "python_ref": {
       "description": "Fully qualified module and attribute below source, as pkg.module:ATTR.",
@@ -83,7 +143,9 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["builtin"],
+          "required": [
+            "builtin"
+          ],
           "properties": {
             "builtin": {
               "description": "Name of a tool in google.adk.tools, such as google_search.",
@@ -95,24 +157,49 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["mcp"],
+          "required": [
+            "mcp"
+          ],
           "properties": {
             "mcp": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["url"],
+              "required": [
+                "url"
+              ],
               "properties": {
-                "url": {"type": "string", "pattern": "^https://"},
-                "connection": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+                "url": {
+                  "$ref": "#/$defs/https_url"
+                },
+                "connection": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
                 "headers": {
                   "description": "Fixed headers. Values may reference environment variables as ${VAR}; secrets do not belong here.",
                   "type": "object",
-                  "additionalProperties": {"type": "string"}
+                  "additionalProperties": {
+                    "type": "string"
+                  }
                 },
-                "allow": {"type": "array", "items": {"type": "string", "minLength": 1}},
-                "effect": {"$ref": "#/$defs/effect"},
-                "does_not": {"type": "string", "minLength": 1},
-                "timeout": {"type": "number", "exclusiveMinimum": 0}
+                "allow": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "effect": {
+                  "$ref": "#/$defs/effect"
+                },
+                "does_not": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "timeout": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
               }
             }
           }
@@ -120,18 +207,28 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["python"],
+          "required": [
+            "python"
+          ],
           "properties": {
             "python": {
               "oneOf": [
-                {"$ref": "#/$defs/python_ref"},
+                {
+                  "$ref": "#/$defs/python_ref"
+                },
                 {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["ref"],
+                  "required": [
+                    "ref"
+                  ],
                   "properties": {
-                    "ref": {"$ref": "#/$defs/python_ref"},
-                    "effect": {"$ref": "#/$defs/effect"}
+                    "ref": {
+                      "$ref": "#/$defs/python_ref"
+                    },
+                    "effect": {
+                      "$ref": "#/$defs/effect"
+                    }
                   }
                 }
               ]
@@ -139,6 +236,10 @@
           }
         }
       ]
+    },
+    "https_url": {
+      "type": "string",
+      "pattern": "^https://[^/?#\\s]+(?:[/?#]\\S*)?$"
     }
   }
 }
