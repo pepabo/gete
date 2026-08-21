@@ -3,14 +3,14 @@ display_name: Google Workspace
 docs: https://developers.google.com/workspace
 
 # One host per API. Listing googleapis.com as a whole would let a Workspace
-# authorization reach GCP APIs.
+# authorization reach GCP APIs, and so would www.googleapis.com, which serves
+# storage, compute, and oauth2 next to the Workspace APIs.
 hosts:
   - gmail.googleapis.com
   - calendar-json.googleapis.com
   - sheets.googleapis.com
   - drive.googleapis.com
   - people.googleapis.com
-  - www.googleapis.com
 token_prefixes:
   - ya29.
 

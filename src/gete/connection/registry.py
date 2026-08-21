@@ -16,10 +16,10 @@ from gete.catalog import catalog_connections
 from gete.errors import DeclarationError, RetiredConnection, UnknownConnection
 from gete.schema import validate_document
 
-# A JWT has three dot-separated segments and its base64url header starts with
-# "eyJ". Google ID tokens and service account tokens are JWTs; none of them
-# may be sent to an external service.
-_JWT_SEGMENTS = 2
+# A JWT has three dot-separated segments (two dots) and its base64url header
+# starts with "eyJ". Google ID tokens and service account tokens are JWTs;
+# none of them may be sent to an external service.
+_JWT_DOTS = 2
 _JWT_HEADER_PREFIX = "eyJ"
 
 # Google access tokens. A connection that does not declare this prefix must
@@ -30,7 +30,7 @@ GOOGLE_ACCESS_TOKEN_PREFIX = "ya29."
 
 def looks_like_jwt(token: str) -> bool:
     """True for anything shaped like a JWT; none belongs at an external service."""
-    return token.count(".") >= _JWT_SEGMENTS or token.startswith(_JWT_HEADER_PREFIX)
+    return token.count(".") >= _JWT_DOTS or token.startswith(_JWT_HEADER_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -82,8 +82,10 @@ class Connection:
     oauth: OAuth
     hosts: frozenset[str] = frozenset()
     token_prefixes: tuple[str, ...] = ()
-    # Prefixes declared by every other connection in the registry. A connection
-    # without prefixes of its own accepts a token only if none of these match.
+    # Prefixes declared by every other connection in the registry, filled in by
+    # Registry. A connection without prefixes of its own accepts a token only
+    # if none of these match, so a bare from_mapping() connection judges more
+    # leniently than the same connection taken from a Registry.
     foreign_prefixes: tuple[str, ...] = ()
     base_url: str | None = None
     docs: str | None = None
@@ -137,14 +139,16 @@ class Connection:
     def accepts_token(self, token: str) -> bool:
         """Whether the token may be treated as this connection's.
 
-        Google's own access tokens start with ya29. and contain a single dot,
-        so they pass the JWT check and are then decided by prefix like any other.
+        A declared prefix decides on its own. The JWT heuristic is a guess
+        about shape, and Google issues ya29.c.<payload> access tokens that
+        carry two dots; the guess must not overrule a prefix the catalog
+        vouches for. Without prefixes, the shape is all there is to go on.
         """
-        if not token or looks_like_jwt(token):
+        if not token:
             return False
         if self.token_prefixes:
             return token.startswith(self.token_prefixes)
-        if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
+        if looks_like_jwt(token) or token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
             return False
         # The service does not announce itself. All that can be said is that
         # the token is not some other service's.
