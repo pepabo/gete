@@ -14,9 +14,9 @@
       "pattern": "^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
     },
     "location": {
-      "description": "Region of the reasoning engines. Agent Engine has no global region.",
+      "description": "Region of the reasoning engines. Agent Engine has no global region. Spliced into the Vertex AI host name, so the shape is part of a URL.",
       "type": "string",
-      "minLength": 1,
+      "pattern": "^[a-z]+(-[a-z0-9]+)+$",
       "not": {"const": "global"}
     },
     "gemini_enterprise": {
@@ -24,7 +24,11 @@
       "additionalProperties": false,
       "properties": {
         "project_number": {"type": "string", "pattern": "^[0-9]+$"},
-        "location": {"type": "string", "minLength": 1}
+        "location": {
+          "description": "Where Gemini Enterprise holds the engine, usually global. Becomes a path segment of every Discovery Engine URL.",
+          "type": "string",
+          "pattern": "^[a-z]+(-[a-z0-9]+)*$"
+        }
       }
     },
     "agents_dir": {"type": "string", "minLength": 1},
