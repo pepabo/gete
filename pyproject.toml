@@ -1,16 +1,17 @@
 [project]
 name = "gete"
-description = "YAML の宣言から Agent Runtime（Vertex AI Agent Engine）へ載せ、Gemini Enterprise に登録する"
+description = "Declare agents in YAML, deploy them to Vertex AI Agent Engine, and register them with Gemini Enterprise"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-# 版はタグから導く。ここに静的な版を書くと、tagpr が書き換える版と
-# uv.lock に記録される版が二重になる
+# The version is derived from git tags. A static version here would be a
+# second source of truth next to the tag, and tagpr would have to rewrite it.
 dynamic = ["version"]
 dependencies = [
-    # ADK の minor が変わると Agent Card やツールの API が変わる。
-    # 検証した範囲に留め、送り先の ADK もここに収める
+    # ADK changes tool and Agent Card behaviour between minor (and sometimes
+    # patch) releases. Pin to the range that has been verified, so the
+    # deployed runtime stays inside it as well.
     "google-adk>=2.6,<2.7",
     "httpx>=0.28",
     "jsonschema>=4.23",
@@ -30,7 +31,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.version]
 source = "vcs"
-# git の無いところ（sdist を展開しただけの環境）でも読み込めるようにする
+# Lets the package import from a plain source tree without git metadata.
 fallback-version = "0.0.0"
 
 [tool.hatch.build.targets.wheel]
@@ -42,10 +43,10 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-# 対象は src だけ。テストに機械的な型注釈を足す価値は薄い
+# Only src is checked. Mechanical annotations on tests add little.
 files = ["src"]
 
-# ADK と Google Cloud のライブラリは型情報を配布していないものがある
+# ADK and some Google Cloud libraries ship without type information.
 [[tool.mypy.overrides]]
 module = ["google.adk.*", "google.auth.*", "vertexai.*"]
 ignore_missing_imports = true

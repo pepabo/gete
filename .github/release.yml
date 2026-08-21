@@ -1,5 +1,5 @@
-# GitHub Release の自動生成ノートから、tagpr 自身が作るリリース PR を除く。
-# 除かないと「v0.1.0 をリリース」という行がリリースノートに毎回混ざる
+# Keep tagpr's own release pull requests out of the generated release notes.
+# Otherwise every release lists a "Release for vX.Y.Z" entry about itself.
 changelog:
   exclude:
     labels:

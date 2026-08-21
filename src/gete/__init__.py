@@ -1,7 +1,7 @@
-"""gete: YAML の宣言から Agent Runtime へ載せ、Gemini Enterprise に登録する。"""
+"""gete: declare agents in YAML, deploy them, register them with Gemini Enterprise."""
 
 from importlib.metadata import version
 
-# 版はタグから導いたメタデータを写すだけ。ここに文字列を書くと
-# タグとずれたまま配布される
+# Mirror the version from package metadata, which is derived from the git
+# tag. A literal here would drift from the tag and ship under the wrong version.
 __version__ = version("gete")

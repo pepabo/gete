@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
 
-# 同じブランチで新しい push があれば古い実行を止める
+# A newer push to the same branch cancels the run that is still going.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,7 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # 版はタグから導く。浅い checkout だとタグが無く、別の版で組まれる
+          # The version is derived from git tags. A shallow checkout has no
+          # tags and would build under a different version.
           fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
@@ -26,8 +27,8 @@ jobs:
 
       - run: uv sync --frozen
 
-      # pyproject.toml だけ変わって uv.lock が古いと、無関係な差分が
-      # 後続の PR に混ざる
+      # Catches a pyproject.toml change whose uv.lock was not regenerated;
+      # otherwise the lock diff shows up in an unrelated pull request later.
       - name: lock
         run: uv lock --check
 

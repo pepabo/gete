@@ -9,15 +9,15 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write # タグと Release の作成
-      pull-requests: write # リリース PR の作成・更新
-      issues: read # CHANGELOG 生成のため過去の PR を読む（PR は Issues API 経由）
+      contents: write # create tags and releases
+      pull-requests: write # create and update the release pull request
+      issues: read # changelog generation reads merged pull requests via the Issues API
 
     steps:
       - uses: actions/checkout@v5
 
-      # main への push ごとにリリース内容をまとめた PR を作成・更新する。
-      # その PR をマージした時点でタグが打たれる。
+      # On every push to main, create or update a pull request that collects
+      # the unreleased changes. Merging that pull request creates the tag.
       - uses: Songmu/tagpr@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

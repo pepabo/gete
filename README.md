@@ -1,19 +1,21 @@
 # gete
 
-`agent.yaml` を書くと、Agent Runtime（Vertex AI Agent Engine）に載り、
-Gemini Enterprise に登録され、利用者ごとの認可が紐づく。
+Write an `agent.yaml`, and the agent is deployed to Agent Runtime
+(Vertex AI Agent Engine), registered with Gemini Enterprise, and wired to
+per-user authorizations.
 
-エージェントを足す人は Python を書かない。指示は Markdown、連携先と
-ツールは YAML に書く。Python を書くのは、自分で処理を書いたツールが
-要るときだけ。
+People adding an agent do not write Python. Instructions live in Markdown;
+connections and tools are declared in YAML. Python is only needed for tools
+whose logic you implement yourself.
 
-名前は gate の Gemini 版。エージェントが Gemini Enterprise へ入っていく門。
+The name is "gate", Gemini flavoured: the gate agents walk through into
+Gemini Enterprise.
 
-## 状態
+## Status
 
-作り始めたところ。まだ何も載せられない。
+Early development. Nothing can be deployed yet.
 
-## 開発
+## Development
 
 ```sh
 uv sync
@@ -22,8 +24,9 @@ uv run ruff check . && uv run ruff format --check .
 uv run mypy
 ```
 
-版はタグから導く（`hatch-vcs`）。`pyproject.toml` には書かない。
+The version is derived from git tags (`hatch-vcs`). It is not written in
+`pyproject.toml`.
 
-## ライセンス
+## License
 
 Apache-2.0

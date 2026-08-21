@@ -1,4 +1,4 @@
-"""パッケージの器。版の持ち方を縛る。"""
+"""Package shell. Pins down where the version comes from."""
 
 import importlib.metadata
 import tomllib
@@ -9,13 +9,13 @@ import gete
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
 
-def test_版はパッケージのメタデータと同じ() -> None:
-    """gete.__version__ はタグから作ったメタデータを写す。別の場所で持たない。"""
+def test_version_matches_package_metadata() -> None:
+    """gete.__version__ mirrors the metadata built from the git tag."""
     assert gete.__version__ == importlib.metadata.version("gete")
 
 
-def test_版は_pyproject_に静的に書かない() -> None:
-    """版はタグだけで持つ。pyproject.toml に書くと tagpr の書き換えと二重になる。"""
+def test_version_is_not_written_statically_in_pyproject() -> None:
+    """The tag is the only source of the version; a static one would be a second."""
     project = tomllib.loads(PYPROJECT.read_text())["project"]
     assert "version" not in project
     assert "version" in project["dynamic"]
