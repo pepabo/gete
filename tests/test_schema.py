@@ -82,6 +82,58 @@ def test_gete_location_global_is_rejected() -> None:
 
 
 @pytest.mark.parametrize(
+    "location", ["us central1", "US-CENTRAL1", "-us-central1", "evil.com", "us-"]
+)
+def test_gete_location_must_look_like_a_region(location: str) -> None:
+    """It is spliced into the Vertex AI host name, so its shape decides a URL."""
+    with pytest.raises(DeclarationError, match="location"):
+        validate_document("gete", {**GETE, "location": location}, source="gete.yaml")
+
+
+@pytest.mark.parametrize("location", ["global", "us", "eu", "us-central1"])
+def test_gemini_enterprise_location_accepts_the_regions_it_offers(
+    location: str,
+) -> None:
+    validate_document(
+        "gete",
+        {**GETE, "gemini_enterprise": {"location": location}},
+        source="gete.yaml",
+    )
+
+
+@pytest.mark.parametrize("location", ["Global", "us east1", "../global"])
+def test_gemini_enterprise_location_must_look_like_a_region(location: str) -> None:
+    """It becomes a path segment of every Discovery Engine URL."""
+    with pytest.raises(DeclarationError, match="location"):
+        validate_document(
+            "gete",
+            {**GETE, "gemini_enterprise": {"location": location}},
+            source="gete.yaml",
+        )
+
+
+def test_registration_engine_accepts_a_console_id() -> None:
+    validate_document(
+        "agent",
+        {**AGENT, "registration": {"gemini_enterprise": {"engine": "app_1234567890"}}},
+        source="agent.yaml",
+    )
+
+
+@pytest.mark.parametrize(
+    "engine", ["../../../authorizations", "app 1", "app/1", "-app"]
+)
+def test_registration_engine_must_be_an_identifier(engine: str) -> None:
+    """It is spliced into the Discovery Engine URL path; a slash addresses elsewhere."""
+    with pytest.raises(DeclarationError, match="engine"):
+        validate_document(
+            "agent",
+            {**AGENT, "registration": {"gemini_enterprise": {"engine": engine}}},
+            source="agent.yaml",
+        )
+
+
+@pytest.mark.parametrize(
     "name", ["Mail-Triage", "mail_triage", "-mail", "mail-", "a" * 64]
 )
 def test_agent_name_must_be_an_rfc1034_label(name: str) -> None:

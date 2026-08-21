@@ -112,3 +112,23 @@ def test_resolved_rejects_a_document_that_lost_its_resolved_block(
     path.write_text("name: x\n")
     with pytest.raises(DeclarationError, match="resolved"):
         load_resolved(path)
+
+
+def test_resolved_rejects_a_connections_block_that_is_not_a_mapping(
+    tmp_path: Path,
+) -> None:
+    """A hand-edited file must fail with a message, not an AttributeError."""
+    import pytest
+    from conftest import MINIMAL_AGENT
+
+    from gete.errors import DeclarationError
+
+    path = tmp_path / "agent.resolved.yaml"
+    document = {
+        **MINIMAL_AGENT,
+        "instruction": "You sort mail.\nBe brief.",
+        "resolved": {"policies": [], "connections": [], "gete_version": "0.0.0"},
+    }
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
+    with pytest.raises(DeclarationError, match="connections"):
+        load_resolved(path)
