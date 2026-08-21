@@ -2,47 +2,38 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from gete._yaml import load_yaml_text, read_yaml
+from gete.connection import Registry
 from gete.errors import DeclarationError
+from gete.policies import Policy, load_policy_documents
 from gete.schema import problems as schema_problems
 from gete.schema import validate_document
 
+__all__ = [
+    "AGENT_FILE",
+    "PROJECT_FILE",
+    "RESOLVED_FILE",
+    "Agent",
+    "Problem",
+    "Project",
+    "Resolved",
+    "find_project_file",
+    "load_project",
+    "load_resolved",
+    "load_yaml_text",
+    "read_yaml",
+    "resolve",
+]
+
 PROJECT_FILE = "gete.yaml"
 AGENT_FILE = "agent.yaml"
+RESOLVED_FILE = "agent.resolved.yaml"
 DEFAULT_AGENTS_DIR = "agents"
-
-
-class _StringDatesLoader(yaml.SafeLoader):
-    """SafeLoader that leaves ISO dates as strings.
-
-    PyYAML turns an unquoted 2026-08-20 into a date object. The schemas describe
-    dates as strings with format "date", and a date object would fail the type
-    check before the format is ever looked at.
-    """
-
-
-_StringDatesLoader.yaml_implicit_resolvers = {
-    first: [
-        (tag, regexp)
-        for tag, regexp in resolvers
-        if tag != "tag:yaml.org,2002:timestamp"
-    ]
-    for first, resolvers in _StringDatesLoader.yaml_implicit_resolvers.items()
-}
-
-
-def load_yaml_text(text: str) -> Any:
-    """Parse one YAML document from text. Empty text parses as None."""
-    return yaml.load(text, Loader=_StringDatesLoader)  # noqa: S506 - SafeLoader subclass
-
-
-def read_yaml(path: Path) -> Any:
-    """Read one YAML document from a file."""
-    return load_yaml_text(path.read_text(encoding="utf-8"))
+RESOLVED_KEY = "resolved"
 
 
 @dataclass(frozen=True)
@@ -104,6 +95,11 @@ class Agent:
         if value.startswith(("./", "../", "/")) or value.endswith((".md", ".txt")):
             return self.directory / value
         return None
+
+    def instruction_text(self) -> str:
+        """The instruction itself: the file's content, or the inline text."""
+        path = self.instruction_path
+        return path.read_text(encoding="utf-8") if path else self.instruction
 
     @property
     def source(self) -> Path | None:
@@ -194,3 +190,86 @@ def load_project(path: Path) -> Project:
                 continue
             agents.append(Agent(directory=directory, data=agent_data))
     return Project(path=path, data=data, agents=tuple(agents), problems=tuple(problems))
+
+
+def resolve(project: Project, agent: Agent) -> dict[str, Any]:
+    """Fold gete.yaml into one agent's declaration.
+
+    The deployment has no gete.yaml, so the policies and the connection
+    definitions travel with the agent under a "resolved" key. Every known
+    connection is embedded, not just the agent's: a connection without token
+    prefixes is accepted by elimination against the others' prefixes.
+    """
+    registry = Registry.from_catalog(
+        project.connection_overrides, source=project.display(project.path)
+    )
+    return {
+        **agent.data,
+        RESOLVED_KEY: {
+            "policies": load_policy_documents(project.policy_files),
+            "connections": registry.documents(),
+            "gete_version": version("gete"),
+        },
+    }
+
+
+@dataclass(frozen=True)
+class Resolved:
+    """A resolved declaration as read back where it was deployed."""
+
+    path: Path
+    data: Mapping[str, Any]
+
+    @property
+    def agent(self) -> Agent:
+        return Agent(directory=self.path.parent, data=self.data)
+
+    @property
+    def name(self) -> str:
+        return self.agent.name
+
+    def instruction_text(self) -> str:
+        return self.agent.instruction_text()
+
+    @property
+    def policies(self) -> tuple[Policy, ...]:
+        return tuple(Policy.from_mapping(entry) for entry in self._resolved["policies"])
+
+    @property
+    def registry(self) -> Registry:
+        return Registry.from_documents(self._resolved["connections"])
+
+    @property
+    def gete_version(self) -> str:
+        gete_version: str = self._resolved["gete_version"]
+        return gete_version
+
+    @property
+    def _resolved(self) -> Mapping[str, Any]:
+        resolved: Mapping[str, Any] = self.data[RESOLVED_KEY]
+        return resolved
+
+
+def load_resolved(path: Path) -> Resolved:
+    """Read an agent.resolved.yaml and check every part of it against its schema."""
+    data = read_yaml(path)
+    if not isinstance(data, Mapping) or not isinstance(data.get(RESOLVED_KEY), Mapping):
+        raise DeclarationError(
+            f"{path} has no {RESOLVED_KEY!r} block; was it written by gete?"
+        )
+    resolved = data[RESOLVED_KEY]
+    for key in ("policies", "connections", "gete_version"):
+        if key not in resolved:
+            raise DeclarationError(f"{path}: {RESOLVED_KEY}.{key} is missing")
+    agent_part = {key: value for key, value in data.items() if key != RESOLVED_KEY}
+    validate_document("agent", agent_part, source=path)
+    validate_document(
+        "policy", resolved["policies"], source=f"{path}: {RESOLVED_KEY}.policies"
+    )
+    for connection_id, document in resolved["connections"].items():
+        validate_document(
+            "connection",
+            document,
+            source=f"{path}: {RESOLVED_KEY}.connections.{connection_id}",
+        )
+    return Resolved(path=path, data=data)

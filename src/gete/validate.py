@@ -4,9 +4,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from gete._yaml import read_yaml
 from gete.connection import Registry
 from gete.connection.checks import connection_problems
-from gete.declaration import Agent, Problem, Project, read_yaml
+from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
 from gete.schema import problems as schema_problems
 

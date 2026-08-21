@@ -3,7 +3,7 @@
 from importlib.resources import files
 from typing import Any
 
-from gete.declaration import load_yaml_text
+from gete._yaml import load_yaml_text
 
 
 def catalog_connections() -> dict[str, dict[str, Any]]:

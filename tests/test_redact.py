@@ -1,0 +1,88 @@
+"""Redaction: what leaves a tool result before the model sees it."""
+
+from typing import Any
+
+from gete.policies import Policy
+from gete.redact import RedactRules, redact, redact_text
+
+RULES = RedactRules(
+    keys=("bank_name", "account_holder"),
+    digit_only_keys=("account_number",),
+    patterns=((r"(?i)iban[:\s]*([A-Z]{2}\d{2}[A-Z0-9]{11,30})", "IBAN [redacted]"),),
+)
+
+
+def test_listed_keys_are_masked_at_any_depth() -> None:
+    value: dict[str, Any] = {
+        "partner": {
+            "bank_name": "Example Bank",
+            "accounts": [{"account_holder": "A. Person"}],
+        },
+        "note": "fine",
+    }
+    assert redact(value, RULES) == {
+        "partner": {
+            "bank_name": "[redacted]",
+            "accounts": [{"account_holder": "[redacted]"}],
+        },
+        "note": "fine",
+    }
+
+
+def test_digit_only_keys_keep_the_digit_count() -> None:
+    """A missing digit means a returned transfer; the count matters, not the number."""
+    assert redact({"account_number": "1234567"}, RULES) == {
+        "account_number": "[7 digits]"
+    }
+    assert redact({"account_number": "12-34"}, RULES) == {
+        "account_number": "[4 digits]"
+    }
+    assert redact({"account_number": 98765}, RULES) == {"account_number": "[5 digits]"}
+    assert redact({"account_number": ""}, RULES) == {"account_number": "[redacted]"}
+
+
+def test_patterns_apply_to_every_string_value() -> None:
+    text = "Pay to IBAN DE89370400440532013000 by Friday"
+    assert redact_text(text, RULES) == "Pay to IBAN [redacted] by Friday"
+    assert redact({"memo": [text]}, RULES) == {
+        "memo": ["Pay to IBAN [redacted] by Friday"]
+    }
+
+
+def test_values_that_are_not_containers_or_strings_pass_through() -> None:
+    assert redact(42, RULES) == 42
+    assert redact(None, RULES) is None
+    assert redact(True, RULES) is True
+
+
+def test_no_rules_means_nothing_changes() -> None:
+    value = {"bank_name": "Example Bank"}
+    assert redact(value, RedactRules()) == value
+
+
+def test_rules_combine_from_policies_in_order() -> None:
+    first = Policy.from_mapping(
+        {
+            "name": "a",
+            "when": "always",
+            "redact": {
+                "keys": ["bank_name"],
+                "patterns": [{"pattern": "x", "replacement": "1"}],
+            },
+        }
+    )
+    second = Policy.from_mapping(
+        {
+            "name": "b",
+            "when": "always",
+            "redact": {
+                "keys": ["iban"],
+                "digit_only_keys": ["account_number"],
+                "patterns": [{"pattern": "y", "replacement": "2"}],
+            },
+        }
+    )
+    rules = RedactRules.from_policies([first, second])
+    assert rules.keys == ("bank_name", "iban")
+    assert rules.digit_only_keys == ("account_number",)
+    assert rules.patterns == (("x", "1"), ("y", "2"))
