@@ -37,7 +37,7 @@ def check_secrets(project: Project, gcp: GcpApi) -> list[Problem]:
         source = f"secret {name} (used by {', '.join(agents)})"
         url = f"{SECRET_MANAGER}/projects/{gcp_project}/secrets/{name}/versions"
         try:
-            versions = gcp.get(url, params={"pageSize": 25}).get("versions", [])
+            versions = gcp.list_all(url, "versions")
         except GcpError as error:
             problems.append(
                 Problem(source, f"not found or not readable: {error.message}")

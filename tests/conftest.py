@@ -101,8 +101,18 @@ class FakeGcp:
     def list_all(
         self, url: str, key: str, params: dict[str, Any] | None = None
     ) -> list[Any]:
-        items: list[Any] = self.get(url, params).get(key, [])
-        return items
+        """Follows nextPageToken, so a paging bug shows up here and not only live."""
+        items: list[Any] = []
+        page_token: str | None = None
+        while True:
+            page_params = dict(params or {})
+            if page_token:
+                page_params["pageToken"] = page_token
+            page = self.get(url, page_params)
+            items.extend(page.get(key, []))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                return items
 
     def writes(
         self, method: str

@@ -102,3 +102,20 @@ def test_each_secret_is_checked_once(project: ProjectBuilder) -> None:
     )
     assert check_secrets(loaded, gcp) == []
     assert len(gcp.calls) == 1
+
+
+def test_an_enabled_version_on_a_later_page_is_found(project: ProjectBuilder) -> None:
+    """Secret Manager pages versions; the enabled one is not always on the first."""
+    gcp = FakeGcp()
+    pages = iter(
+        [
+            {"versions": [{"state": "DESTROYED"}], "nextPageToken": "p2"},
+            {"versions": [{"state": "ENABLED"}]},
+        ]
+    )
+    gcp.route("GET", versions("token"), lambda body: next(pages))
+    loaded = load(
+        project,
+        {"name": "a", "runtime": {"agent_engine": {"secret_env": {"TOKEN": "token"}}}},
+    )
+    assert check_secrets(loaded, gcp) == []
