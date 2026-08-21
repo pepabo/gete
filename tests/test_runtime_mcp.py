@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import yaml
 from conftest import ProjectBuilder
+from google.adk.tools.mcp_tool import McpToolset
 
 from gete.connection import Registry
 from gete.declaration import RESOLVED_FILE, load_project, resolve
@@ -233,3 +234,34 @@ def write_tools_module(directory: Path) -> None:
         "\n"
         "TOOLS = [lookup, transfer]\n"
     )
+
+
+async def test_no_readonly_context_also_means_no_server_call() -> None:
+    """agent.canonical_tools() passes no context; the rule must hold there too."""
+    built = toolset({"url": "https://127.0.0.1:9/mcp", "connection": "freee"})
+    tools = await built.get_tools()
+    assert [tool.name for tool in tools] == ["reauthorize_freee"]
+
+
+async def test_a_confirmation_flag_adk_no_longer_carries_fails_loudly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Setting a renamed flag would leave a write tool quietly unconfirmed."""
+
+    class Tool:
+        name = "lookup"
+        description = "Look something up."
+
+    async def tools(self: Any, readonly_context: Any = None) -> list[Any]:
+        return [Tool()]
+
+    monkeypatch.setattr(McpToolset, "get_tools", tools)
+    built = mcp_toolset(
+        {"url": URL},
+        authorizations={},
+        registry=CATALOG,
+        confirm=False,
+        confirm_names=["lookup"],
+    )
+    with pytest.raises(RuntimeError, match="require_confirmation"):
+        await built.get_tools(Context({}))
