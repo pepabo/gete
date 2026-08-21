@@ -261,6 +261,10 @@ def load_resolved(path: Path) -> Resolved:
     for key in ("policies", "connections", "gete_version"):
         if key not in resolved:
             raise DeclarationError(f"{path}: {RESOLVED_KEY}.{key} is missing")
+    if not isinstance(resolved["connections"], Mapping):
+        raise DeclarationError(
+            f"{path}: {RESOLVED_KEY}.connections is not a mapping of id to connection"
+        )
     agent_part = {key: value for key, value in data.items() if key != RESOLVED_KEY}
     validate_document("agent", agent_part, source=path)
     validate_document(
