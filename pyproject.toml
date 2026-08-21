@@ -1,0 +1,58 @@
+[project]
+name = "gete"
+description = "Declare agents in YAML, deploy them to Vertex AI Agent Engine, and register them with Gemini Enterprise"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+# The version is derived from git tags. A static version here would be a
+# second source of truth next to the tag, and tagpr would have to rewrite it.
+dynamic = ["version"]
+dependencies = [
+    # ADK changes tool and Agent Card behaviour between minor (and sometimes
+    # patch) releases. Pin to the range that has been verified, so the
+    # deployed runtime stays inside it as well.
+    "google-adk>=2.6,<2.7",
+    "httpx>=0.28",
+    "jsonschema>=4.23",
+    "pyyaml>=6.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "ruff>=0.9",
+]
+
+[build-system]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+# Lets the package import from a plain source tree without git metadata.
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gete"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# Only src is checked. Mechanical annotations on tests add little.
+files = ["src"]
+
+# ADK and some Google Cloud libraries ship without type information.
+[[tool.mypy.overrides]]
+module = ["google.adk.*", "google.auth.*", "vertexai.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

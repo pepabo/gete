@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The version is derived from git tags. A shallow checkout has no
+          # tags and would build under a different version.
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --frozen
+
+      # Catches a pyproject.toml change whose uv.lock was not regenerated;
+      # otherwise the lock diff shows up in an unrelated pull request later.
+      - name: lock
+        run: uv lock --check
+
+      - name: lint
+        run: uv run ruff check .
+
+      - name: format
+        run: uv run ruff format --check .
+
+      - name: typecheck
+        run: uv run mypy
+
+      - name: test
+        run: uv run pytest -q
