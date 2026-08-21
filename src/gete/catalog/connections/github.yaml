@@ -1,0 +1,31 @@
+id: github
+display_name: GitHub
+docs: https://docs.github.com/en/rest
+
+# GitHub Enterprise uses a different host per organization. Set base_url in
+# gete.yaml; its host is added here.
+hosts:
+  - api.github.com
+# gho_ is an OAuth App token, ghu_ a GitHub App user-to-server token. Those
+# are the two shapes an OAuth authorization can produce. Classic personal
+# access tokens (ghp_) never come through OAuth and are not accepted.
+token_prefixes:
+  - gho_
+  - ghu_
+
+oauth:
+  authorization_url: https://github.com/login/oauth/authorize
+  token_url: https://github.com/login/oauth/access_token
+  # repo has no read-only sub-scope. Tools built on this connection only read.
+  scopes:
+    repo: Read issues and pull requests of your repositories
+
+examples:
+  accepts:
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a"
+    - "ghu_16C7e42F292c6912E7710c838347Ae178B4a"
+  rejects:
+    - "ya29.a0AfH6SMB" # Google access token
+    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT
+    - "a1b2c3d4e5f60718293a4b5c6d7e8f90" # no prefix
+    - "ghp_16C7e42F292c6912E7710c838347Ae178B4a" # classic PAT, not from OAuth

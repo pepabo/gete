@@ -1,0 +1,29 @@
+id: freee
+display_name: freee
+docs: https://developer.freee.co.jp/
+
+# The only host a user token may be sent to.
+hosts:
+  - api.freee.co.jp
+# freee tokens carry no prefix; they are accepted by elimination.
+token_prefixes: []
+
+oauth:
+  authorization_url: https://accounts.secure.freee.co.jp/public_api/authorize
+  token_url: https://accounts.secure.freee.co.jp/public_api/token
+  # Permissions are configured on the freee app. The authorization URL carries no scopes.
+  scopes: {}
+  # Used verbatim as the query string. Gemini Enterprise appends client_id and redirect_uri.
+  authorization_query:
+    response_type: code
+
+verified:
+  gemini_enterprise: 2026-08-20
+
+examples:
+  accepts:
+    - "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+  rejects:
+    - "ya29.a0AfH6SMB" # Google access token
+    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT, such as an ID token
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub

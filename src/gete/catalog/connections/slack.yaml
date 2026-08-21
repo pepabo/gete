@@ -1,0 +1,32 @@
+id: slack
+display_name: Slack
+docs: https://api.slack.com/
+
+retired: >-
+  Slack is read through the Gemini Enterprise native connector, which is
+  authorized per user and searchable. Custom agents cannot reach that data
+  store, so a token declared here would never arrive.
+
+hosts:
+  - slack.com
+# With token rotation enabled the prefix becomes xoxe.xoxp-.
+token_prefixes:
+  - xoxp-
+  - xoxe.xoxp-
+
+oauth:
+  authorization_url: https://slack.com/oauth/v2/authorize
+  token_url: https://slack.com/api/oauth.v2.access
+  # "scope" names the app's permissions; user permissions go in user_scope.
+  scope_parameter: user_scope
+  scopes:
+    search:read: Search messages
+    channels:history: Read messages in channels you are a member of
+
+examples:
+  accepts:
+    - "xoxp-1234-5678-abcdef"
+    - "xoxe.xoxp-1-abcdef"
+  rejects:
+    - "ya29.a0AfH6SMB"
+    - "eyJhbGciOiJSUzI1NiJ9.e30.sig"
