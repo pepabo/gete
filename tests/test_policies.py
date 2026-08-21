@@ -138,3 +138,13 @@ def test_require_confirmation_and_deny_tools_are_exposed() -> None:
         == "write_tools"
     )
     assert Policy.from_mapping(BASE).require_confirmation is None
+
+
+def test_duplicate_policy_names_across_files_are_an_error(tmp_path: Path) -> None:
+    """Names identify policies in logs and docs; two alike could not be told apart."""
+    from gete.errors import DeclarationError
+
+    (tmp_path / "a.yaml").write_text("- name: finance\n  when: always\n")
+    (tmp_path / "b.yaml").write_text("- name: finance\n  when: always\n")
+    with pytest.raises(DeclarationError, match="finance"):
+        load_policies([tmp_path / "a.yaml", tmp_path / "b.yaml"])
