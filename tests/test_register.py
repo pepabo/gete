@@ -11,6 +11,7 @@ from conftest import ProjectBuilder
 
 from gete.connection import Registry
 from gete.declaration import load_project
+from gete.errors import DeclarationError
 from gete.gcp import GcpError
 from gete.register import (
     REDIRECT_URI,
@@ -566,3 +567,79 @@ def test_curl_in_the_notice_binds_exactly_the_declared_authorizations(
         )
         in text
     )
+
+
+def test_a_name_that_matches_no_agent_is_an_error(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """Silence would let a typo in CD look like a successful registration."""
+    with pytest.raises(DeclarationError, match="financee"):
+        register_project(
+            project_with(project, FINANCE), gcp, tmp_path / "n.md", ["financee"]
+        )
+
+
+def test_a_skipped_agent_says_why(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    plain = {"name": "plain", "display_name": "P", "description": "D"}
+    summary = register_project(project_with(project, plain), gcp, tmp_path / "n.md")
+    assert any("plain" in line and "engine" in line for line in summary.messages)
+
+
+def test_the_console_link_points_at_the_declared_location(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The parent uses gemini_enterprise.location, so the link has to as well."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"project_number": NUMBER, "location": "eu"},
+        }
+    )
+    project.write_agent("finance", FINANCE)
+    gcp.route(
+        "GET",
+        f"https://discoveryengine.googleapis.com/v1alpha/projects/{NUMBER}/locations/eu"
+        "/collections/default_collection/engines/app_1/assistants/default_assistant"
+        "/agents",
+        {"agents": []},
+    )
+    gcp.route(
+        "GET",
+        f"https://discoveryengine.googleapis.com/v1alpha/projects/{NUMBER}"
+        "/locations/eu/authorizations",
+        {"authorizations": []},
+    )
+    gcp.route(
+        "POST",
+        f"https://discoveryengine.googleapis.com/v1alpha/projects/{NUMBER}"
+        "/locations/eu/authorizations",
+        {},
+    )
+    register_project(load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md")
+    assert "locations/eu/engines/app_1" in (tmp_path / "n.md").read_text()
+
+
+def test_a_notice_template_with_an_unknown_placeholder_is_reported(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    template = project.root / "notice.md.tmpl"
+    template.write_text("CUSTOM {display_nmae}\n")
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"project_number": NUMBER},
+            "registration": {"notice_template": "./notice.md.tmpl"},
+        }
+    )
+    project.write_agent("finance", FINANCE)
+    summary = register_project(
+        load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
+    )
+    assert summary.failed == ["finance"]
+    assert any("display_nmae" in line for line in summary.messages)

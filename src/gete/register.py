@@ -181,11 +181,22 @@ class Registrar:
 
     def run(self, names: list[str] | None = None) -> Summary:
         summary = Summary()
+        if names:
+            declared = {agent.name for agent in self._project.agents}
+            unknown = sorted(set(names) - declared)
+            if unknown:
+                raise DeclarationError(
+                    f"no agent named {', '.join(unknown)}; "
+                    f"declared: {', '.join(sorted(declared))}"
+                )
         for agent in self._project.agents:
             if names and agent.name not in names:
                 continue
             engine = _engine_id(agent)
             if engine is None:
+                summary.say(
+                    f"{agent.name}: no registration.gemini_enterprise.engine; skipped"
+                )
                 summary.skipped.append(agent.name)
                 continue
             try:
@@ -371,12 +382,14 @@ class Registrar:
                 "registered."
             )
         template = self._template()
-        text = template.format(
+        text = _fill(
+            template,
             title=title,
             lead=lead,
             console_url=(
-                "https://console.cloud.google.com/gemini-enterprise/locations/global/engines/"
-                f"{engine}/agentic/agents?project={self._gcp_project}"
+                "https://console.cloud.google.com/gemini-enterprise/locations/"
+                f"{self._ge_location}/engines/{engine}"
+                f"/agentic/agents?project={self._gcp_project}"
             ),
             display_name=display_name,
             name=agent.name,
@@ -403,6 +416,17 @@ class Registrar:
                 )
             return path.read_text(encoding="utf-8")
         return template_text("notice.md")
+
+
+def _fill(template: str, **values: str) -> str:
+    """Fill the notice template, naming a placeholder gete does not know."""
+    try:
+        return template.format(**values)
+    except (KeyError, IndexError) as error:
+        raise DeclarationError(
+            f"the notice template uses {error}, which gete does not fill; "
+            f"available: {', '.join(sorted(values))}"
+        ) from None
 
 
 def _engine_id(agent: Agent) -> str | None:
