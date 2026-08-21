@@ -1,0 +1,8 @@
+[tagpr]
+	vPrefix = true
+	releaseBranch = main
+	changelog = true
+	# 版はタグで持ち、ファイルには書かせない。
+	# pyproject.toml に静的な版を書くと tagpr がそれを書き換え、uv.lock と
+	# 二重になる。配布物の版はビルド時にタグから導く。
+	versionFile = -

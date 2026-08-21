@@ -1,0 +1,23 @@
+name: tagpr
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  tagpr:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # タグと Release の作成
+      pull-requests: write # リリース PR の作成・更新
+      issues: read # CHANGELOG 生成のため過去の PR を読む（PR は Issues API 経由）
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # main への push ごとにリリース内容をまとめた PR を作成・更新する。
+      # その PR をマージした時点でタグが打たれる。
+      - uses: Songmu/tagpr@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
