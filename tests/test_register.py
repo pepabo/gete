@@ -1,13 +1,12 @@
 """Registering agents with Gemini Enterprise: authorizations, registrations, notices."""
 
 import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from conftest import ProjectBuilder
+from conftest import FakeGcp, ProjectBuilder
 
 from gete.connection import Registry
 from gete.declaration import load_project
@@ -184,57 +183,6 @@ def test_license_and_in_use_errors_are_told_apart() -> None:
 
 
 # --- the flow, against a fake GCP
-
-
-class FakeGcp:
-    """Answers from a table of (method, url) and records every write."""
-
-    def __init__(self) -> None:
-        self.routes: dict[tuple[str, str], Callable[[dict[str, Any] | None], Any]] = {}
-        self.calls: list[
-            tuple[str, str, dict[str, Any] | None, dict[str, Any] | None]
-        ] = []
-
-    def route(self, method: str, url: str, response: Any) -> None:
-        self.routes[(method, url)] = (
-            response if callable(response) else (lambda body: response)
-        )
-
-    def _call(self, method: str, url: str, body: Any, params: Any) -> Any:
-        self.calls.append((method, url, params, body))
-        try:
-            handler = self.routes[(method, url)]
-        except KeyError:
-            raise GcpError(404, f"{method} {url} not routed") from None
-        result = handler(body)
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    def get(self, url: str, params: dict[str, Any] | None = None) -> Any:
-        return self._call("GET", url, None, params)
-
-    def post(self, url: str, body: Any, params: dict[str, Any] | None = None) -> Any:
-        return self._call("POST", url, body, params)
-
-    def patch(self, url: str, body: Any, params: dict[str, Any] | None = None) -> Any:
-        return self._call("PATCH", url, body, params)
-
-    def delete(self, url: str, params: dict[str, Any] | None = None) -> Any:
-        return self._call("DELETE", url, None, params)
-
-    def list_all(
-        self, url: str, key: str, params: dict[str, Any] | None = None
-    ) -> list[Any]:
-        items: list[Any] = self.get(url, params).get(key, [])
-        return items
-
-    def writes(
-        self, method: str
-    ) -> list[tuple[str, dict[str, Any] | None, dict[str, Any] | None]]:
-        return [
-            (url, params, body) for m, url, params, body in self.calls if m == method
-        ]
 
 
 def secret(value: str) -> dict[str, Any]:

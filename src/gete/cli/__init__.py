@@ -20,19 +20,57 @@ def main() -> None:
 
 
 @main.command()
-def validate() -> None:
+@click.option(
+    "--check-secrets",
+    is_flag=True,
+    help="Also check that each secret the deployment reads has an enabled version.",
+)
+@click.option(
+    "--import-check",
+    is_flag=True,
+    help="Also install each agent's requirements in a fresh venv and import it.",
+)
+@click.option(
+    "--gete-source",
+    type=click.Path(exists=True, path_type=Path),
+    help="With --import-check: install gete from this checkout instead of PyPI.",
+)
+def validate(check_secrets: bool, import_check: bool, gete_source: Path | None) -> None:
     """Check the declarations against their schemas and rules."""
+    from gete.importcheck import import_check as run_import_check
+    from gete.secrets import check_secrets as run_check_secrets
+
     try:
         project = load_project(find_project_file(Path.cwd()))
+        problems = validate_project(project)
+        if check_secrets and not problems:
+            from gete.gcp import GcpClient
+
+            problems.extend(
+                run_check_secrets(
+                    project, GcpClient(quota_project=str(project.data["project"]))
+                )
+            )
     except GeteError as error:
         click.echo(str(error), err=True)
         sys.exit(1)
-    problems = validate_project(project)
     for problem in problems:
         click.echo(str(problem))
     if problems:
         click.echo(f"{len(problems)} problem(s) found", err=True)
         sys.exit(1)
+    if import_check:
+        failed = 0
+        for agent in project.agents:
+            result = run_import_check(agent.directory, gete_source=gete_source)
+            click.echo(
+                f"{agent.name}: import check {'passed' if result.ok else 'FAILED'}"
+            )
+            if not result.ok:
+                click.echo(result.output, err=True)
+                failed += 1
+        if failed:
+            sys.exit(1)
     click.echo(f"OK: {len(project.agents)} agent(s) validated")
 
 
