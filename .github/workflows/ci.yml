@@ -63,3 +63,36 @@ jobs:
       # the provider schema, not a deployment.
       - name: validate
         run: terraform init -backend=false -input=false && terraform validate
+
+  # The example project is run through the commands the way a user would,
+  # against the module and the package in this checkout. The import check
+  # installs the real deployment dependencies, so it takes a few minutes.
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - run: uv sync --frozen --all-extras
+
+      - name: validate and import check
+        working-directory: examples/minimal
+        run: uv run gete validate --import-check --gete-source ../..
+
+      - name: generated terraform is current
+        working-directory: examples/minimal
+        run: uv run gete terraform --out terraform --check
+
+      - name: terraform validate on the example
+        working-directory: examples/minimal/terraform
+        run: terraform init -backend=false -input=false && terraform validate

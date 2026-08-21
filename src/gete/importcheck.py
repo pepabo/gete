@@ -89,7 +89,7 @@ def import_check(
         if gete_source is not None:
             lines = requirements.read_text(encoding="utf-8").splitlines()
             lines = [
-                str(gete_source) if line.startswith("gete==") else line
+                str(gete_source.resolve()) if line.startswith("gete==") else line
                 for line in lines
             ]
             requirements.write_text("\n".join(lines) + "\n", encoding="utf-8")
