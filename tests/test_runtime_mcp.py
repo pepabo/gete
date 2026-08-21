@@ -153,6 +153,22 @@ async def test_no_token_means_no_server_call_only_a_reauthorization_tool() -> No
     assert "Gemini Enterprise" in str(result)
 
 
+def test_a_fixed_authorization_header_is_refused_next_to_a_connection() -> None:
+    """It would be sent whenever the user's own token is missing or refused.
+
+    The name is spelled in lower case here: HTTP header names do not care, and
+    neither may the check.
+    """
+    with pytest.raises(DeclarationError, match="stand in for the freee token"):
+        toolset({"url": URL, "connection": "freee", "headers": {"authorization": "x"}})
+
+
+def test_a_fixed_authorization_header_is_allowed_without_a_connection() -> None:
+    """No connection means no user token to mask; the header is the only credential."""
+    built = toolset({"url": URL, "headers": {"Authorization": "Bearer fixed"}})
+    assert built.fixed_headers == {"Authorization": "Bearer fixed"}
+
+
 def test_mcp_without_a_connection_sends_no_authorization() -> None:
     built = toolset({"url": "https://mcp.example.com/mcp"})
     assert built.header_provider is None
