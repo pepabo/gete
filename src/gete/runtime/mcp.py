@@ -165,6 +165,27 @@ class GeteMcpToolset(McpToolset):
         return FunctionTool(reauthorize)
 
 
+def fixed_headers(
+    headers: Mapping[str, str], connection_id: str | None
+) -> dict[str, str]:
+    """The declaration's headers, expanded; never one that stands in for the token.
+
+    A fixed Authorization header is sent whenever the caller's own token is
+    missing or refused, so the connection would answer as whoever the header
+    names instead of stopping. The rule that a token is never replaced by
+    another one is only kept if the header cannot be written in the first place.
+    """
+    if connection_id is not None:
+        for name in headers:
+            if name.lower() == "authorization":
+                raise DeclarationError(
+                    f"mcp header {name} would stand in for the {connection_id} "
+                    "token whenever the caller has none; connections authorize "
+                    "with the caller's own token"
+                )
+    return expand_headers(headers)
+
+
 def mcp_toolset(
     spec: Mapping[str, Any],
     *,
@@ -179,7 +200,7 @@ def mcp_toolset(
     connection = registry.get(connection_id) if connection_id else None
     return GeteMcpToolset(
         url=str(spec["url"]),
-        fixed_headers=expand_headers(spec.get("headers", {})),
+        fixed_headers=fixed_headers(spec.get("headers", {}), connection_id),
         timeout=float(spec.get("timeout", DEFAULT_TIMEOUT_SECONDS)),
         allow=list(spec["allow"]) if spec.get("allow") else None,
         connection=connection,
