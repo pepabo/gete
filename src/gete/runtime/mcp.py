@@ -91,11 +91,9 @@ class GeteMcpToolset(McpToolset):
         return self._connection.id if self._connection is not None else None
 
     async def get_tools(self, readonly_context: Any = None) -> list[Any]:
-        if (
-            self._connection is not None
-            and readonly_context is not None
-            and self._token(readonly_context) is None
-        ):
+        # No context at all counts as no token: the Agent Card is built that
+        # way, and an unauthenticated listing would still leave the server.
+        if self._connection is not None and self._token(readonly_context) is None:
             return [self._reauthorization_tool(self._connection)]
         tools: list[Any] = await super().get_tools(readonly_context)
         kept = []
@@ -108,7 +106,14 @@ class GeteMcpToolset(McpToolset):
                 )
             if tool.name in self._confirm_names:
                 # McpToolset applies one setting to every tool; a per-name
-                # policy has to be put on the tool after the fact.
+                # policy has to be put on the tool after the fact. Assigning a
+                # name ADK no longer reads would leave the tool unconfirmed
+                # and say nothing, so the attribute has to be there already.
+                if not hasattr(tool, "_require_confirmation"):
+                    raise RuntimeError(
+                        f"{type(tool).__name__} carries no _require_confirmation; "
+                        f"{tool.name} cannot be marked for confirmation"
+                    )
                 tool._require_confirmation = True  # noqa: SLF001
             kept.append(tool)
         return kept
