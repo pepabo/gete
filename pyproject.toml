@@ -32,6 +32,7 @@ gete = "gete.cli:main"
 dev = [
     "mypy>=1.14",
     "pytest>=8.3",
+    "pytest-asyncio>=0.25",
     "ruff>=0.9",
     "types-jsonschema>=4.23",
     "types-pyyaml>=6.0",
@@ -51,6 +52,7 @@ packages = ["src/gete"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 filterwarnings = [
     # Raised while importing google.adk.tools; it is ADK's own deprecation,
     # not something this code base can act on.

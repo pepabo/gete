@@ -1,0 +1,57 @@
+"""What runs inside Agent Engine: the agent built from agent.resolved.yaml."""
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from gete.connection.runtime import authorization_id
+from gete.declaration import load_resolved
+from gete.policies import applicable, compose_instruction
+from gete.redact import RedactRules
+from gete.runtime.callbacks import bind_tool_call, redact_results
+from gete.runtime.tools import build_tools
+
+
+def build(path: Path) -> Any:
+    """Build the ADK LlmAgent from a resolved declaration.
+
+    Tests use this; it does not touch Vertex AI. The returned agent has the
+    policies' text in front of its instruction, its tools, and the callbacks
+    that carry the user's token to the tools and redact what they return.
+    """
+    from google.adk.agents import LlmAgent
+
+    resolved = load_resolved(path)
+    agent = resolved.agent
+    policies = applicable(resolved.policies, resolved.data)
+    rules = RedactRules.from_policies(policies)
+    authorizations = {
+        connection_id: authorization_id(agent.name, connection_id)
+        for connection_id in agent.connections
+    }
+    return LlmAgent(
+        # ADK wants an identifier. The display name lives in the registration.
+        name=agent.name.replace("-", "_"),
+        model=agent.data["model"],
+        description=agent.data["description"],
+        instruction=compose_instruction(
+            resolved.policies, resolved.data, agent.instruction_text()
+        ),
+        tools=build_tools(agent, policies),
+        before_tool_callback=bind_tool_call(authorizations, resolved.registry, rules),
+        after_tool_callback=redact_results(rules),
+    )
+
+
+def app(path: Path) -> Any:
+    """Wrap the agent for Agent Engine, which looks for an object named app.
+
+    Importing AdkApp initializes Vertex AI, so it happens here and not at
+    module import; tests never reach this function.
+    """
+    from vertexai.agent_engines import AdkApp
+
+    # httpx logs every request URL, query string included, at INFO. The query
+    # is the user's work and has no place in the deployment's logs.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    return AdkApp(agent=build(path))
