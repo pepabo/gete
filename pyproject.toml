@@ -23,6 +23,7 @@ dependencies = [
 # keeps the runtime's dependency set small.
 cli = [
     "click>=8.1",
+    "google-auth>=2.38",
 ]
 
 [project.scripts]
