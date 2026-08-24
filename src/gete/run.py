@@ -68,7 +68,7 @@ async def converse(
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
 
-    service = InMemorySessionService()  # type: ignore[no-untyped-call]
+    service = InMemorySessionService()
     session = await service.create_session(
         app_name="gete", user_id="local", state=dict(state)
     )
