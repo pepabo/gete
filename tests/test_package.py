@@ -4,6 +4,8 @@ import importlib.metadata
 import tomllib
 from pathlib import Path
 
+import pytest
+
 import gete
 
 PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
@@ -19,3 +21,16 @@ def test_version_is_not_written_statically_in_pyproject() -> None:
     project = tomllib.loads(PYPROJECT.read_text())["project"]
     assert "version" not in project
     assert "version" in project["dynamic"]
+
+
+def test_import_survives_missing_package_metadata(
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    """Vendored in an archive there is no dist metadata; import must not die."""
+    from importlib.metadata import PackageNotFoundError
+
+    def missing(name: str) -> str:
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr(gete, "version", missing)
+    assert gete._version() == "0.0.0+vendored"
