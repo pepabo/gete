@@ -276,3 +276,26 @@ def test_redact_patterns_must_be_valid_regular_expressions() -> None:
     ]
     with pytest.raises(DeclarationError, match="pattern"):
         validate_document("policy", policy, source="p.yaml")
+
+
+def test_redact_masks_are_declared_in_the_policy() -> None:
+    policy = [
+        {
+            "name": "x",
+            "when": "always",
+            "redact": {"masks": {"hidden": "[非表示]", "digits": "[{n}桁]"}},
+        }
+    ]
+    validate_document("policy", policy, source="p.yaml")
+    with pytest.raises(DeclarationError, match="digits"):
+        validate_document(
+            "policy",
+            [
+                {
+                    "name": "x",
+                    "when": "always",
+                    "redact": {"masks": {"digits": "no-count"}},
+                }
+            ],
+            source="p.yaml",
+        )

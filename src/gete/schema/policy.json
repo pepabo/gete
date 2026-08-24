@@ -67,6 +67,23 @@
                 }
               }
             }
+          },
+          "masks": {
+            "description": "Replacement text for masked values, in the installation's language.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "hidden": {
+                "description": "Stands in for values of redact.keys. Default: [redacted].",
+                "type": "string",
+                "minLength": 1
+              },
+              "digits": {
+                "description": "Stands in for digit_only_keys values; {n} carries the digit count. Default: [{n} digits].",
+                "type": "string",
+                "pattern": "\\{n\\}"
+              }
+            }
           }
         }
       },

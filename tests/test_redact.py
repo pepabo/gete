@@ -86,3 +86,56 @@ def test_rules_combine_from_policies_in_order() -> None:
     assert rules.keys == ("bank_name", "iban")
     assert rules.digit_only_keys == ("account_number",)
     assert rules.patterns == (("x", "1"), ("y", "2"))
+
+
+def test_mask_strings_come_from_the_policy() -> None:
+    """Consent screens and agents speak the installation's language; masks must too."""
+    rules = RedactRules(
+        keys=("bank_name",),
+        digit_only_keys=("account_number",),
+        hidden="[非表示]",
+        digits="[{n}桁]",
+    )
+    assert redact({"bank_name": "Example Bank"}, rules) == {"bank_name": "[非表示]"}
+    assert redact({"account_number": "1234567"}, rules) == {"account_number": "[7桁]"}
+    assert redact({"account_number": ""}, rules) == {"account_number": "[非表示]"}
+
+
+def test_default_masks_are_unchanged() -> None:
+    rules = RedactRules(keys=("k",), digit_only_keys=("d",))
+    assert redact({"k": "x", "d": "12"}, rules) == {
+        "k": "[redacted]",
+        "d": "[2 digits]",
+    }
+
+
+def test_masks_flow_from_policies_and_the_last_policy_wins() -> None:
+    first = Policy.from_mapping(
+        {
+            "name": "a",
+            "when": "always",
+            "redact": {"keys": ["bank_name"], "masks": {"hidden": "[hidden-a]"}},
+        }
+    )
+    second = Policy.from_mapping(
+        {
+            "name": "b",
+            "when": "always",
+            "redact": {"masks": {"hidden": "[非表示]", "digits": "[{n}桁]"}},
+        }
+    )
+    rules = RedactRules.from_policies([first, second])
+    assert rules.hidden == "[非表示]"
+    assert rules.digits == "[{n}桁]"
+    assert RedactRules.from_policies([first]).digits == "[{n} digits]"
+
+
+def test_mask_texts_are_not_format_strings() -> None:
+    """A brace in declared text must not crash redaction mid tool call."""
+    rules = RedactRules(
+        digit_only_keys=("account_number",),
+        digits="[{n} digits] {see policy}",
+    )
+    assert redact({"account_number": "1234567"}, rules) == {
+        "account_number": "[7 digits] {see policy}"
+    }
