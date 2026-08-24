@@ -1,0 +1,14 @@
+name: minimal
+display_name: Minimal
+description: Answers questions about the text the user pastes. Has no tools.
+model: gemini-2.5-flash
+instruction: ./instruction.md
+
+starter_prompts:
+  - Summarize the text I paste in three bullet points.
+
+# Without a registration block the agent is deployed to Agent Engine but not
+# listed in Gemini Enterprise. Add the engine id from the console URL to list it:
+# registration:
+#   gemini_enterprise:
+#     engine: my-app_1234567890

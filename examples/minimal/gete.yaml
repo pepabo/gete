@@ -1,0 +1,15 @@
+# The smallest gete project: one agent with an instruction and no tools.
+version: 1
+
+project: example-project
+location: us-central1
+
+policies:
+  - ./policies/example.yaml
+
+terraform:
+  # CI checks this example against the module in this checkout. A real
+  # project pins a released version instead:
+  #   git::https://github.com/haruotsu/gete.git//terraform/agent_engine?ref=v0.1.0
+  # Relative to the generated terraform/ directory.
+  module_source: ../../../terraform/agent_engine

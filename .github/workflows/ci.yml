@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+# Nothing in this workflow writes to the repository or the API.
+permissions:
+  contents: read
+
 # A newer push to the same branch cancels the run that is still going.
 concurrency:
   group: ci-${{ github.ref }}
@@ -62,4 +66,43 @@ jobs:
       # No backend and no credentials: this checks the module's syntax and
       # the provider schema, not a deployment.
       - name: validate
+        run: terraform init -backend=false -input=false && terraform validate
+
+  # The example project is run through the commands the way a user would,
+  # against the module and the package in this checkout. The import check
+  # installs the real deployment dependencies, so it takes a few minutes.
+  example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - run: uv sync --frozen --all-extras
+
+      - name: validate and import check
+        working-directory: examples/minimal
+        run: uv run gete validate --import-check --gete-source ../..
+
+      - name: generated terraform is current
+        working-directory: examples/minimal
+        run: uv run gete terraform --out terraform --check
+
+      # The generated file is committed, so it has to stay formatted like
+      # the module. The terraform job only covers terraform/agent_engine.
+      - name: generated terraform is formatted
+        working-directory: examples/minimal/terraform
+        run: terraform fmt -check -diff
+
+      - name: terraform validate on the example
+        working-directory: examples/minimal/terraform
         run: terraform init -backend=false -input=false && terraform validate
