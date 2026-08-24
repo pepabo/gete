@@ -80,13 +80,19 @@ def redact(value: Any, rules: RedactRules) -> Any:
     """
     if isinstance(value, dict):
         # Keys carry data too. The rules match on the original key name; the
-        # patterns then rewrite what the model gets to see of it.
-        return {
-            (redact_text(key, rules) if isinstance(key, str) else key): _redact_item(
-                key, item, rules
-            )
-            for key, item in value.items()
-        }
+        # patterns then rewrite what the model gets to see of it. Two keys
+        # rewritten to the same text stay separate, deterministically
+        # numbered entries - masking must never swallow a value.
+        masked: dict[Any, Any] = {}
+        for key, item in value.items():
+            visible: Any = redact_text(key, rules) if isinstance(key, str) else key
+            if isinstance(visible, str) and visible in masked:
+                base, index = visible, 2
+                while visible in masked:
+                    visible = f"{base} [{index}]"
+                    index += 1
+            masked[visible] = _redact_item(key, item, rules)
+        return masked
     if isinstance(value, list):
         return [redact(item, rules) for item in value]
     if isinstance(value, tuple):

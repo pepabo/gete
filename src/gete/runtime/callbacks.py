@@ -1,7 +1,6 @@
 """ADK callbacks that bind the tool call and redact what comes back."""
 
 import logging
-import traceback
 from collections.abc import Callable, Mapping, Sequence, Set
 from typing import Any
 
@@ -61,10 +60,11 @@ def safe_tool_error(rules: RedactRules) -> Callable[..., Any]:
     A raising tool's message may hold anything the tool touched - a response
     body, a path, a credential - and no rule set is trusted to catch it all.
     The model gets the exception's type and nothing else, and so does the
-    log: the type and the frames, which are program text, never the message.
-    Only UserFacingError passes as written - raising it is the raiser's own
-    declaration that the text was made to be shown - and even that passes
-    through the policies' patterns on the way out.
+    log: not the message, and not the traceback either, whose tail would
+    print the message right back. Only UserFacingError passes as written -
+    raising it is the raiser's own declaration that the text was made to be
+    shown - and even that passes through the policies' patterns on the way
+    out.
     """
 
     def on_tool_error(
@@ -72,12 +72,8 @@ def safe_tool_error(rules: RedactRules) -> Callable[..., Any]:
     ) -> Any:
         if isinstance(error, UserFacingError):
             return {"error": redact(str(error), rules)}
-        logger.warning(
-            "tool %s failed with %s\n%s",
-            getattr(tool, "name", tool),
-            type(error).__name__,
-            "".join(traceback.format_tb(error.__traceback__)),
-        )
+        name = getattr(tool, "name", None) or type(tool).__name__
+        logger.warning("tool %s failed with %s", name, type(error).__name__)
         return {
             "error": f"the tool failed with {type(error).__name__}; "
             "details are in the logs"

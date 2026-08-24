@@ -234,15 +234,26 @@ def test_a_raising_tools_exception_text_never_reaches_the_model(
 def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
     project: ProjectBuilder, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The log keeps the type and the frames; the message may hold anything."""
+    """The log gets the type alone: no message, and no frames either."""
+
+    def boom() -> None:
+        raise ValueError("secret-token-xyz")
+
+    caught: Exception
+    try:
+        boom()
+    except ValueError as error:
+        caught = error
+    assert caught.__traceback__ is not None  # raised for real, not constructed
     agent = build(resolved_path(project, "mail-triage", {}))
     assert agent.on_tool_error_callback is not None
     with caplog.at_level(logging.WARNING):
         agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
-            SimpleNamespace(), {}, SimpleNamespace(), ValueError("secret-token-xyz")
+            SimpleNamespace(), {}, SimpleNamespace(), caught
         )
     assert "ValueError" in caplog.text
     assert "secret-token-xyz" not in caplog.text
+    assert "boom" not in caplog.text
 
 
 def test_an_arbitrary_gete_error_is_generic_like_any_other(
