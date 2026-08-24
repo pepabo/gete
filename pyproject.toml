@@ -12,7 +12,9 @@ dependencies = [
     # ADK changes tool and Agent Card behaviour between minor (and sometimes
     # patch) releases. Pin to the range that has been verified, so the
     # deployed runtime stays inside it as well.
-    "google-adk>=2.6,<2.7",
+    # The mcp extra is what makes mcp: tools work; without it the toolset
+    # module fails to import where the agent is deployed.
+    "google-adk[mcp]>=2.6,<2.7",
     "httpx>=0.28",
     "jsonschema>=4.23",
     "pyyaml>=6.0",
@@ -58,6 +60,12 @@ filterwarnings = [
     # Raised while importing google.adk.tools; it is ADK's own deprecation,
     # not something this code base can act on.
     "ignore:BaseAgentConfig is deprecated:DeprecationWarning",
+    # McpToolset still instantiates the deprecated alias of its own tool class.
+    "ignore:MCPTool class is deprecated:DeprecationWarning",
+    # ADK announces each experimental feature it enables on first use.
+    "ignore:.*EXPERIMENTAL.*:UserWarning",
+    # Raised inside the mcp package's own settings model.
+    "ignore:Field 'lifespan' has an incomplete definition",
 ]
 
 [tool.mypy]

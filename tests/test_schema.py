@@ -157,6 +157,7 @@ def test_connections_must_be_unique() -> None:
         {"mcp": {}},
         {"mcp": {"url": "http://mcp.example.com/mcp"}},
         {"mcp": {"url": "https://mcp.example.com/mcp", "effect": "readonly"}},
+        {"mcp": {"url": "https://mcp.example.com/mcp", "allow": []}},
         {"python": {"effect": "read"}},
         {"python": "no_colon_here"},
         {"openapi": {"spec": "./spec.yaml"}},

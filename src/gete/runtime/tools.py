@@ -5,22 +5,79 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from gete.connection.registry import Registry
 from gete.declaration import Agent
 from gete.errors import DeclarationError
-from gete.policies import Policy
+from gete.policies import Policy, tool_effect
+from gete.runtime.mcp import mcp_toolset
 
 
-def build_tools(agent: Agent, policies: Sequence[Policy]) -> list[Any]:
+class Confirmation:
+    """Which tools ADK should stop for confirmation, from the policies.
+
+    Only in effect when the project chose confirmation: adk. Otherwise the
+    policy text governs and nothing is marked.
+    """
+
+    def __init__(self, policies: Sequence[Policy], mode: str) -> None:
+        active = mode == "adk"
+        self.everything = active and any(
+            p.require_confirmation == "all" for p in policies
+        )
+        self.writes = active and any(
+            p.require_confirmation == "write_tools" for p in policies
+        )
+        self.names: frozenset[str] = frozenset(
+            name
+            for policy in policies
+            if active and isinstance(policy.require_confirmation, tuple)
+            for name in policy.require_confirmation
+        )
+
+    def for_effect(self, effect: str) -> bool:
+        return self.everything or (self.writes and effect == "write")
+
+    def for_tool(self, name: str | None, effect: str) -> bool:
+        return self.for_effect(effect) or (name is not None and name in self.names)
+
+
+def build_tools(
+    agent: Agent,
+    policies: Sequence[Policy],
+    *,
+    authorizations: Mapping[str, str],
+    registry: Registry,
+    confirmation: str,
+) -> list[Any]:
     """Every declared tool, minus those a policy denies by name."""
+    from google.adk.tools.function_tool import FunctionTool
+
     denied = {name for policy in policies for name in policy.deny_tools}
+    confirm = Confirmation(policies, confirmation)
     tools: list[Any] = []
     for tool in agent.tools:
+        effect = tool_effect(tool)
         if "builtin" in tool:
+            # ADK's own tool objects are used as they are; they cannot be
+            # wrapped for confirmation.
             tools.append(builtin_tool(tool["builtin"]))
         elif "python" in tool:
-            tools.extend(python_tools(agent, tool["python"]))
+            for function in python_tools(agent, tool["python"]):
+                if confirm.for_tool(tool_name(function), effect):
+                    tools.append(FunctionTool(function, require_confirmation=True))
+                else:
+                    tools.append(function)
         elif "mcp" in tool:
-            raise NotImplementedError("mcp tools are not supported by the runtime yet")
+            tools.append(
+                mcp_toolset(
+                    tool["mcp"],
+                    authorizations=authorizations,
+                    registry=registry,
+                    confirm=confirm.for_effect(effect),
+                    confirm_names=confirm.names,
+                    denied=denied,
+                )
+            )
     return [tool for tool in tools if tool_name(tool) not in denied]
 
 
