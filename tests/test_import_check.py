@@ -64,26 +64,13 @@ def test_the_archive_is_extracted_next_to_the_requirements(
     } <= runner.seen_files[0]
 
 
-def test_local_gete_replaces_the_pinned_line_when_asked(
-    project: ProjectBuilder, tmp_path: Path
+def test_the_extracted_archive_carries_gete_so_no_local_install_is_needed(
+    project: ProjectBuilder,
 ) -> None:
-    """Before a release the pinned version is not on PyPI; CI installs the checkout."""
-    requirements: list[str] = []
-
-    class Capturing(Runner):
-        def __call__(
-            self, argv: list[str], **kwargs: Any
-        ) -> subprocess.CompletedProcess[str]:
-            for arg in argv:
-                if arg.endswith("requirements.txt"):
-                    requirements.append(Path(arg).read_text())
-            return super().__call__(argv, **kwargs)
-
-    import_check(agent_dir(project), runner=Capturing(), gete_source=tmp_path)
-    lines = requirements[0].splitlines()
-    assert lines[0] == str(tmp_path)
-    assert not any(line.startswith("gete==") for line in lines)
-    assert lines[1].startswith("google-cloud-aiplatform")
+    """The vendored copy is what the probe imports; requirements hold only deps."""
+    runner = Runner()
+    import_check(agent_dir(project), runner=runner)
+    assert any(name == "gete" for name in runner.seen_files[0])
 
 
 def test_failure_carries_the_whole_stderr(project: ProjectBuilder) -> None:

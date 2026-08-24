@@ -15,7 +15,7 @@ import sys
 import tarfile
 from collections.abc import Iterator
 from dataclasses import dataclass
-from importlib.metadata import version
+from importlib.metadata import requires
 from pathlib import Path, PurePosixPath
 from typing import TextIO
 
@@ -40,6 +40,9 @@ REQUIREMENTS_FILE = "requirements.txt"
 # brings ADK. gete pins ADK to the range it was verified with.
 BASE_REQUIREMENTS = ("google-cloud-aiplatform[adk,agent_engines]>=1.140",)
 
+# The name gete's own files travel under inside the archive.
+GETE_PACKAGE_DIR = "gete"
+
 EXCLUDED_DIRS = frozenset(
     {"__pycache__", ".venv", ".ruff_cache", ".pytest_cache", ".mypy_cache"}
 )
@@ -54,9 +57,26 @@ class ArchiveResult:
     sha256: str
 
 
-def requirements_text(agent: Agent, gete_version: str) -> str:
-    """gete pinned to this version, the Agent Engine base, then the agent's lines."""
-    lines = [f"gete=={gete_version}", *BASE_REQUIREMENTS]
+def runtime_requirements() -> list[str]:
+    """gete's own runtime dependencies, read from its package metadata.
+
+    gete is not on PyPI; its source travels inside the archive, and nothing
+    resolves the dependencies of vendored source. They are spelled out here
+    from the same metadata pip would have used, so the two cannot drift. The
+    cli extra stays out: the deployment never runs the commands.
+    """
+    lines: list[str] = []
+    for requirement in requires("gete") or ():
+        specifier, _, marker = requirement.partition(";")
+        if "extra" in marker:
+            continue
+        lines.append(specifier.strip())
+    return lines
+
+
+def requirements_text(agent: Agent) -> str:
+    """The Agent Engine base, gete's dependencies, then the agent's own lines."""
+    lines = [*BASE_REQUIREMENTS, *runtime_requirements()]
     if agent.requirements is not None:
         lines.extend(
             line.strip()
@@ -66,9 +86,7 @@ def requirements_text(agent: Agent, gete_version: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_archive(
-    directory: Path, *, project: Project | None = None, gete_version: str | None = None
-) -> ArchiveResult:
+def build_archive(directory: Path, *, project: Project | None = None) -> ArchiveResult:
     """Validate, resolve, and pack the agent. Raises DeclarationError on problems."""
     directory = directory.resolve()
     project = project or load_project(find_project_file(directory))
@@ -77,10 +95,11 @@ def build_archive(
     document = resolve(project, agent)
     entries: dict[str, bytes] = {
         ENTRY_FILE: template_text(ENTRY_FILE).encode(),
-        REQUIREMENTS_FILE: requirements_text(
-            agent, gete_version or version("gete")
-        ).encode(),
+        REQUIREMENTS_FILE: requirements_text(agent).encode(),
     }
+    # gete itself rides along: it is not on PyPI, and shipping the copy that
+    # packed the agent means the runtime can never be a different version.
+    entries.update(_gete_files())
     instruction = agent.instruction_path
     if instruction is not None:
         entries[_inside(agent, instruction, "instruction")] = instruction.read_bytes()
@@ -161,6 +180,16 @@ def _inside(agent: Agent, path: Path, what: str) -> str:
             f"{what} {path} is outside {agent.directory}; only files below it go in"
         ) from None
     return relative.as_posix()
+
+
+def _gete_files() -> dict[str, bytes]:
+    import gete
+
+    root = Path(gete.__file__).parent
+    return {
+        f"{GETE_PACKAGE_DIR}/{name}": path.read_bytes()
+        for name, path in _source_files(root)
+    }
 
 
 def _source_files(source: Path) -> Iterator[tuple[str, Path]]:

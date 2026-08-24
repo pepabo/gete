@@ -31,19 +31,11 @@ def main() -> None:
     is_flag=True,
     help="Also install each agent's requirements in a fresh venv and import it.",
 )
-@click.option(
-    "--gete-source",
-    type=click.Path(exists=True, path_type=Path),
-    help="With --import-check: install gete from this checkout instead of PyPI.",
-)
-def validate(check_secrets: bool, import_check: bool, gete_source: Path | None) -> None:
+def validate(check_secrets: bool, import_check: bool) -> None:
     """Check the declarations against their schemas and rules."""
     from gete.importcheck import import_check as run_import_check
     from gete.secrets import check_secrets as run_check_secrets
 
-    if gete_source is not None and not import_check:
-        click.echo("--gete-source only has an effect with --import-check", err=True)
-        sys.exit(1)
     try:
         project = load_project(find_project_file(Path.cwd()))
         problems = validate_project(project)
@@ -63,7 +55,7 @@ def validate(check_secrets: bool, import_check: bool, gete_source: Path | None) 
         if import_check:
             failed = 0
             for agent in project.agents:
-                result = run_import_check(agent.directory, gete_source=gete_source)
+                result = run_import_check(agent.directory)
                 click.echo(
                     f"{agent.name}: import check {'passed' if result.ok else 'FAILED'}"
                 )
