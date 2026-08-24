@@ -139,6 +139,58 @@ def test_a_source_directory_that_is_a_symlink_is_refused(
         build_archive(directory)
 
 
+def test_a_hidden_instruction_file_is_refused(project: ProjectBuilder) -> None:
+    """instruction: ./.env would pack the hidden file under its own name."""
+    directory = prepare(project, instruction="./.env")
+    (directory / ".env").write_text("API_KEY=x")
+    with pytest.raises(DeclarationError, match="hidden"):
+        build_archive(directory)
+
+
+def test_an_instruction_symlink_to_a_hidden_file_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    directory = prepare(project, instruction="./link.md")
+    (directory / ".env").write_text("API_KEY=x")
+    (directory / "link.md").symlink_to(directory / ".env")
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_hidden_source_root_is_refused(project: ProjectBuilder) -> None:
+    """The dot rule watches below the root; the root's own name counts too."""
+    directory = prepare(project, source="./.private")
+    hidden = directory / ".private"
+    hidden.mkdir()
+    (hidden / "tool.py").write_text("TOOLS = []\n")
+    with pytest.raises(DeclarationError, match="hidden"):
+        build_archive(directory)
+
+
+def test_a_source_below_a_symlinked_ancestor_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The root itself is real; the way to it is not."""
+    directory = prepare(project, source="./link/tools")
+    hidden = directory / ".secret"
+    (hidden / "tools").mkdir(parents=True)
+    (hidden / "tools" / "tool.py").write_text("TOOLS = []\n")
+    (directory / "link").symlink_to(hidden)
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_requirements_symlink_to_a_hidden_file_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The link's lines would be copied into the archive's requirements.txt."""
+    directory = prepare(project, requirements="./req.txt")
+    (directory / ".env").write_text("API_KEY=x")
+    (directory / "req.txt").symlink_to(directory / ".env")
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
 def test_hidden_files_and_directories_stay_out_of_the_archive(
     project: ProjectBuilder,
 ) -> None:
