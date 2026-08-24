@@ -24,7 +24,7 @@ import httpx
 
 from gete.connection.registry import Connection
 from gete.connection.runtime import caller_token, resolve_connection
-from gete.errors import GeteError
+from gete.errors import GeteError, UserFacingError
 from gete.redact import RedactRules, redact
 from gete.request_context import current_tool_call
 
@@ -47,8 +47,12 @@ class ExternalServiceError(GeteError):
     """The external service could not be read."""
 
 
-class ReauthorizationRequired(ExternalServiceError):
-    """No usable token; the user has to authorize again in Gemini Enterprise."""
+class ReauthorizationRequired(ExternalServiceError, UserFacingError):
+    """No usable token; the user has to authorize again in Gemini Enterprise.
+
+    UserFacingError because its message is the connection's declared
+    reauthorization prompt: configuration written to be shown, never data.
+    """
 
 
 def parse_retry_after(header: str | None, default: float) -> float:

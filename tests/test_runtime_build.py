@@ -1,5 +1,6 @@
 """Building the ADK agent from a resolved declaration."""
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -230,16 +231,53 @@ def test_a_raising_tools_exception_text_never_reaches_the_model(
     assert "ValueError" in str(result)
 
 
-def test_getes_own_errors_keep_their_message_for_the_model(
+def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
+    project: ProjectBuilder, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The log keeps the type and the frames; the message may hold anything."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    with caplog.at_level(logging.WARNING):
+        agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+            SimpleNamespace(), {}, SimpleNamespace(), ValueError("secret-token-xyz")
+        )
+    assert "ValueError" in caplog.text
+    assert "secret-token-xyz" not in caplog.text
+
+
+def test_an_arbitrary_gete_error_is_generic_like_any_other(
     project: ProjectBuilder,
 ) -> None:
-    """Reauthorization prompts and host refusals are written to be shown."""
+    """Tool code can import and raise GeteError with any text it likes."""
     agent = build(resolved_path(project, "mail-triage", {}))
     assert agent.on_tool_error_callback is not None
     result = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
-        SimpleNamespace(), {}, SimpleNamespace(), GeteError("authorize again please")
+        SimpleNamespace(), {}, SimpleNamespace(), GeteError("secret-in-gete-error")
     )
-    assert result == {"error": "authorize again please"}
+    assert result is not None
+    assert "secret-in-gete-error" not in str(result)
+
+
+def test_only_the_dedicated_user_safe_error_keeps_its_message(
+    project: ProjectBuilder,
+) -> None:
+    """Raising UserFacingError is the declaration that the text may be shown."""
+    from gete.connection.client import ReauthorizationRequired
+    from gete.errors import UserFacingError
+
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    told = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), UserFacingError("shown as written")
+    )
+    assert told == {"error": "shown as written"}
+    prompted = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(),
+        {},
+        SimpleNamespace(),
+        ReauthorizationRequired("authorize again please"),
+    )
+    assert prompted == {"error": "authorize again please"}
 
 
 def test_after_tool_callback_leaves_results_alone_when_no_rule_applies(

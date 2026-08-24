@@ -1,11 +1,12 @@
 """ADK callbacks that bind the tool call and redact what comes back."""
 
 import logging
+import traceback
 from collections.abc import Callable, Mapping, Sequence, Set
 from typing import Any
 
 from gete.connection.registry import Registry
-from gete.errors import GeteError
+from gete.errors import GeteError, UserFacingError
 from gete.redact import RedactRules, redact
 from gete.request_context import ToolCall, set_tool_call
 
@@ -58,19 +59,25 @@ def safe_tool_error(rules: RedactRules) -> Callable[..., Any]:
     """on_tool_error_callback that keeps exception text away from the model.
 
     A raising tool's message may hold anything the tool touched - a response
-    body, a path, a credential - and no rule set is trusted to catch it all,
-    so the model gets the exception's type and nothing else; the text goes to
-    the logs, which operators read. gete's own errors are the exception: they
-    are written to be shown - reauthorization prompts, host refusals - and
-    still pass through the policies' patterns on the way out.
+    body, a path, a credential - and no rule set is trusted to catch it all.
+    The model gets the exception's type and nothing else, and so does the
+    log: the type and the frames, which are program text, never the message.
+    Only UserFacingError passes as written - raising it is the raiser's own
+    declaration that the text was made to be shown - and even that passes
+    through the policies' patterns on the way out.
     """
 
     def on_tool_error(
         tool: Any, args: Mapping[str, Any], tool_context: Any, error: Exception
     ) -> Any:
-        if isinstance(error, GeteError):
+        if isinstance(error, UserFacingError):
             return {"error": redact(str(error), rules)}
-        logger.warning("tool %s failed", getattr(tool, "name", tool), exc_info=error)
+        logger.warning(
+            "tool %s failed with %s\n%s",
+            getattr(tool, "name", tool),
+            type(error).__name__,
+            "".join(traceback.format_tb(error.__traceback__)),
+        )
         return {
             "error": f"the tool failed with {type(error).__name__}; "
             "details are in the logs"
