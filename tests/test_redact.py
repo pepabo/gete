@@ -60,6 +60,18 @@ def test_no_rules_means_nothing_changes() -> None:
     assert redact(value, RedactRules()) == value
 
 
+def test_tuples_and_sets_are_walked_like_lists() -> None:
+    """A python tool may answer with any container; the shape must not matter."""
+    masked = redact(
+        ({"bank_name": "Example Bank"}, "IBAN: DE44500105175407324931"), RULES
+    )
+    assert masked == ({"bank_name": "[redacted]"}, "IBAN [redacted]")
+    assert redact({"IBAN: DE44500105175407324931"}, RULES) == {"IBAN [redacted]"}
+    assert redact(frozenset({"IBAN: DE44500105175407324931"}), RULES) == frozenset(
+        {"IBAN [redacted]"}
+    )
+
+
 def test_rules_combine_from_policies_in_order() -> None:
     first = Policy.from_mapping(
         {

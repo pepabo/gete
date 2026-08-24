@@ -73,11 +73,21 @@ def redact_text(text: str, rules: RedactRules) -> str:
 
 
 def redact(value: Any, rules: RedactRules) -> Any:
-    """Walk dicts and lists, masking listed keys and running patterns over strings."""
+    """Walk the containers, masking listed keys and running patterns over strings.
+
+    Tuples and sets are walked like lists: a python tool may answer with any
+    container, and one left untouched would carry its strings past the rules.
+    """
     if isinstance(value, dict):
         return {key: _redact_item(key, item, rules) for key, item in value.items()}
     if isinstance(value, list):
         return [redact(item, rules) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact(item, rules) for item in value)
+    if isinstance(value, frozenset):
+        return frozenset(redact(item, rules) for item in value)
+    if isinstance(value, set):
+        return {redact(item, rules) for item in value}
     if isinstance(value, str):
         return redact_text(value, rules)
     return value
