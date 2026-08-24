@@ -206,6 +206,23 @@ async def test_a_query_embedded_in_the_url_is_not_logged_either(
     assert "secret-project" not in ours
 
 
+async def test_userinfo_in_the_url_is_not_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """urlsplit's hostname ignores userinfo, so allows() lets such a URL through."""
+    bind()
+    with caplog.at_level(logging.INFO):
+        await client(ok({})).get_json(
+            "https://user:hunter2@api.github.com/repos/o/r/issues"
+        )
+    ours = "\n".join(
+        r.getMessage() for r in caplog.records if r.name.startswith("gete")
+    )
+    assert "api.github.com/repos/o/r/issues" in ours
+    assert "hunter2" not in ours
+    assert "user:" not in ours
+
+
 async def test_get_bytes_refuses_oversized_bodies() -> None:
     bind()
     big = client(lambda request: httpx.Response(200, content=b"x" * 10))

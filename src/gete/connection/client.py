@@ -81,13 +81,23 @@ def _within_bounds(seconds: float) -> float:
 
 
 def _loggable(url: str) -> str:
-    """The URL without query or fragment.
+    """The URL reduced to scheme, host, port, and path.
 
-    The path is routing; the query is the user's work, and it lands in the
-    logs whenever the caller writes it into the URL instead of params.
+    The path is routing; everything else the caller can write into a URL is
+    theirs - the query is the user's work and userinfo is a credential - and
+    both would land in the logs whenever the URL carries them.
     """
     parts = urllib.parse.urlsplit(url)
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    host = parts.hostname or ""
+    if ":" in host:
+        # urlsplit strips an IPv6 literal's brackets with the userinfo.
+        host = f"[{host}]"
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    authority = host if port is None else f"{host}:{port}"
+    return urllib.parse.urlunsplit((parts.scheme, authority, parts.path, "", ""))
 
 
 @cache
