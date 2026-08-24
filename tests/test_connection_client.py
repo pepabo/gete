@@ -344,6 +344,22 @@ async def test_get_bytes_refuses_oversized_bodies() -> None:
     assert await big.get_bytes(URL, max_bytes=10) == b"x" * 10
 
 
+async def test_the_owned_client_stores_no_cookies() -> None:
+    """One client serves every user of a connection; a stored cookie from one
+    user's response would ride along on the next user's request."""
+    owned = ConnectionClient("github")
+    try:
+        response = httpx.Response(
+            200,
+            headers={"Set-Cookie": "session=user-a-secret; Path=/"},
+            request=httpx.Request("GET", URL),
+        )
+        owned._client.cookies.extract_cookies(response)
+        assert len(owned._client.cookies.jar) == 0
+    finally:
+        await owned.aclose()
+
+
 async def test_get_json_refuses_oversized_bodies() -> None:
     bind()
     big = client(ok({"key": "0123456789"}))

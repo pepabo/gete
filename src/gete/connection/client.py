@@ -12,6 +12,7 @@ so a blocking wait would stall every request on the instance.
 import asyncio
 import datetime
 import email.utils
+import http.cookiejar
 import json
 import logging
 import math
@@ -168,7 +169,15 @@ class ConnectionClient:
         # registry; shared_client() is created before any call exists.
         self._target = target
         self._owns_client = client is None
-        self._client = client or httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_SECONDS)
+        # One client serves every user of the connection, so a cookie stored
+        # from one user's response would ride on the next user's request.
+        # The jar's policy refuses every domain, so nothing is ever stored.
+        self._client = client or httpx.AsyncClient(
+            timeout=DEFAULT_TIMEOUT_SECONDS,
+            cookies=http.cookiejar.CookieJar(
+                policy=http.cookiejar.DefaultCookiePolicy(allowed_domains=[])
+            ),
+        )
         self._backoff = backoff_seconds
 
     async def __aenter__(self) -> Self:
