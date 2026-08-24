@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.2](https://github.com/pepabo/gete/compare/v0.2.1...v0.2.2) - 2026-08-24
+
+- Relock dependencies against pypi.org by @haruotsu in https://github.com/pepabo/gete/pull/3
+
 ## [v0.2.1](https://github.com/pepabo/gete/compare/v0.2.0...v0.2.1) - 2026-08-24
 
 - Point at the repository's new home under pepabo by @haruotsu in https://github.com/pepabo/gete/pull/2
