@@ -252,3 +252,14 @@ def test_github_does_not_accept_classic_personal_access_tokens(
     assert not catalog.get("github").accepts_token(
         "ghp_16C7e42F292c6912E7710c838347Ae178B4a"
     )
+
+
+def test_reauthorization_message_can_be_declared_per_connection() -> None:
+    """The prompt reaches end users; an installation writes it in their language."""
+    entry = connection(messages={"reauthorization": "LOCALIZED-REAUTHORIZE-PROMPT"})
+    assert entry.reauthorization_message() == "LOCALIZED-REAUTHORIZE-PROMPT"
+
+
+def test_reauthorization_message_defaults_to_english() -> None:
+    message = connection().reauthorization_message()
+    assert "Example" in message and "Gemini Enterprise" in message

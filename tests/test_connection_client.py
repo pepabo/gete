@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import pytest
 
-from gete.connection import Registry
+from gete.connection import Connection, Registry
 from gete.connection.client import (
     ConnectionClient,
     ExternalServiceError,
@@ -231,3 +231,28 @@ def test_parse_retry_after_never_returns_a_delay_that_cannot_be_waited() -> None
 def test_json_errors_are_reported_as_service_errors() -> None:
     assert issubclass(ReauthorizationRequired, ExternalServiceError)
     assert json  # keep the import honest for the type of payloads above
+
+
+async def test_401_uses_the_connections_reauthorization_message() -> None:
+    """One prompt for every path that ends in 'authorize again'."""
+    declared = Registry(
+        [
+            Connection.from_mapping(
+                {
+                    "id": "github",
+                    "display_name": "GitHub",
+                    "hosts": ["api.github.com"],
+                    "token_prefixes": ["gho_"],
+                    "oauth": {
+                        "authorization_url": "https://github.com/login/oauth/authorize",
+                        "token_url": "https://github.com/login/oauth/access_token",
+                        "scopes": {},
+                    },
+                    "messages": {"reauthorization": "LOCALIZED-REAUTHORIZE-PROMPT"},
+                }
+            )
+        ]
+    ).get("github")
+    bind()
+    with pytest.raises(ReauthorizationRequired, match="LOCALIZED-REAUTHORIZE-PROMPT"):
+        await client(lambda request: httpx.Response(401), target=declared).get_json(URL)

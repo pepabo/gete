@@ -250,6 +250,21 @@ def test_connection_rejects_wildcards_plain_http_and_empty_scope_text(
         validate_document("connection", {**CONNECTION, **patch}, source="c.yaml")
 
 
+def test_connection_messages_declare_the_reauthorization_text() -> None:
+    """The prompt is for end users; empty text would show them nothing."""
+    validate_document(
+        "connection",
+        {**CONNECTION, "messages": {"reauthorization": "承認し直してください"}},
+        source="c.yaml",
+    )
+    with pytest.raises(DeclarationError, match="reauthorization"):
+        validate_document(
+            "connection",
+            {**CONNECTION, "messages": {"reauthorization": ""}},
+            source="c.yaml",
+        )
+
+
 def test_yaml_dates_stay_strings(tmp_path: Path) -> None:
     """PyYAML would make 2026-08-20 a date object; the schema expects a string."""
     path = tmp_path / "c.yaml"
