@@ -42,7 +42,7 @@ connections          requirements.txt                        registration → en
 ## Quick start
 
 ```sh
-uv tool install "git+https://github.com/haruotsu/gete"   # until the first PyPI release
+uv tool install "git+https://github.com/haruotsu/gete"
 gete init mail-triage          # gete.yaml, policies/example.yaml, agents/mail-triage/
 $EDITOR agents/mail-triage/instruction.md
 gete validate

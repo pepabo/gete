@@ -51,16 +51,6 @@ def test_version_is_shown() -> None:
     assert result.output.startswith("gete, version ")
 
 
-def test_gete_source_without_import_check_is_refused(project: ProjectBuilder) -> None:
-    """It would look like the checkout was used when nothing was checked at all."""
-    project.write_agent("mail-triage")
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=project.root):
-        result = runner.invoke(main, ["validate", "--gete-source", "."])
-    assert result.exit_code == 1
-    assert "--import-check" in result.output
-
-
 def test_a_failure_inside_the_import_check_is_a_message_not_a_traceback(
     project: ProjectBuilder, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -63,14 +63,9 @@ def import_check(
     directory: Path,
     *,
     runner: Runner = subprocess.run,
-    gete_source: Path | None = None,
     uv: str = "uv",
 ) -> ImportCheckResult:
-    """Pack the agent, install its requirements in a fresh venv, import the entry point.
-
-    gete_source replaces the pinned gete line with a local checkout, for use
-    before the pinned version exists on PyPI.
-    """
+    """Pack the agent, install its requirements in a fresh venv, import the entry."""
     project = load_project(find_project_file(directory))
     result = build_archive(directory, project=project)
     agent = next(
@@ -86,13 +81,6 @@ def import_check(
         with tarfile.open(fileobj=io.BytesIO(result.archive), mode="r:gz") as tar:
             tar.extractall(root, filter="data")
         requirements = root / REQUIREMENTS_FILE
-        if gete_source is not None:
-            lines = requirements.read_text(encoding="utf-8").splitlines()
-            lines = [
-                str(gete_source.resolve()) if line.startswith("gete==") else line
-                for line in lines
-            ]
-            requirements.write_text("\n".join(lines) + "\n", encoding="utf-8")
         venv = Path(temp) / "venv"
         python = venv / ("Scripts" if sys.platform == "win32" else "bin") / "python"
         steps = [

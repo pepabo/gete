@@ -91,7 +91,7 @@ jobs:
 
       - name: validate and import check
         working-directory: examples/minimal
-        run: uv run gete validate --import-check --gete-source ../..
+        run: uv run gete validate --import-check
 
       - name: generated terraform is current
         working-directory: examples/minimal

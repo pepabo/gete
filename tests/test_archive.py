@@ -47,12 +47,37 @@ def test_archive_holds_entry_resolved_instruction_and_requirements(
     prepare(project)
     result = build_archive(project.root / "agents" / "mail-triage")
     files = members(result)
-    assert set(files) == {ENTRY, RESOLVED_FILE, "instruction.md", "requirements.txt"}
+    assert {ENTRY, RESOLVED_FILE, "instruction.md", "requirements.txt"} <= set(files)
     assert b'with_name("agent.resolved.yaml")' in files[ENTRY]
     assert files["instruction.md"] == b"You sort mail."
     resolved = yaml.safe_load(files[RESOLVED_FILE])
     assert resolved["name"] == "mail-triage"
     assert "resolved" in resolved
+
+
+def test_gete_itself_travels_in_the_archive(project: ProjectBuilder) -> None:
+    """gete is not on PyPI; what packs the agent is exactly what runs it."""
+    import gete
+
+    prepare(project)
+    files = members(build_archive(project.root / "agents" / "mail-triage"))
+    assert "gete/__init__.py" in files
+    assert "gete/runtime/__init__.py" in files
+    assert "gete/schema/agent.json" in files
+    assert "gete/catalog/connections/freee.yaml" in files
+    installed = Path(gete.__file__).parent / "__init__.py"
+    assert files["gete/__init__.py"] == installed.read_bytes()
+    assert not any("__pycache__" in name for name in files)
+
+
+def test_a_source_package_named_gete_is_refused(project: ProjectBuilder) -> None:
+    """It would silently shadow the runtime the archive carries."""
+    directory = prepare(project, source="./src")
+    package = directory / "src" / "gete"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    with pytest.raises(DeclarationError, match="gete/__init__.py"):
+        build_archive(directory)
 
 
 def test_same_input_gives_the_same_bytes(project: ProjectBuilder) -> None:
@@ -109,33 +134,37 @@ def test_source_contents_are_placed_at_the_root_and_caches_left_out(
     assert yaml.safe_load(files[RESOLVED_FILE])["source"] == "."
 
 
-def test_requirements_start_with_gete_and_aiplatform_then_the_agents_own(
+def test_requirements_carry_getes_dependencies_not_a_pin(
     project: ProjectBuilder,
 ) -> None:
+    """gete travels in the archive, so its dependencies are spelled out.
+
+    Nothing resolves the dependencies of vendored source; a dependency
+    forgotten here means an engine that is created and then does not start.
+    """
     directory = prepare(project, requirements="./requirements.txt")
     (directory / "requirements.txt").write_text("pandas>=2\n\nopenpyxl\n")
-    text = requirements_text(
-        load_project(project.root / "gete.yaml").agents[0], "1.2.3"
-    )
-    assert text.splitlines() == [
-        "gete==1.2.3",
-        "google-cloud-aiplatform[adk,agent_engines]>=1.140",
-        "pandas>=2",
-        "openpyxl",
-    ]
+    lines = requirements_text(
+        load_project(project.root / "gete.yaml").agents[0]
+    ).splitlines()
+    assert lines[0] == "google-cloud-aiplatform[adk,agent_engines]>=1.140"
+    assert not any(line.startswith("gete") for line in lines)
+    body = "\n".join(lines)
+    for needed in ("google-adk[mcp]", "httpx", "jsonschema", "pyyaml"):
+        assert needed in body, needed
+    assert "click" not in body, "cli extras stay out of the deployment"
+    assert lines[-2:] == ["pandas>=2", "openpyxl"]
 
 
 def test_requirements_without_an_agent_file_are_just_the_base(
     project: ProjectBuilder,
 ) -> None:
     prepare(project)
-    text = requirements_text(
-        load_project(project.root / "gete.yaml").agents[0], "1.2.3"
-    )
-    assert text.splitlines() == [
-        "gete==1.2.3",
-        "google-cloud-aiplatform[adk,agent_engines]>=1.140",
-    ]
+    lines = requirements_text(
+        load_project(project.root / "gete.yaml").agents[0]
+    ).splitlines()
+    assert lines[0] == "google-cloud-aiplatform[adk,agent_engines]>=1.140"
+    assert all("pandas" not in line for line in lines)
 
 
 def test_external_program_speaks_terraforms_contract(project: ProjectBuilder) -> None:
