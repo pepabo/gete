@@ -1,0 +1,16 @@
+# gete project. Everything below agents/ is deployed from this file.
+version: 1
+
+# GCP project for the reasoning engines, service accounts, and secrets.
+project: replace-me-project
+# Agent Engine region. global is not available.
+location: us-central1
+
+# Rules applied to every agent from the outside. The text is yours to write.
+policies:
+  - ./policies/example.yaml
+
+# Connections beyond the catalog, or overrides of catalog entries.
+# connections:
+#   github:
+#     base_url: https://api.github.example.com

@@ -27,6 +27,7 @@ __all__ = [
     "load_yaml_text",
     "read_yaml",
     "resolve",
+    "resolved_from_document",
 ]
 
 PROJECT_FILE = "gete.yaml"
@@ -260,28 +261,37 @@ class Resolved:
 
 def load_resolved(path: Path) -> Resolved:
     """Read an agent.resolved.yaml and check every part of it against its schema."""
-    data = read_yaml(path)
-    if not isinstance(data, Mapping) or not isinstance(data.get(RESOLVED_KEY), Mapping):
+    return resolved_from_document(read_yaml(path), path.parent, source=path)
+
+
+def resolved_from_document(
+    document: Any, directory: Path, *, source: str | Path | None = None
+) -> Resolved:
+    """A Resolved from a document in memory; relative paths resolve in directory."""
+    where = source or f"{directory / RESOLVED_FILE} (in memory)"
+    if not isinstance(document, Mapping) or not isinstance(
+        document.get(RESOLVED_KEY), Mapping
+    ):
         raise DeclarationError(
-            f"{path} has no {RESOLVED_KEY!r} block; was it written by gete?"
+            f"{where} has no {RESOLVED_KEY!r} block; was it written by gete?"
         )
-    resolved = data[RESOLVED_KEY]
+    resolved = document[RESOLVED_KEY]
     for key in ("policies", "connections", "gete_version"):
         if key not in resolved:
-            raise DeclarationError(f"{path}: {RESOLVED_KEY}.{key} is missing")
+            raise DeclarationError(f"{where}: {RESOLVED_KEY}.{key} is missing")
     if not isinstance(resolved["connections"], Mapping):
         raise DeclarationError(
-            f"{path}: {RESOLVED_KEY}.connections is not a mapping of id to connection"
+            f"{where}: {RESOLVED_KEY}.connections is not a mapping of id to connection"
         )
-    agent_part = {key: value for key, value in data.items() if key != RESOLVED_KEY}
-    validate_document("agent", agent_part, source=path)
+    agent_part = {key: value for key, value in document.items() if key != RESOLVED_KEY}
+    validate_document("agent", agent_part, source=where)
     validate_document(
-        "policy", resolved["policies"], source=f"{path}: {RESOLVED_KEY}.policies"
+        "policy", resolved["policies"], source=f"{where}: {RESOLVED_KEY}.policies"
     )
-    for connection_id, document in resolved["connections"].items():
+    for connection_id, entry in resolved["connections"].items():
         validate_document(
             "connection",
-            document,
-            source=f"{path}: {RESOLVED_KEY}.connections.{connection_id}",
+            entry,
+            source=f"{where}: {RESOLVED_KEY}.connections.{connection_id}",
         )
-    return Resolved(path=path, data=data)
+    return Resolved(path=directory / RESOLVED_FILE, data=document)
