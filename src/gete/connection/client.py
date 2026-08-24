@@ -15,6 +15,7 @@ import email.utils
 import logging
 import math
 import types
+import urllib.parse
 from functools import cache
 from typing import Any, Self
 
@@ -77,6 +78,16 @@ def parse_retry_after(header: str | None, default: float) -> float:
 def _within_bounds(seconds: float) -> float:
     """A delay that can be waited: never negative, never longer than the cap."""
     return max(0.0, min(seconds, MAX_RETRY_AFTER_SECONDS))
+
+
+def _loggable(url: str) -> str:
+    """The URL without query or fragment.
+
+    The path is routing; the query is the user's work, and it lands in the
+    logs whenever the caller writes it into the URL instead of params.
+    """
+    parts = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
 @cache
@@ -158,7 +169,9 @@ class ConnectionClient:
         if token is None:
             # The user sees a re-authorization prompt; operators would not.
             logger.warning(
-                "not reading %s without the caller's token url=%s", connection.id, url
+                "not reading %s without the caller's token url=%s",
+                connection.id,
+                _loggable(url),
             )
             raise ReauthorizationRequired(connection.reauthorization_message())
         return {"Authorization": f"Bearer {token}"}
@@ -180,7 +193,7 @@ class ConnectionClient:
         # Who read what is the service's audit log's business. The token is
         # the user's credential and the query is the user's work; neither is
         # logged.
-        logger.info("reading %s url=%s", connection.id, url)
+        logger.info("reading %s url=%s", connection.id, _loggable(url))
 
         for attempt in range(MAX_ATTEMPTS):
             try:
@@ -200,7 +213,9 @@ class ConnectionClient:
 
             if response.status_code == 401:
                 # There is no way to refresh; authorization is Gemini Enterprise's job.
-                logger.warning("token for %s was rejected url=%s", connection.id, url)
+                logger.warning(
+                    "token for %s was rejected url=%s", connection.id, _loggable(url)
+                )
                 # The distinction between "never authorized" and "expired"
                 # lives in the logs; users get one prompt either way, in the
                 # language the connection declares.

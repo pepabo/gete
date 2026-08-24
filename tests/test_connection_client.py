@@ -193,6 +193,19 @@ async def test_requests_are_logged_without_token_or_query(
     assert "secret-project" not in ours
 
 
+async def test_a_query_embedded_in_the_url_is_not_logged_either(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bind()
+    with caplog.at_level(logging.INFO):
+        await client(ok({})).get_json(URL + "?q=secret-project")
+    ours = "\n".join(
+        r.getMessage() for r in caplog.records if r.name.startswith("gete")
+    )
+    assert "/repos/o/r/issues" in ours
+    assert "secret-project" not in ours
+
+
 async def test_get_bytes_refuses_oversized_bodies() -> None:
     bind()
     big = client(lambda request: httpx.Response(200, content=b"x" * 10))
