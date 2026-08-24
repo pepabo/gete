@@ -26,7 +26,7 @@ def test_validate_lists_every_problem_and_exits_one(project: ProjectBuilder) -> 
         "mail-triage",
         {
             "connections": ["salesforce"],
-            "runtime": {"agent_engine": {"env": {"X": ""}}},
+            "runtime": {"agent_engine": {"env": {"GOOGLE_CLOUD_PROJECT": "x"}}},
         },
     )
     runner = CliRunner()
@@ -34,7 +34,7 @@ def test_validate_lists_every_problem_and_exits_one(project: ProjectBuilder) -> 
         result = runner.invoke(main, ["validate"])
     assert result.exit_code == 1
     assert "salesforce" in result.output
-    assert "X" in result.output
+    assert "GOOGLE_CLOUD_PROJECT" in result.output
 
 
 def test_validate_reports_a_missing_project_file() -> None:

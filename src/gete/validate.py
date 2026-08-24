@@ -123,14 +123,21 @@ def _agent_problems(
             f"tools[{index}]: {message}"
             for message in _tool_problems(project, agent, tool, registry, known)
         )
-    for name, value in agent.env.items():
+    # Empty env values are fine: they document that the knob exists, and
+    # delivery drops them before Agent Engine, which refuses them, sees
+    # anything.
+    for name in agent.env:
         if name in RESERVED_ENV_NAMES:
             found.append(
                 f"runtime.agent_engine.env: {name} is reserved by Agent Engine"
             )
-        if value == "":
+    # Empty secret names get no such pass: nothing drops them, and the
+    # Terraform module addresses the named secret, so apply fails on "".
+    for name, secret in agent.secret_env.items():
+        if secret == "":
             found.append(
-                f"runtime.agent_engine.env: {name} is empty; rejected by Agent Engine"
+                f"runtime.agent_engine.secret_env: {name} names no secret; "
+                "rejected at apply"
             )
     return [Problem(source, message) for message in found]
 
