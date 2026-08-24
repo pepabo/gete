@@ -14,7 +14,7 @@ jobs:
       issues: read # changelog generation reads merged pull requests via the Issues API
 
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # On every push to main, create or update a pull request that collects
       # the unreleased changes. Merging that pull request creates the tag.
