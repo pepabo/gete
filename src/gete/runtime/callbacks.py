@@ -30,18 +30,20 @@ def bind_tool_call(
 
 
 def redact_results(rules: RedactRules) -> Callable[..., Any]:
-    """after_tool_callback that runs every dict result through the policies' redaction.
+    """after_tool_callback that runs every result through the policies' redaction.
 
     ADK replaces the tool's result with whatever this returns, so the tool
     cannot forget. None keeps the original, which is what happens when there
-    is nothing to redact.
+    is nothing to redact. The result's shape does not matter: redact walks
+    dicts and lists and runs the patterns over strings, so a tool answering
+    with a list or plain text is covered like any other.
     """
     active = bool(rules.keys or rules.digit_only_keys or rules.patterns)
 
     def after_tool(
         tool: Any, args: Mapping[str, Any], tool_context: Any, tool_response: Any
     ) -> Any:
-        if not active or not isinstance(tool_response, dict):
+        if not active:
             return None
         return redact(tool_response, rules)
 

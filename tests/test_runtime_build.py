@@ -17,7 +17,10 @@ POLICIES: list[dict[str, Any]] = [
         "name": "writes",
         "when": "has_write_tools",
         "instruction_prefix": "Show before you write.",
-        "redact": {"keys": ["bank_name"]},
+        "redact": {
+            "keys": ["bank_name"],
+            "patterns": [{"pattern": "\\bcard-\\d+\\b", "replacement": "[card]"}],
+        },
     },
 ]
 
@@ -156,6 +159,24 @@ def test_after_tool_callback_redacts_even_when_the_tool_forgot(
         SimpleNamespace(), {}, SimpleNamespace(), {"bank_name": "Example Bank", "x": 1}
     )
     assert result == {"bank_name": "[redacted]", "x": 1}
+
+
+def test_after_tool_callback_redacts_lists_and_text_too(
+    project: ProjectBuilder,
+) -> None:
+    """The result's shape does not decide whether the policies apply."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.after_tool_callback is not None
+    listed = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), [{"bank_name": "Example Bank"}]
+    )
+    assert listed == [{"bank_name": "[redacted]"}]
+    text = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), "pay with card-1234 today"
+    )
+    assert text == "pay with [card] today"
 
 
 def test_after_tool_callback_leaves_results_alone_when_no_rule_applies(
