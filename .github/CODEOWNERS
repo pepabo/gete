@@ -1,0 +1,7 @@
+# The build pipeline and the dependency set are the supply chain's attack
+# surface; changes to them request a review from an owner. Enforced once
+# branch protection requires review from code owners.
+/.github/ @haruotsu
+/pyproject.toml @haruotsu
+/uv.lock @haruotsu
+/terraform/ @haruotsu
