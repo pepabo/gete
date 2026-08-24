@@ -1,0 +1,21 @@
+# The cooldown keeps a freshly published version out for a week: compromised
+# releases are usually detected and pulled from the registry within days of
+# publication. Security updates bypass the cooldown, so a fix for a known
+# vulnerability still arrives without delay.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
+  # Also moves the commit-pinned actions in the workflows; without this the
+  # pins would silently freeze on releases that stop getting fixes.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
