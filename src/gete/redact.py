@@ -60,7 +60,9 @@ def mask_digits(value: Any, rules: RedactRules | None = None) -> str:
     """Replace a value by its digit count. The count is evidence; the digits are not."""
     rules = rules or RedactRules()
     digits = re.sub(r"[^0-9]", "", str(value))
-    return rules.digits.format(n=len(digits)) if digits else rules.hidden
+    # Not str.format: any other brace in the declared text would raise while
+    # a tool result is being redacted. {n} is the only token there is.
+    return rules.digits.replace("{n}", str(len(digits))) if digits else rules.hidden
 
 
 def redact_text(text: str, rules: RedactRules) -> str:

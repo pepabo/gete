@@ -128,3 +128,14 @@ def test_masks_flow_from_policies_and_the_last_policy_wins() -> None:
     assert rules.hidden == "[非表示]"
     assert rules.digits == "[{n}桁]"
     assert RedactRules.from_policies([first]).digits == "[{n} digits]"
+
+
+def test_mask_texts_are_not_format_strings() -> None:
+    """A brace in declared text must not crash redaction mid tool call."""
+    rules = RedactRules(
+        digit_only_keys=("account_number",),
+        digits="[{n} digits] {see policy}",
+    )
+    assert redact({"account_number": "1234567"}, rules) == {
+        "account_number": "[7 digits] {see policy}"
+    }
