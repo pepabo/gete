@@ -80,6 +80,57 @@ def test_a_source_package_named_gete_is_refused(project: ProjectBuilder) -> None
         build_archive(directory)
 
 
+def test_a_source_outside_the_agent_directory_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """Whatever the path reaches would ship to Agent Engine."""
+    elsewhere = project.root / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "secret.py").write_text("TOKEN = 'x'")
+    directory = prepare(project, source="../../elsewhere")
+    with pytest.raises(DeclarationError, match="outside"):
+        build_archive(directory)
+
+
+def test_requirements_outside_the_agent_directory_are_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The file's lines would be copied into the archive's requirements.txt."""
+    (project.root / "notes.txt").write_text("cursed-package==1.0")
+    directory = prepare(project, requirements="../../notes.txt")
+    with pytest.raises(DeclarationError, match="outside"):
+        build_archive(directory)
+
+
+def test_a_symlink_leaving_the_source_tree_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The link's target, not the link, is what would be packed."""
+    secret = project.root / "credentials.json"
+    secret.write_text("{}")
+    directory = prepare(project, source="./src")
+    (directory / "src").mkdir()
+    (directory / "src" / "creds.json").symlink_to(secret)
+    with pytest.raises(DeclarationError, match="outside"):
+        build_archive(directory)
+
+
+def test_hidden_files_and_directories_stay_out_of_the_archive(
+    project: ProjectBuilder,
+) -> None:
+    """.env and .git are configuration and credentials, never agent code."""
+    directory = prepare(project, source="./src")
+    source = directory / "src"
+    source.mkdir()
+    (source / "tool.py").write_text("TOOLS = []\n")
+    (source / ".env").write_text("API_KEY=x")
+    (source / ".git").mkdir()
+    (source / ".git" / "config").write_text("[core]")
+    files = members(build_archive(directory))
+    assert "tool.py" in files
+    assert not any(name.startswith(".") or "/." in name for name in files)
+
+
 def test_same_input_gives_the_same_bytes(project: ProjectBuilder) -> None:
     """Terraform compares the archive hash; a spurious difference redeploys."""
     prepare(project)

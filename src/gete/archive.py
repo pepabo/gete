@@ -43,11 +43,8 @@ BASE_REQUIREMENTS = ("google-cloud-aiplatform[adk,agent_engines]>=1.140",)
 # The name gete's own files travel under inside the archive.
 GETE_PACKAGE_DIR = "gete"
 
-EXCLUDED_DIRS = frozenset(
-    {"__pycache__", ".venv", ".ruff_cache", ".pytest_cache", ".mypy_cache"}
-)
+EXCLUDED_DIRS = frozenset({"__pycache__"})
 EXCLUDED_SUFFIXES = frozenset({".pyc", ".pyo"})
-EXCLUDED_NAMES = frozenset({".DS_Store"})
 
 
 @dataclass(frozen=True)
@@ -92,6 +89,12 @@ def build_archive(directory: Path, *, project: Project | None = None) -> Archive
     project = project or load_project(find_project_file(directory))
     agent = _agent_in(project, directory)
     _check(project, agent)
+    # A path that climbs out of the agent's directory would ship whatever it
+    # reaches to Agent Engine, and on into the Terraform state.
+    if agent.source is not None:
+        _inside(agent, agent.source, "source")
+    if agent.requirements is not None:
+        _inside(agent, agent.requirements, "requirements")
     document = resolve(project, agent)
     entries: dict[str, bytes] = {
         ENTRY_FILE: template_text(ENTRY_FILE).encode(),
@@ -193,16 +196,26 @@ def _gete_files() -> dict[str, bytes]:
 
 
 def _source_files(source: Path) -> Iterator[tuple[str, Path]]:
+    root = source.resolve()
     for path in sorted(source.rglob("*")):
         if not path.is_file():
             continue
         relative = path.relative_to(source)
+        # Hidden files are configuration and credentials (.env, .git, caches),
+        # never agent code; nothing under a dot name goes to Agent Engine.
         if (
-            EXCLUDED_DIRS.intersection(relative.parts[:-1])
+            any(part.startswith(".") for part in relative.parts)
+            or EXCLUDED_DIRS.intersection(relative.parts[:-1])
             or path.suffix in EXCLUDED_SUFFIXES
-            or path.name in EXCLUDED_NAMES
         ):
             continue
+        # A symlink is read through: what would be packed under this name is
+        # its target, which may be anything the packing user can read.
+        if not path.resolve().is_relative_to(root):
+            raise DeclarationError(
+                f"{relative.as_posix()} resolves outside {source}; "
+                "only files below it go in"
+            )
         yield PurePosixPath(relative).as_posix(), path
 
 
