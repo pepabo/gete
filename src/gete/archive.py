@@ -196,10 +196,14 @@ def _gete_files() -> dict[str, bytes]:
 
 
 def _source_files(source: Path) -> Iterator[tuple[str, Path]]:
-    root = source.resolve()
+    # A symlink is read through: what would be packed under its visible,
+    # in-tree name is the target - a hidden file, or anything outside the
+    # tree that the packing user can read. Real files below a real root only.
+    if source.is_symlink():
+        raise DeclarationError(
+            f"{source} is a symlink; the archive needs the real directory"
+        )
     for path in sorted(source.rglob("*")):
-        if not path.is_file():
-            continue
         relative = path.relative_to(source)
         # Hidden files are configuration and credentials (.env, .git, caches),
         # never agent code; nothing under a dot name goes to Agent Engine.
@@ -209,13 +213,13 @@ def _source_files(source: Path) -> Iterator[tuple[str, Path]]:
             or path.suffix in EXCLUDED_SUFFIXES
         ):
             continue
-        # A symlink is read through: what would be packed under this name is
-        # its target, which may be anything the packing user can read.
-        if not path.resolve().is_relative_to(root):
+        if path.is_symlink():
             raise DeclarationError(
-                f"{relative.as_posix()} resolves outside {source}; "
-                "only files below it go in"
+                f"{relative.as_posix()} is a symlink; only real files below "
+                f"{source} go in"
             )
+        if not path.is_file():
+            continue
         yield PurePosixPath(relative).as_posix(), path
 
 

@@ -111,7 +111,31 @@ def test_a_symlink_leaving_the_source_tree_is_refused(
     directory = prepare(project, source="./src")
     (directory / "src").mkdir()
     (directory / "src" / "creds.json").symlink_to(secret)
-    with pytest.raises(DeclarationError, match="outside"):
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_symlink_to_a_hidden_file_is_refused(project: ProjectBuilder) -> None:
+    """The link's name is visible; what would be packed is the hidden target."""
+    directory = prepare(project, source="./src")
+    source = directory / "src"
+    source.mkdir()
+    (source / ".env").write_text("API_KEY=x")
+    (source / "visible-config").symlink_to(source / ".env")
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_source_directory_that_is_a_symlink_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """A linked root lends every file inside it a visible, in-tree name."""
+    directory = prepare(project, source="./src")
+    hidden = directory / ".private"
+    hidden.mkdir()
+    (hidden / "tool.py").write_text("TOOLS = []\n")
+    (directory / "src").symlink_to(hidden)
+    with pytest.raises(DeclarationError, match="symlink"):
         build_archive(directory)
 
 
