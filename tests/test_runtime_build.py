@@ -4,10 +4,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 import yaml
 from conftest import ProjectBuilder
 
 from gete.declaration import RESOLVED_FILE, load_project, resolve
+from gete.errors import GeteError
 from gete.request_context import clear_tool_call, current_tool_call
 from gete.runtime import build
 
@@ -177,6 +179,41 @@ def test_after_tool_callback_redacts_lists_and_text_too(
         SimpleNamespace(), {}, SimpleNamespace(), "pay with card-1234 today"
     )
     assert text == "pay with [card] today"
+
+
+def test_after_tool_callback_normalizes_every_accepted_container(
+    project: ProjectBuilder,
+) -> None:
+    """UserDict and deque walk like dict and list; redaction sees them all."""
+    from collections import UserDict, deque
+
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.after_tool_callback is not None
+    mapped = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), UserDict({"bank_name": "B"})
+    )
+    assert mapped == {"bank_name": "[redacted]"}
+    queued = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), deque(["card-1 paid"])
+    )
+    assert queued == ["[card] paid"]
+
+
+def test_after_tool_callback_rejects_what_it_cannot_walk(
+    project: ProjectBuilder,
+) -> None:
+    """A result that redaction cannot see through must not reach the model."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.after_tool_callback is not None
+    for opaque in (b"card-1", object()):
+        with pytest.raises(GeteError, match="redact"):
+            agent.after_tool_callback(  # type: ignore[call-arg, operator]
+                SimpleNamespace(), {}, SimpleNamespace(), opaque
+            )
 
 
 def test_after_tool_callback_leaves_results_alone_when_no_rule_applies(
