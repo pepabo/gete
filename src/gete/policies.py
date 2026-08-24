@@ -26,6 +26,9 @@ class Policy:
     redact_keys: tuple[str, ...] = ()
     redact_digit_only_keys: tuple[str, ...] = ()
     redact_patterns: tuple[tuple[str, str], ...] = ()
+    # Mask texts, when the policy sets them; None means "no opinion".
+    redact_hidden_mask: str | None = None
+    redact_digits_mask: str | None = None
     # "write_tools", "all", a tuple of tool names, or None.
     require_confirmation: str | tuple[str, ...] | None = None
     deny_tools: tuple[str, ...] = ()
@@ -44,6 +47,8 @@ class Policy:
                 (entry["pattern"], entry["replacement"])
                 for entry in redact.get("patterns", ())
             ),
+            redact_hidden_mask=redact.get("masks", {}).get("hidden"),
+            redact_digits_mask=redact.get("masks", {}).get("digits"),
             require_confirmation=(
                 tuple(confirmation) if isinstance(confirmation, list) else confirmation
             ),

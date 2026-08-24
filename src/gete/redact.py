@@ -9,39 +9,58 @@ if TYPE_CHECKING:
     from gete.policies import Policy
 
 REDACTED = "[redacted]"
+DIGITS = "[{n} digits]"
 
 
 @dataclass(frozen=True)
 class RedactRules:
-    """Keys to hide, keys to reduce to a digit count, and patterns for text."""
+    """Keys to hide, keys to reduce to a digit count, and patterns for text.
+
+    hidden and digits are the replacement texts, so an installation can mask
+    in its own language; {n} in digits carries the digit count.
+    """
 
     keys: tuple[str, ...] = ()
     digit_only_keys: tuple[str, ...] = ()
     patterns: tuple[tuple[str, str], ...] = ()
+    hidden: str = REDACTED
+    digits: str = DIGITS
 
     @classmethod
     def from_policies(cls, policies: Iterable["Policy"]) -> "RedactRules":
-        """Combine the rules of several policies, keeping their order."""
+        """Combine the rules of several policies, keeping their order.
+
+        Masks are single values, not lists; the last policy that sets one wins.
+        """
         keys: list[str] = []
         digit_only: list[str] = []
         patterns: list[tuple[str, str]] = []
+        hidden = REDACTED
+        digits = DIGITS
         for policy in policies:
             keys.extend(key for key in policy.redact_keys if key not in keys)
             digit_only.extend(
                 key for key in policy.redact_digit_only_keys if key not in digit_only
             )
             patterns.extend(policy.redact_patterns)
+            if policy.redact_hidden_mask is not None:
+                hidden = policy.redact_hidden_mask
+            if policy.redact_digits_mask is not None:
+                digits = policy.redact_digits_mask
         return cls(
             keys=tuple(keys),
             digit_only_keys=tuple(digit_only),
             patterns=tuple(patterns),
+            hidden=hidden,
+            digits=digits,
         )
 
 
-def mask_digits(value: Any) -> str:
+def mask_digits(value: Any, rules: RedactRules | None = None) -> str:
     """Replace a value by its digit count. The count is evidence; the digits are not."""
+    rules = rules or RedactRules()
     digits = re.sub(r"[^0-9]", "", str(value))
-    return f"[{len(digits)} digits]" if digits else REDACTED
+    return rules.digits.format(n=len(digits)) if digits else rules.hidden
 
 
 def redact_text(text: str, rules: RedactRules) -> str:
@@ -64,7 +83,7 @@ def redact(value: Any, rules: RedactRules) -> Any:
 
 def _redact_item(key: str, value: Any, rules: RedactRules) -> Any:
     if key in rules.digit_only_keys:
-        return mask_digits(value)
+        return mask_digits(value, rules)
     if key in rules.keys:
-        return REDACTED
+        return rules.hidden
     return redact(value, rules)
