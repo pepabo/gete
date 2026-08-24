@@ -76,12 +76,18 @@ def test_inline_instruction_needs_no_file(project: ProjectBuilder) -> None:
     assert problems(project) == []
 
 
-def test_empty_env_value_is_reported(project: ProjectBuilder) -> None:
-    """Agent Engine refuses empty values; finding out at apply time is too late."""
+def test_empty_env_values_are_declared_knobs_not_errors(
+    project: ProjectBuilder,
+) -> None:
+    """An empty value documents that the knob exists; delivery drops it unsent.
+
+    Agent Engine refuses empty values, but the Terraform module already drops
+    them, so the declaration may keep the knob visible.
+    """
     project.write_agent(
         "mail-triage", {"runtime": {"agent_engine": {"env": {"COMPANY_ID": ""}}}}
     )
-    assert any("COMPANY_ID" in p for p in problems(project))
+    assert problems(project) == []
 
 
 @pytest.mark.parametrize("name", ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"])

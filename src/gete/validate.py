@@ -123,14 +123,13 @@ def _agent_problems(
             f"tools[{index}]: {message}"
             for message in _tool_problems(project, agent, tool, registry, known)
         )
-    for name, value in agent.env.items():
+    for name in agent.env:
+        # Empty values are fine: they document that the knob exists, and
+        # delivery drops them before Agent Engine, which refuses them, sees
+        # anything.
         if name in RESERVED_ENV_NAMES:
             found.append(
                 f"runtime.agent_engine.env: {name} is reserved by Agent Engine"
-            )
-        if value == "":
-            found.append(
-                f"runtime.agent_engine.env: {name} is empty; rejected by Agent Engine"
             )
     return [Problem(source, message) for message in found]
 
