@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.3](https://github.com/pepabo/gete/compare/v0.2.2...v0.2.3) - 2026-08-24
+
+- Pin workflow actions by commit, with Dependabot moving the pins by @haruotsu in https://github.com/pepabo/gete/pull/5
+- Ask an owner to review the supply chain surface by @haruotsu in https://github.com/pepabo/gete/pull/6
+
 ## [v0.2.2](https://github.com/pepabo/gete/compare/v0.2.1...v0.2.2) - 2026-08-24
 
 - Relock dependencies against pypi.org by @haruotsu in https://github.com/pepabo/gete/pull/3
