@@ -14,7 +14,7 @@ dependencies = [
     # deployed runtime stays inside it as well.
     # The mcp extra is what makes mcp: tools work; without it the toolset
     # module fails to import where the agent is deployed.
-    "google-adk[mcp]>=2.6,<2.7",
+    "google-adk[mcp]>=2.6,<2.8",
     "httpx>=0.28",
     "jsonschema>=4.23",
     "pyyaml>=6.0",
