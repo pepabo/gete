@@ -32,8 +32,11 @@ connections          requirements.txt                        registration → en
   the instruction, redaction of tool results, confirmation of writes. gete
   fixes the shape; the text is yours.
 - **Connections** — external services read with the *user's* token, which
-  Gemini Enterprise hands over per authorization. A token is only sent to the
-  hosts the connection declares, and only when it has the connection's shape.
+  Gemini Enterprise hands over per authorization. gete's client only sends a
+  token to the hosts the connection declares, and only when it has the
+  connection's shape. That guard covers builtin and MCP tools; a python tool
+  is handed the caller's token to work with, so where the token goes from
+  there is its code's doing — reviewing an agent's `src/` is reviewing that.
 - **Runtime** — builds the ADK agent from `agent.resolved.yaml`, carries the
   user's token to the tools (builtin, MCP, python), redacts what comes back.
 - **Delivery** — a deterministic archive, a Terraform module, and `register`
