@@ -34,6 +34,14 @@
       "description": "Root URL of the service when it differs per organization, such as GitHub Enterprise. Its host is added to hosts.",
       "$ref": "#/$defs/https_url"
     },
+    "redirect_hosts": {
+      "description": "Host names a download may be redirected to, matched exactly. The user token never travels to them.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/hostname"
+      }
+    },
     "token_prefixes": {
       "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination.",
       "type": "array",

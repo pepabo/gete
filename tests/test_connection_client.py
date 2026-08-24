@@ -252,20 +252,47 @@ def redirecting(location: str) -> Callable[[httpx.Request], httpx.Response]:
     return handler
 
 
-async def test_get_bytes_refuses_a_redirect_off_https() -> None:
+@pytest.mark.parametrize(
+    "location",
+    [
+        "http://files.example.com/f",
+        "https://127.0.0.1/internal",
+        "https://localhost/internal",
+        "https://metadata.google.internal/computeMetadata/v1/",
+        "https://2130706433/internal",
+        "https://0x7f000001/internal",
+        "https://files.example.com/blob",
+    ],
+)
+async def test_get_bytes_refuses_undeclared_redirects(location: str) -> None:
+    """Only hosts the connection declares; a name is no safer than an address."""
     bind()
-    with pytest.raises(ExternalServiceError, match="https"):
-        await client(redirecting("http://files.example.com/f")).get_bytes(URL)
+    with pytest.raises(ExternalServiceError, match="declared"):
+        await client(redirecting(location)).get_bytes(URL)
 
 
-async def test_get_bytes_refuses_a_redirect_to_an_address_literal() -> None:
-    """127.0.0.1 or the metadata service is where an SSRF redirect points."""
-    bind()
-    with pytest.raises(ExternalServiceError, match="literal"):
-        await client(redirecting("https://127.0.0.1/internal")).get_bytes(URL)
+def with_redirect_hosts() -> Any:
+    return Registry(
+        [
+            Connection.from_mapping(
+                {
+                    "id": "github",
+                    "display_name": "GitHub",
+                    "hosts": ["api.github.com"],
+                    "redirect_hosts": ["files.example.com"],
+                    "token_prefixes": ["gho_"],
+                    "oauth": {
+                        "authorization_url": "https://github.com/login/oauth/authorize",
+                        "token_url": "https://github.com/login/oauth/access_token",
+                        "scopes": {},
+                    },
+                }
+            )
+        ]
+    ).get("github")
 
 
-async def test_get_bytes_follows_https_redirects_without_the_token() -> None:
+async def test_get_bytes_follows_declared_redirects_without_the_token() -> None:
     bind()
     seen: list[httpx.Request] = []
 
@@ -277,9 +304,26 @@ async def test_get_bytes_follows_https_redirects_without_the_token() -> None:
             )
         return httpx.Response(200, content=b"data")
 
-    assert await client(handler).get_bytes(URL) == b"data"
+    assert await client(handler, target=with_redirect_hosts()).get_bytes(URL) == b"data"
     assert seen[1].url.host == "files.example.com"
     assert "Authorization" not in seen[1].headers
+
+
+async def test_get_bytes_keeps_the_token_on_the_connections_own_host() -> None:
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/repos/o/r/issues":
+            return httpx.Response(
+                302, headers={"Location": "https://api.github.com/moved"}
+            )
+        return httpx.Response(200, content=b"data")
+
+    assert await client(handler).get_bytes(URL) == b"data"
+    assert seen[1].url.path == "/moved"
+    assert seen[1].headers["Authorization"] == f"Bearer {TOKEN}"
 
 
 async def test_get_bytes_gives_up_on_endless_redirects() -> None:

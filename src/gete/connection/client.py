@@ -12,7 +12,6 @@ so a blocking wait would stall every request on the instance.
 import asyncio
 import datetime
 import email.utils
-import ipaddress
 import json
 import logging
 import math
@@ -115,23 +114,16 @@ def _refuse_userinfo(url: str) -> None:
         )
 
 
-def _check_redirect(url: str) -> None:
-    """A hop the download may follow: https, no credentials, and a named
-    host - an address literal is how a redirect reaches loopback or a
-    metadata service."""
+def _check_redirect(connection: Connection, url: str) -> None:
+    """A hop the download may follow: https, no credentials, and a host the
+    connection declares - loopback, the metadata service, or any of their
+    spellings is just an undeclared host."""
     _refuse_userinfo(url)
-    parts = urllib.parse.urlsplit(url)
-    if parts.scheme != "https":
+    if not connection.allows_redirect(url):
         raise ExternalServiceError(
-            f"redirected to {_loggable(url)}; only https is followed"
+            f"redirected to {_loggable(url)}, which is not a declared "
+            f"{connection.display_name} redirect host; the download stops here"
         )
-    try:
-        ipaddress.ip_address(parts.hostname or "")
-    except ValueError:
-        return
-    raise ExternalServiceError(
-        "redirected to an address literal; only named hosts are followed"
-    )
 
 
 async def _read_limited(response: httpx.Response, max_bytes: int) -> bytes:
@@ -229,7 +221,7 @@ class ConnectionClient:
                 break
             target = str(response.request.url.join(response.headers["location"]))
             await response.aclose()
-            _check_redirect(target)
+            _check_redirect(connection, target)
             headers = (
                 self._authorization(connection, target, state)
                 if connection.allows(target)
