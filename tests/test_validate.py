@@ -90,6 +90,15 @@ def test_empty_env_values_are_declared_knobs_not_errors(
     assert problems(project) == []
 
 
+def test_empty_secret_env_value_is_reported(project: ProjectBuilder) -> None:
+    """Unlike env, nothing drops an empty secret name; it fails at apply."""
+    project.write_agent(
+        "mail-triage",
+        {"runtime": {"agent_engine": {"secret_env": {"API_KEY": ""}}}},
+    )
+    assert any("API_KEY" in p for p in problems(project))
+
+
 @pytest.mark.parametrize("name", ["GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"])
 def test_reserved_env_names_are_reported(project: ProjectBuilder, name: str) -> None:
     """Agent Engine sets these itself and rejects a spec that repeats them."""
