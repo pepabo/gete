@@ -1,5 +1,6 @@
 """ADK callbacks that bind the tool call and redact what comes back."""
 
+import logging
 from collections.abc import Callable, Mapping, Sequence, Set
 from typing import Any
 
@@ -7,6 +8,8 @@ from gete.connection.registry import Registry
 from gete.errors import GeteError
 from gete.redact import RedactRules, redact
 from gete.request_context import ToolCall, set_tool_call
+
+logger = logging.getLogger(__name__)
 
 
 def bind_tool_call(
@@ -49,6 +52,31 @@ def redact_results(rules: RedactRules) -> Callable[..., Any]:
         return redact(_jsonable(tool_response), rules)
 
     return after_tool
+
+
+def safe_tool_error(rules: RedactRules) -> Callable[..., Any]:
+    """on_tool_error_callback that keeps exception text away from the model.
+
+    A raising tool's message may hold anything the tool touched - a response
+    body, a path, a credential - and no rule set is trusted to catch it all,
+    so the model gets the exception's type and nothing else; the text goes to
+    the logs, which operators read. gete's own errors are the exception: they
+    are written to be shown - reauthorization prompts, host refusals - and
+    still pass through the policies' patterns on the way out.
+    """
+
+    def on_tool_error(
+        tool: Any, args: Mapping[str, Any], tool_context: Any, error: Exception
+    ) -> Any:
+        if isinstance(error, GeteError):
+            return {"error": redact(str(error), rules)}
+        logger.warning("tool %s failed", getattr(tool, "name", tool), exc_info=error)
+        return {
+            "error": f"the tool failed with {type(error).__name__}; "
+            "details are in the logs"
+        }
+
+    return on_tool_error
 
 
 def _jsonable(value: Any) -> Any:

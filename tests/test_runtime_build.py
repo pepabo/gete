@@ -216,6 +216,32 @@ def test_after_tool_callback_rejects_what_it_cannot_walk(
             )
 
 
+def test_a_raising_tools_exception_text_never_reaches_the_model(
+    project: ProjectBuilder,
+) -> None:
+    """The text may hold anything the tool touched; the model gets a stand-in."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    result = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), ValueError("secret-token-xyz")
+    )
+    assert result is not None
+    assert "secret-token-xyz" not in str(result)
+    assert "ValueError" in str(result)
+
+
+def test_getes_own_errors_keep_their_message_for_the_model(
+    project: ProjectBuilder,
+) -> None:
+    """Reauthorization prompts and host refusals are written to be shown."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    result = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), GeteError("authorize again please")
+    )
+    assert result == {"error": "authorize again please"}
+
+
 def test_after_tool_callback_leaves_results_alone_when_no_rule_applies(
     project: ProjectBuilder,
 ) -> None:
