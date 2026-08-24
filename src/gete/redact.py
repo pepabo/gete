@@ -79,7 +79,14 @@ def redact(value: Any, rules: RedactRules) -> Any:
     container, and one left untouched would carry its strings past the rules.
     """
     if isinstance(value, dict):
-        return {key: _redact_item(key, item, rules) for key, item in value.items()}
+        # Keys carry data too. The rules match on the original key name; the
+        # patterns then rewrite what the model gets to see of it.
+        return {
+            (redact_text(key, rules) if isinstance(key, str) else key): _redact_item(
+                key, item, rules
+            )
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [redact(item, rules) for item in value]
     if isinstance(value, tuple):

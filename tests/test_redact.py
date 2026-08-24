@@ -72,6 +72,11 @@ def test_tuples_and_sets_are_walked_like_lists() -> None:
     )
 
 
+def test_patterns_run_over_dict_keys_too() -> None:
+    """Data can sit in a key; a value-only walk would carry it past the rules."""
+    assert redact({"IBAN: DE44500105175407324931": 1}, RULES) == {"IBAN [redacted]": 1}
+
+
 def test_rules_combine_from_policies_in_order() -> None:
     first = Policy.from_mapping(
         {
