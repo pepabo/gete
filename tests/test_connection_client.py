@@ -206,29 +206,105 @@ async def test_a_query_embedded_in_the_url_is_not_logged_either(
     assert "secret-project" not in ours
 
 
-async def test_userinfo_in_the_url_is_not_logged(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """urlsplit's hostname ignores userinfo, so allows() lets such a URL through."""
+async def test_a_url_carrying_credentials_is_rejected_before_any_request() -> None:
+    """allows() reads only the hostname, and httpx would turn userinfo into
+    Basic auth in place of the caller's token."""
     bind()
-    with caplog.at_level(logging.INFO):
-        await client(ok({})).get_json(
-            "https://user:hunter2@api.github.com/repos/o/r/issues"
+    called = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(200, json={})
+
+    with pytest.raises(ExternalServiceError) as info:
+        await client(handler).get_json("https://user:hunter2@api.github.com/x")
+    assert not called
+    assert "hunter2" not in str(info.value)
+
+
+async def test_rejected_urls_are_sanitized_in_the_error() -> None:
+    """The rejection reaches the model; the query must not ride along."""
+    bind()
+    with pytest.raises(ExternalServiceError) as info:
+        await client(ok({})).get_json("https://api.example.com/x?q=topsecret")
+    assert "topsecret" not in str(info.value)
+    assert "api.example.com" in str(info.value)
+
+
+async def test_4xx_bodies_stay_out_of_the_error_message() -> None:
+    """The error reaches the model without redaction, so the body stays out."""
+    bind()
+    with pytest.raises(ExternalServiceError) as info:
+        await client(lambda request: httpx.Response(404, text="secret-body")).get_json(
+            URL
         )
-    ours = "\n".join(
-        r.getMessage() for r in caplog.records if r.name.startswith("gete")
-    )
-    assert "api.github.com/repos/o/r/issues" in ours
-    assert "hunter2" not in ours
-    assert "user:" not in ours
+    assert "404" in str(info.value)
+    assert "secret-body" not in str(info.value)
+
+
+def redirecting(location: str) -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.github.com":
+            return httpx.Response(302, headers={"Location": location})
+        return httpx.Response(200, content=b"data")
+
+    return handler
+
+
+async def test_get_bytes_refuses_a_redirect_off_https() -> None:
+    bind()
+    with pytest.raises(ExternalServiceError, match="https"):
+        await client(redirecting("http://files.example.com/f")).get_bytes(URL)
+
+
+async def test_get_bytes_refuses_a_redirect_to_an_address_literal() -> None:
+    """127.0.0.1 or the metadata service is where an SSRF redirect points."""
+    bind()
+    with pytest.raises(ExternalServiceError, match="literal"):
+        await client(redirecting("https://127.0.0.1/internal")).get_bytes(URL)
+
+
+async def test_get_bytes_follows_https_redirects_without_the_token() -> None:
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == "api.github.com":
+            return httpx.Response(
+                302, headers={"Location": "https://files.example.com/blob"}
+            )
+        return httpx.Response(200, content=b"data")
+
+    assert await client(handler).get_bytes(URL) == b"data"
+    assert seen[1].url.host == "files.example.com"
+    assert "Authorization" not in seen[1].headers
+
+
+async def test_get_bytes_gives_up_on_endless_redirects() -> None:
+    bind()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": URL})
+
+    with pytest.raises(ExternalServiceError, match="redirect"):
+        await client(handler).get_bytes(URL)
 
 
 async def test_get_bytes_refuses_oversized_bodies() -> None:
     bind()
     big = client(lambda request: httpx.Response(200, content=b"x" * 10))
-    with pytest.raises(ExternalServiceError, match="10"):
+    with pytest.raises(ExternalServiceError, match="too large"):
         await big.get_bytes(URL, max_bytes=5)
     assert await big.get_bytes(URL, max_bytes=10) == b"x" * 10
+
+
+async def test_get_json_refuses_oversized_bodies() -> None:
+    bind()
+    big = client(ok({"key": "0123456789"}))
+    with pytest.raises(ExternalServiceError, match="too large"):
+        await big.get_json(URL, max_bytes=5)
 
 
 async def test_client_can_be_named_by_connection_id_and_resolves_at_call_time() -> None:
