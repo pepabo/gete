@@ -131,6 +131,18 @@
           }
         }
       }
+    },
+    "messages": {
+      "description": "Texts shown to end users, in the installation's language.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reauthorization": {
+          "description": "Shown when the user's token is missing or unusable and they have to approve the connection again.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   },
   "$defs": {

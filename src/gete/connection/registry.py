@@ -92,6 +92,8 @@ class Connection:
     oauth_client: str | None = None
     mcp_url: str | None = None
     retired: str | None = None
+    # Text shown to users asked to authorize again; None means the default.
+    reauthorization: str | None = None
     verified: Mapping[str, str] = field(default_factory=dict)
     examples: Examples = Examples()
 
@@ -116,6 +118,7 @@ class Connection:
             oauth_client=data.get("oauth_client"),
             mcp_url=data.get("mcp", {}).get("url"),
             retired=data.get("retired"),
+            reauthorization=data.get("messages", {}).get("reauthorization"),
             verified=dict(data.get("verified", {})),
             examples=Examples(
                 accepts=tuple(examples.get("accepts", ())),
@@ -164,7 +167,13 @@ class Connection:
         return parsed.scheme == "https" and parsed.hostname in self.hosts
 
     def reauthorization_message(self) -> str:
-        """Text for the user when the token is missing or has the wrong shape."""
+        """Text for the user when the token is missing or unusable.
+
+        It reaches end users, so an installation declares it in their
+        language under messages.reauthorization.
+        """
+        if self.reauthorization is not None:
+            return self.reauthorization
         return (
             f"The {self.display_name} authorization could not be confirmed. "
             f"Approve {self.display_name} in Gemini Enterprise and try again."

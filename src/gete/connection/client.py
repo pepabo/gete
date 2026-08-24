@@ -201,10 +201,10 @@ class ConnectionClient:
             if response.status_code == 401:
                 # There is no way to refresh; authorization is Gemini Enterprise's job.
                 logger.warning("token for %s was rejected url=%s", connection.id, url)
-                raise ReauthorizationRequired(
-                    f"{connection.display_name} rejected the authorization; "
-                    "it may have expired. Approve it again in Gemini Enterprise."
-                )
+                # The distinction between "never authorized" and "expired"
+                # lives in the logs; users get one prompt either way, in the
+                # language the connection declares.
+                raise ReauthorizationRequired(connection.reauthorization_message())
             if response.status_code == 429:
                 if attempt == MAX_ATTEMPTS - 1:
                     raise ExternalServiceError(
