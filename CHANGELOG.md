@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.1](https://github.com/pepabo/gete/compare/v0.2.0...v0.2.1) - 2026-08-24
+
+- Point at the repository's new home under pepabo by @haruotsu in https://github.com/pepabo/gete/pull/2
+
 ## [v0.1.1](https://github.com/haruotsu/gete/compare/v0.1.0...v0.1.1) - 2026-08-24
 
 - Let policies choose the mask texts by @haruotsu in https://github.com/haruotsu/gete/pull/6
