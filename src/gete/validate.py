@@ -11,6 +11,7 @@ from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
 from gete.policies import duplicate_policy_names
 from gete.schema import problems as schema_problems
+from gete.shared_credentials import SHARED_CREDENTIALS
 
 # Authorization ids are <name>-<connection> and must fit a DNS-style label.
 MAX_AUTHORIZATION_ID_LENGTH = 63
@@ -109,6 +110,28 @@ def _agent_problems(
                 f"connections: authorization id {authorization_id!r} is longer than "
                 f"{MAX_AUTHORIZATION_ID_LENGTH} characters"
             )
+    declared_shared: Mapping[str, Any] = project.data.get("shared_credentials", {})
+    for name in agent.shared_credentials:
+        credential = SHARED_CREDENTIALS.get(name)
+        if credential is None:
+            # The schema already refused the name; this only guards a schema
+            # that ran ahead of the registry.
+            continue
+        if not declared_shared.get(name, {}).get("token_secret"):
+            found.append(
+                f"shared_credentials: {name} has no token_secret under "
+                "shared_credentials in gete.yaml; the deployment would run "
+                "without a credential"
+            )
+        for block, values in (("env", agent.env), ("secret_env", agent.secret_env)):
+            if credential.token_env in values:
+                # Delivered from gete.yaml; an agent pointing the variable at
+                # a value of its own choosing would swap the credential unseen.
+                found.append(
+                    f"runtime.agent_engine.{block}: {credential.token_env} is "
+                    f"delivered from shared_credentials.{name}.token_secret in "
+                    "gete.yaml; the agent does not set it"
+                )
     instruction = agent.instruction_path
     if instruction is not None and not instruction.is_file():
         found.append(f"instruction: {project.display(instruction)} does not exist")

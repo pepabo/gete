@@ -272,3 +272,45 @@ def test_duplicate_policy_names_are_reported(project: ProjectBuilder) -> None:
     )
     project.write_agent("mail-triage")
     assert any("finance" in p for p in problems(project))
+
+
+SHARED_PROJECT = {
+    "version": 1,
+    "project": "example-project",
+    "location": "us-central1",
+    "shared_credentials": {"slack_post": {"token_secret": "slack-bot-token"}},
+}
+
+
+def test_a_shared_credential_needs_the_projects_token_secret(
+    project: ProjectBuilder,
+) -> None:
+    """Deployed without one, the tools would refuse every call at runtime."""
+    project.write_agent("poster", {"shared_credentials": ["slack_post"]})
+    assert any(
+        "slack_post" in message and "token_secret" in message
+        for message in problems(project)
+    )
+
+
+def test_a_configured_shared_credential_passes(project: ProjectBuilder) -> None:
+    project.write_project(SHARED_PROJECT)
+    project.write_agent("poster", {"shared_credentials": ["slack_post"]})
+    assert problems(project) == []
+
+
+@pytest.mark.parametrize("block", ["env", "secret_env"])
+def test_the_agent_cannot_claim_the_credentials_variable_itself(
+    project: ProjectBuilder, block: str
+) -> None:
+    """The variable is delivered from gete.yaml; an agent pointing it at a
+    value of its own choosing would swap the credential unseen."""
+    project.write_project(SHARED_PROJECT)
+    project.write_agent(
+        "poster",
+        {
+            "shared_credentials": ["slack_post"],
+            "runtime": {"agent_engine": {block: {"SLACK_BOT_TOKEN": "elsewhere"}}},
+        },
+    )
+    assert any("SLACK_BOT_TOKEN" in message for message in problems(project))

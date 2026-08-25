@@ -51,6 +51,16 @@
         "pattern": "^[a-z][a-z0-9-]*$"
       }
     },
+    "shared_credentials": {
+      "description": "Tools acting with a credential the agent holds, not the caller's authorization. Whoever can call the agent acts through it, so the tools and their guardrails ship with gete; a declaration can only name them.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "slack_post"
+        ]
+      }
+    },
     "source": {
       "type": "string",
       "minLength": 1

@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from gete.connection.runtime import authorization_id
-from gete.declaration import Resolved, load_resolved, resolved_from_document
+from gete.declaration import Agent, Resolved, load_resolved, resolved_from_document
 from gete.policies import applicable, compose_instruction
 from gete.redact import RedactRules
 from gete.runtime.callbacks import bind_tool_call, redact_results, safe_tool_error
 from gete.runtime.tools import build_tools
+from gete.shared_credentials import SHARED_CREDENTIALS
 
 
 def build(path: Path) -> Any:
@@ -44,7 +45,7 @@ def _build(resolved: Resolved) -> Any:
         model=agent.data["model"],
         description=agent.data["description"],
         instruction=compose_instruction(
-            resolved.policies, resolved.data, agent.instruction_text()
+            resolved.policies, resolved.data, _with_shared_credential_rules(agent)
         ),
         tools=build_tools(
             agent,
@@ -57,6 +58,19 @@ def _build(resolved: Resolved) -> Any:
         after_tool_callback=redact_results(rules),
         on_tool_error_callback=safe_tool_error(rules),
     )
+
+
+def _with_shared_credential_rules(agent: Agent) -> str:
+    """The declared credentials' rules in front of the agent's own text.
+
+    The policies' prefixes still come first; the agent's text stays last,
+    where it is the easiest for later instructions to override. The rules
+    ship with the credential, not with the agent - a rule each agent had to
+    copy would be missing exactly where it was forgotten.
+    """
+    parts = [SHARED_CREDENTIALS[name].instruction for name in agent.shared_credentials]
+    parts.append(agent.instruction_text())
+    return "\n\n".join(parts)
 
 
 def app(path: Path) -> Any:

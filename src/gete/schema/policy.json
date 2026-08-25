@@ -21,7 +21,8 @@
           "always",
           "has_write_tools",
           "has_connections",
-          "has_secret_env"
+          "has_secret_env",
+          "has_shared_credentials"
         ]
       },
       "instruction_prefix": {

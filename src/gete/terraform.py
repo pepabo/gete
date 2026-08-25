@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from gete.declaration import Agent, Project
+from gete.shared_credentials import SHARED_CREDENTIALS
 
 # No version in the header: a development build's version changes with every
 # commit, and --check would fail for files that are otherwise current.
@@ -107,7 +108,7 @@ def _module_call(project: Project, agent: Agent, out_dir: Path, source: str) -> 
         '  # gete packs the archive: the module\'s data "external" runs gete archive.',
         f'  agent_directory = "${{path.module}}/{relative}"',
     ]
-    maps, scalars = _runtime_settings(agent)
+    maps, scalars = _runtime_settings(project, agent)
     if maps or scalars:
         lines.append("")
     # terraform fmt aligns "=" only across consecutive single-line attributes,
@@ -123,15 +124,35 @@ def _module_call(project: Project, agent: Agent, out_dir: Path, source: str) -> 
     return "\n".join(lines) + "\n"
 
 
-def _runtime_settings(agent: Agent) -> tuple[dict[str, str], dict[str, str]]:
+def _shared_secret_env(project: Project, agent: Agent) -> dict[str, str]:
+    """The token secrets of the agent's shared credentials, by their env names.
+
+    Named once in gete.yaml: the agent declares that it uses the credential
+    and gets the wiring, without writing - or being able to change - which
+    secret the token comes from. No project entry, no invented name; validate
+    reports the gap.
+    """
+    declared: Mapping[str, Any] = project.data.get("shared_credentials", {})
+    wired: dict[str, str] = {}
+    for name in agent.shared_credentials:
+        secret = declared.get(name, {}).get("token_secret")
+        if secret:
+            wired[SHARED_CREDENTIALS[name].token_env] = str(secret)
+    return wired
+
+
+def _runtime_settings(
+    project: Project, agent: Agent
+) -> tuple[dict[str, str], dict[str, str]]:
     """(multi-line map attributes, single-line attributes), only those declared."""
     runtime: Mapping[str, Any] = agent.data.get("runtime", {}).get("agent_engine", {})
     maps: dict[str, str] = {}
     scalars: dict[str, str] = {}
     if runtime.get("env"):
         maps["env"] = _hcl_map(runtime["env"])
-    if runtime.get("secret_env"):
-        maps["secret_env"] = _hcl_map(runtime["secret_env"])
+    secret_env = {**runtime.get("secret_env", {}), **_shared_secret_env(project, agent)}
+    if secret_env:
+        maps["secret_env"] = _hcl_map(secret_env)
     for key in ("min_instances", "max_instances"):
         if key in runtime:
             scalars[key] = str(runtime[key])

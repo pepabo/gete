@@ -59,6 +59,12 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
                 if connection:
                     connected.add(connection)
                     lines.append(f"  {node} -. {connection} .-> {tool_node}")
+        for name in agent.shared_credentials:
+            # Marked as the bot it is: the diagram must not read as if these
+            # tools acted with the caller's authorization.
+            lines.append(
+                f'  {node} --> {node}_shared_{_ident(name)}["{label(name)} (bot)"]'
+            )
         for connection_id in agent.connections:
             if connection_id in connected:
                 continue
