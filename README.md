@@ -49,7 +49,7 @@ connections          requirements.txt                        registration → en
 ## Quick start
 
 ```sh
-uv tool install "git+https://github.com/pepabo/gete"
+uv tool install "gete[cli] @ git+https://github.com/pepabo/gete"
 gete init mail-triage          # gete.yaml, policies/example.yaml, agents/mail-triage/
 $EDITOR agents/mail-triage/instruction.md
 gete validate
@@ -57,6 +57,10 @@ gete run mail-triage           # talk to it locally
 gete terraform                 # one module call per agent, under terraform/
 gete register                  # once the engines exist: authorizations and the listing
 ```
+
+The rest of the way — the GCP project, the Terraform root the generated module
+calls need, and the one registration a person makes by hand — is in
+[docs/quickstart.md](docs/quickstart.md).
 
 ## Commands
 
