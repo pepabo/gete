@@ -37,6 +37,10 @@ connections          requirements.txt                        registration → en
   connection's shape. That guard covers builtin and MCP tools; a python tool
   is handed the caller's token to work with, so where the token goes from
   there is its code's doing — reviewing an agent's `src/` is reviewing that.
+- **Shared credentials** — the opposite trust model, for writes that have no
+  per-user token to ride on: one credential the agent holds, acting for
+  whoever calls it. The tools and their guardrails ship with gete; a
+  declaration can only switch them on.
 - **Runtime** — builds the ADK agent from `agent.resolved.yaml`, carries the
   user's token to the tools (builtin, MCP, python), redacts what comes back.
 - **Delivery** — a deterministic archive, a Terraform module, and `register`
@@ -149,6 +153,40 @@ connections:
 
 Adding a connection to the catalog is one YAML file under
 `src/gete/catalog/connections/`; the conformance tests check it.
+
+### Shared credentials
+
+A connection reads with the caller's token. Some writes have no such token
+to ride on — Slack posting is one, which is why the `slack` connection is
+retired — so gete also ships tools that act with a credential the agent
+holds. Whoever can call the agent acts through that credential; the tools
+and their guardrails ship with gete, and a declaration can only name them:
+
+```yaml
+# agent.yaml
+shared_credentials: [slack_post]
+
+# gete.yaml — the secret is named once for the project
+shared_credentials:
+  slack_post:
+    token_secret: slack-bot-token    # Secret Manager secret holding the xoxb- token
+```
+
+`slack_post` previews a post, posts it as the bot once the user approved,
+and reads a single linked message — never the channel around it. The fence
+moves with the destination: a public channel takes inviting the bot, a
+private channel takes its ID in the agent's `SLACK_ALLOWED_PRIVATE_CHANNELS`
+env, and direct messages are never posted to. Text the policies' redact
+patterns would change is refused rather than masked, and who posted where is
+logged — never what. Declaring the credential counts as `has_write_tools`,
+and policies can key on `has_shared_credentials`.
+
+Delivery wires `token_secret` into the deployment's `secret_env`; the agent
+neither writes nor can change which secret the credential comes from. The
+Slack app behind the token needs a bot user with `chat:write`,
+`channels:read`, `groups:read`, `channels:history`, and `groups:history` —
+and not `chat:write.public`, which would let the bot past the invitation
+fence. Locally, `gete run` reads the token from `SLACK_BOT_TOKEN`.
 
 ## Development
 

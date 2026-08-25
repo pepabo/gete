@@ -31,8 +31,6 @@ PRIVATE_NG = "C0PRIVATENG"
 
 LINK = "https://example.slack.com/archives/C0BQ2FS4RE1/p1787210851664919"
 
-ACCOUNT_PATTERN = {"pattern": r"\b\d{7}\b", "replacement": "[account]"}
-
 
 def _channel(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
