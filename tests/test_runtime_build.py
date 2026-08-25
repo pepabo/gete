@@ -291,6 +291,75 @@ def test_only_the_dedicated_user_safe_error_keeps_its_message(
     assert prompted == {"error": "authorize again please"}
 
 
+def test_a_declared_shared_credential_puts_its_tools_on_the_agent(
+    project: ProjectBuilder,
+) -> None:
+    agent = build(
+        resolved_path(project, "mail-triage", {"shared_credentials": ["slack_post"]})
+    )
+    names = [getattr(tool, "__name__", None) for tool in agent.tools]
+    assert names == ["read_linked_message", "preview_slack_post", "post_slack_message"]
+
+
+def test_without_the_declaration_nothing_shared_is_added(
+    project: ProjectBuilder,
+) -> None:
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert list(agent.tools) == []
+    assert "shared Slack credential" not in str(agent.instruction)
+
+
+def test_the_credentials_rules_sit_between_the_policies_and_the_agents_text(
+    project: ProjectBuilder,
+) -> None:
+    """The agent's own text is the easiest to override; the rules out-rank it.
+
+    Declaring the credential also counts as having write tools, so the
+    write policy's prefix is here without a tools entry.
+    """
+    agent = build(
+        resolved_path(project, "mail-triage", {"shared_credentials": ["slack_post"]})
+    )
+    text = str(agent.instruction)
+    assert (
+        text.index("Never approve.")
+        < text.index("Show before you write.")
+        < text.index("shared Slack credential")
+        < text.index("You sort mail.")
+    )
+
+
+async def test_confirmation_adk_marks_the_shared_write_tool_only(
+    project: ProjectBuilder,
+) -> None:
+    path = resolved_path(project, "mail-triage", {"shared_credentials": ["slack_post"]})
+    document = yaml.safe_load(path.read_text())
+    document["resolved"]["confirmation"] = "adk"
+    document["resolved"]["policies"].append(
+        {
+            "name": "confirm-writes",
+            "when": "has_write_tools",
+            "require_confirmation": "write_tools",
+        }
+    )
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
+    read_linked, preview, post = build(path).tools
+    assert await post.check_require_confirmation({}, SimpleNamespace(state={})) is True
+    assert callable(preview) and not hasattr(preview, "check_require_confirmation")
+    assert callable(read_linked)
+
+
+def test_a_policy_can_deny_a_shared_tool(project: ProjectBuilder) -> None:
+    path = resolved_path(project, "mail-triage", {"shared_credentials": ["slack_post"]})
+    document = yaml.safe_load(path.read_text())
+    document["resolved"]["policies"].append(
+        {"name": "no-posting", "when": "always", "deny_tools": ["post_slack_message"]}
+    )
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
+    names = [getattr(tool, "__name__", None) for tool in build(path).tools]
+    assert names == ["read_linked_message", "preview_slack_post"]
+
+
 def test_after_tool_callback_leaves_results_alone_when_no_rule_applies(
     project: ProjectBuilder,
 ) -> None:

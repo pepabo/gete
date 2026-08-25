@@ -10,6 +10,7 @@ from gete.declaration import Agent
 from gete.errors import DeclarationError
 from gete.policies import Policy, tool_effect
 from gete.runtime.mcp import mcp_toolset
+from gete.shared_credentials import SHARED_CREDENTIALS
 
 
 class Confirmation:
@@ -78,6 +79,14 @@ def build_tools(
                     denied=denied,
                 )
             )
+    # Shared credential tools carry their effects with them; the write among
+    # them is confirmed and denied like any declared write tool.
+    for name in agent.shared_credentials:
+        for function, shared_effect in SHARED_CREDENTIALS[name].load_tools():
+            if confirm.for_tool(tool_name(function), shared_effect):
+                tools.append(FunctionTool(function, require_confirmation=True))
+            else:
+                tools.append(function)
     return [tool for tool in tools if tool_name(tool) not in denied]
 
 
