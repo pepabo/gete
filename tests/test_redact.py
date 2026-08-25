@@ -60,6 +60,32 @@ def test_no_rules_means_nothing_changes() -> None:
     assert redact(value, RedactRules()) == value
 
 
+def test_tuples_and_sets_are_walked_like_lists() -> None:
+    """A python tool may answer with any container; the shape must not matter."""
+    masked = redact(
+        ({"bank_name": "Example Bank"}, "IBAN: DE44500105175407324931"), RULES
+    )
+    assert masked == ({"bank_name": "[redacted]"}, "IBAN [redacted]")
+    assert redact({"IBAN: DE44500105175407324931"}, RULES) == {"IBAN [redacted]"}
+    assert redact(frozenset({"IBAN: DE44500105175407324931"}), RULES) == frozenset(
+        {"IBAN [redacted]"}
+    )
+
+
+def test_patterns_run_over_dict_keys_too() -> None:
+    """Data can sit in a key; a value-only walk would carry it past the rules."""
+    assert redact({"IBAN: DE44500105175407324931": 1}, RULES) == {"IBAN [redacted]": 1}
+
+
+def test_colliding_redacted_keys_stay_separate_entries() -> None:
+    """Masking two keys to the same text must not swallow one of the values."""
+    masked = redact(
+        {"IBAN: DE44500105175407324931": 1, "IBAN: GB29NWBK60161331926819": 2},
+        RULES,
+    )
+    assert masked == {"IBAN [redacted]": 1, "IBAN [redacted] [2]": 2}
+
+
 def test_rules_combine_from_policies_in_order() -> None:
     first = Policy.from_mapping(
         {

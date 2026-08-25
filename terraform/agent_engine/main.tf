@@ -61,8 +61,11 @@ resource "google_vertex_ai_reasoning_engine" "agent" {
 
     source_code_spec {
       inline_source {
-        # Tens of kilobytes of base64 in the plan would push every other
-        # change out of view.
+        # sensitive() keeps tens of kilobytes of base64 out of the plan. It
+        # does not keep the archive out of the state, where this attribute
+        # and the data source's result both persist: whoever reads the state
+        # reads the agent's source. That is why packing refuses paths outside
+        # the agent's directory and leaves hidden files (.env, .git) behind.
         source_archive = sensitive(data.external.archive.result.archive)
       }
 

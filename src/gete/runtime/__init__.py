@@ -9,7 +9,7 @@ from gete.connection.runtime import authorization_id
 from gete.declaration import Resolved, load_resolved, resolved_from_document
 from gete.policies import applicable, compose_instruction
 from gete.redact import RedactRules
-from gete.runtime.callbacks import bind_tool_call, redact_results
+from gete.runtime.callbacks import bind_tool_call, redact_results, safe_tool_error
 from gete.runtime.tools import build_tools
 
 
@@ -55,6 +55,7 @@ def _build(resolved: Resolved) -> Any:
         ),
         before_tool_callback=bind_tool_call(authorizations, resolved.registry, rules),
         after_tool_callback=redact_results(rules),
+        on_tool_error_callback=safe_tool_error(rules),
     )
 
 

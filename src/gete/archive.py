@@ -11,6 +11,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import sys
 import tarfile
 from collections.abc import Iterator
@@ -43,11 +44,8 @@ BASE_REQUIREMENTS = ("google-cloud-aiplatform[adk,agent_engines]>=1.140",)
 # The name gete's own files travel under inside the archive.
 GETE_PACKAGE_DIR = "gete"
 
-EXCLUDED_DIRS = frozenset(
-    {"__pycache__", ".venv", ".ruff_cache", ".pytest_cache", ".mypy_cache"}
-)
+EXCLUDED_DIRS = frozenset({"__pycache__"})
 EXCLUDED_SUFFIXES = frozenset({".pyc", ".pyo"})
-EXCLUDED_NAMES = frozenset({".DS_Store"})
 
 
 @dataclass(frozen=True)
@@ -92,6 +90,13 @@ def build_archive(directory: Path, *, project: Project | None = None) -> Archive
     project = project or load_project(find_project_file(directory))
     agent = _agent_in(project, directory)
     _check(project, agent)
+    # A path that climbs, links, or hides its way out of the agent's visible
+    # tree would ship whatever it reaches to Agent Engine, and on into the
+    # Terraform state.
+    if agent.source is not None:
+        _archive_input(agent, agent.source, "source", kind="directory")
+    if agent.requirements is not None:
+        _archive_input(agent, agent.requirements, "requirements", kind="file")
     document = resolve(project, agent)
     entries: dict[str, bytes] = {
         ENTRY_FILE: template_text(ENTRY_FILE).encode(),
@@ -102,7 +107,8 @@ def build_archive(directory: Path, *, project: Project | None = None) -> Archive
     entries.update(_gete_files())
     instruction = agent.instruction_path
     if instruction is not None:
-        entries[_inside(agent, instruction, "instruction")] = instruction.read_bytes()
+        name = _archive_input(agent, instruction, "instruction", kind="file")
+        entries[name] = instruction.read_bytes()
     if agent.source is not None:
         # Agent Engine imports from the archive root, so the source directory's
         # contents go there and the resolved declaration points at ".".
@@ -172,13 +178,44 @@ def _under(source: Path | str, directory: PurePosixPath) -> bool:
     return PurePosixPath(source).is_relative_to(directory)
 
 
-def _inside(agent: Agent, path: Path, what: str) -> str:
+def _archive_input(agent: Agent, path: Path, what: str, *, kind: str) -> str:
+    """One rule for everything the archive reads, returning the in-tree name.
+
+    Physically below the agent's directory, no hidden and no symlinked
+    component, and the expected type. Checked on the declared path, not its
+    resolution: resolving first would let a link melt into its target and
+    lend a hidden or outside file a visible, in-tree name.
+    """
+    base = agent.directory.resolve()
     try:
-        relative = path.resolve().relative_to(agent.directory.resolve())
+        declared = path.relative_to(agent.directory)
     except ValueError:
         raise DeclarationError(
             f"{what} {path} is outside {agent.directory}; only files below it go in"
         ) from None
+    candidate = Path(os.path.normpath(base / declared))
+    if not candidate.is_relative_to(base) or candidate == base:
+        raise DeclarationError(
+            f"{what} {path} is outside {agent.directory}; only files below it go in"
+        )
+    relative = candidate.relative_to(base)
+    if any(part.startswith(".") for part in relative.parts):
+        raise DeclarationError(
+            f"{what} {relative.as_posix()} is hidden; hidden files hold "
+            "configuration and credentials, and stay out of the archive"
+        )
+    current = base
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise DeclarationError(
+                f"{what} {relative.as_posix()}: {part} is a symlink; "
+                "the archive only takes real paths"
+            )
+    if kind == "file" and not current.is_file():
+        raise DeclarationError(f"{what} {relative.as_posix()} is not a file")
+    if kind == "directory" and not current.is_dir():
+        raise DeclarationError(f"{what} {relative.as_posix()} is not a directory")
     return relative.as_posix()
 
 
@@ -193,15 +230,29 @@ def _gete_files() -> dict[str, bytes]:
 
 
 def _source_files(source: Path) -> Iterator[tuple[str, Path]]:
+    # A symlink is read through: what would be packed under its visible,
+    # in-tree name is the target - a hidden file, or anything outside the
+    # tree that the packing user can read. Real files below a real root only.
+    if source.is_symlink():
+        raise DeclarationError(
+            f"{source} is a symlink; the archive needs the real directory"
+        )
     for path in sorted(source.rglob("*")):
-        if not path.is_file():
-            continue
         relative = path.relative_to(source)
+        # Hidden files are configuration and credentials (.env, .git, caches),
+        # never agent code; nothing under a dot name goes to Agent Engine.
         if (
-            EXCLUDED_DIRS.intersection(relative.parts[:-1])
+            any(part.startswith(".") for part in relative.parts)
+            or EXCLUDED_DIRS.intersection(relative.parts[:-1])
             or path.suffix in EXCLUDED_SUFFIXES
-            or path.name in EXCLUDED_NAMES
         ):
+            continue
+        if path.is_symlink():
+            raise DeclarationError(
+                f"{relative.as_posix()} is a symlink; only real files below "
+                f"{source} go in"
+            )
+        if not path.is_file():
             continue
         yield PurePosixPath(relative).as_posix(), path
 

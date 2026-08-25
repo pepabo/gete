@@ -80,6 +80,133 @@ def test_a_source_package_named_gete_is_refused(project: ProjectBuilder) -> None
         build_archive(directory)
 
 
+def test_a_source_outside_the_agent_directory_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """Whatever the path reaches would ship to Agent Engine."""
+    elsewhere = project.root / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "secret.py").write_text("TOKEN = 'x'")
+    directory = prepare(project, source="../../elsewhere")
+    with pytest.raises(DeclarationError, match="outside"):
+        build_archive(directory)
+
+
+def test_requirements_outside_the_agent_directory_are_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The file's lines would be copied into the archive's requirements.txt."""
+    (project.root / "notes.txt").write_text("cursed-package==1.0")
+    directory = prepare(project, requirements="../../notes.txt")
+    with pytest.raises(DeclarationError, match="outside"):
+        build_archive(directory)
+
+
+def test_a_symlink_leaving_the_source_tree_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The link's target, not the link, is what would be packed."""
+    secret = project.root / "credentials.json"
+    secret.write_text("{}")
+    directory = prepare(project, source="./src")
+    (directory / "src").mkdir()
+    (directory / "src" / "creds.json").symlink_to(secret)
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_symlink_to_a_hidden_file_is_refused(project: ProjectBuilder) -> None:
+    """The link's name is visible; what would be packed is the hidden target."""
+    directory = prepare(project, source="./src")
+    source = directory / "src"
+    source.mkdir()
+    (source / ".env").write_text("API_KEY=x")
+    (source / "visible-config").symlink_to(source / ".env")
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_source_directory_that_is_a_symlink_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """A linked root lends every file inside it a visible, in-tree name."""
+    directory = prepare(project, source="./src")
+    hidden = directory / ".private"
+    hidden.mkdir()
+    (hidden / "tool.py").write_text("TOOLS = []\n")
+    (directory / "src").symlink_to(hidden)
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_hidden_instruction_file_is_refused(project: ProjectBuilder) -> None:
+    """instruction: ./.env would pack the hidden file under its own name."""
+    directory = prepare(project, instruction="./.env")
+    (directory / ".env").write_text("API_KEY=x")
+    with pytest.raises(DeclarationError, match="hidden"):
+        build_archive(directory)
+
+
+def test_an_instruction_symlink_to_a_hidden_file_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    directory = prepare(project, instruction="./link.md")
+    (directory / ".env").write_text("API_KEY=x")
+    (directory / "link.md").symlink_to(directory / ".env")
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_hidden_source_root_is_refused(project: ProjectBuilder) -> None:
+    """The dot rule watches below the root; the root's own name counts too."""
+    directory = prepare(project, source="./.private")
+    hidden = directory / ".private"
+    hidden.mkdir()
+    (hidden / "tool.py").write_text("TOOLS = []\n")
+    with pytest.raises(DeclarationError, match="hidden"):
+        build_archive(directory)
+
+
+def test_a_source_below_a_symlinked_ancestor_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The root itself is real; the way to it is not."""
+    directory = prepare(project, source="./link/tools")
+    hidden = directory / ".secret"
+    (hidden / "tools").mkdir(parents=True)
+    (hidden / "tools" / "tool.py").write_text("TOOLS = []\n")
+    (directory / "link").symlink_to(hidden)
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_a_requirements_symlink_to_a_hidden_file_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The link's lines would be copied into the archive's requirements.txt."""
+    directory = prepare(project, requirements="./req.txt")
+    (directory / ".env").write_text("API_KEY=x")
+    (directory / "req.txt").symlink_to(directory / ".env")
+    with pytest.raises(DeclarationError, match="symlink"):
+        build_archive(directory)
+
+
+def test_hidden_files_and_directories_stay_out_of_the_archive(
+    project: ProjectBuilder,
+) -> None:
+    """.env and .git are configuration and credentials, never agent code."""
+    directory = prepare(project, source="./src")
+    source = directory / "src"
+    source.mkdir()
+    (source / "tool.py").write_text("TOOLS = []\n")
+    (source / ".env").write_text("API_KEY=x")
+    (source / ".git").mkdir()
+    (source / ".git" / "config").write_text("[core]")
+    files = members(build_archive(directory))
+    assert "tool.py" in files
+    assert not any(name.startswith(".") or "/." in name for name in files)
+
+
 def test_same_input_gives_the_same_bytes(project: ProjectBuilder) -> None:
     """Terraform compares the archive hash; a spurious difference redeploys."""
     prepare(project)

@@ -1,13 +1,16 @@
 """Building the ADK agent from a resolved declaration."""
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 import yaml
 from conftest import ProjectBuilder
 
 from gete.declaration import RESOLVED_FILE, load_project, resolve
+from gete.errors import GeteError
 from gete.request_context import clear_tool_call, current_tool_call
 from gete.runtime import build
 
@@ -17,7 +20,10 @@ POLICIES: list[dict[str, Any]] = [
         "name": "writes",
         "when": "has_write_tools",
         "instruction_prefix": "Show before you write.",
-        "redact": {"keys": ["bank_name"]},
+        "redact": {
+            "keys": ["bank_name"],
+            "patterns": [{"pattern": "\\bcard-\\d+\\b", "replacement": "[card]"}],
+        },
     },
 ]
 
@@ -156,6 +162,133 @@ def test_after_tool_callback_redacts_even_when_the_tool_forgot(
         SimpleNamespace(), {}, SimpleNamespace(), {"bank_name": "Example Bank", "x": 1}
     )
     assert result == {"bank_name": "[redacted]", "x": 1}
+
+
+def test_after_tool_callback_redacts_lists_and_text_too(
+    project: ProjectBuilder,
+) -> None:
+    """The result's shape does not decide whether the policies apply."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.after_tool_callback is not None
+    listed = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), [{"bank_name": "Example Bank"}]
+    )
+    assert listed == [{"bank_name": "[redacted]"}]
+    text = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), "pay with card-1234 today"
+    )
+    assert text == "pay with [card] today"
+
+
+def test_after_tool_callback_normalizes_every_accepted_container(
+    project: ProjectBuilder,
+) -> None:
+    """UserDict and deque walk like dict and list; redaction sees them all."""
+    from collections import UserDict, deque
+
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.after_tool_callback is not None
+    mapped = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), UserDict({"bank_name": "B"})
+    )
+    assert mapped == {"bank_name": "[redacted]"}
+    queued = agent.after_tool_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), deque(["card-1 paid"])
+    )
+    assert queued == ["[card] paid"]
+
+
+def test_after_tool_callback_rejects_what_it_cannot_walk(
+    project: ProjectBuilder,
+) -> None:
+    """A result that redaction cannot see through must not reach the model."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.after_tool_callback is not None
+    for opaque in (b"card-1", object()):
+        with pytest.raises(GeteError, match="redact"):
+            agent.after_tool_callback(  # type: ignore[call-arg, operator]
+                SimpleNamespace(), {}, SimpleNamespace(), opaque
+            )
+
+
+def test_a_raising_tools_exception_text_never_reaches_the_model(
+    project: ProjectBuilder,
+) -> None:
+    """The text may hold anything the tool touched; the model gets a stand-in."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    result = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), ValueError("secret-token-xyz")
+    )
+    assert result is not None
+    assert "secret-token-xyz" not in str(result)
+    assert "ValueError" in str(result)
+
+
+def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
+    project: ProjectBuilder, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The log gets the type alone: no message, and no frames either."""
+
+    def boom() -> None:
+        raise ValueError("secret-token-xyz")
+
+    caught: Exception
+    try:
+        boom()
+    except ValueError as error:
+        caught = error
+    assert caught.__traceback__ is not None  # raised for real, not constructed
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    with caplog.at_level(logging.WARNING):
+        agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+            SimpleNamespace(), {}, SimpleNamespace(), caught
+        )
+    assert "ValueError" in caplog.text
+    assert "secret-token-xyz" not in caplog.text
+    assert "boom" not in caplog.text
+
+
+def test_an_arbitrary_gete_error_is_generic_like_any_other(
+    project: ProjectBuilder,
+) -> None:
+    """Tool code can import and raise GeteError with any text it likes."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    result = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), GeteError("secret-in-gete-error")
+    )
+    assert result is not None
+    assert "secret-in-gete-error" not in str(result)
+
+
+def test_only_the_dedicated_user_safe_error_keeps_its_message(
+    project: ProjectBuilder,
+) -> None:
+    """Raising UserFacingError is the declaration that the text may be shown."""
+    from gete.connection.client import ReauthorizationRequired
+    from gete.errors import UserFacingError
+
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    told = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(), {}, SimpleNamespace(), UserFacingError("shown as written")
+    )
+    assert told == {"error": "shown as written"}
+    prompted = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(),
+        {},
+        SimpleNamespace(),
+        ReauthorizationRequired("authorize again please"),
+    )
+    assert prompted == {"error": "authorize again please"}
 
 
 def test_after_tool_callback_leaves_results_alone_when_no_rule_applies(

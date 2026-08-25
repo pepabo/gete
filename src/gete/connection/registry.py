@@ -81,6 +81,9 @@ class Connection:
     display_name: str
     oauth: OAuth
     hosts: frozenset[str] = frozenset()
+    # Hosts a download may be redirected to, declared one by one; the token
+    # never travels to them. Empty means downloads stay on hosts.
+    redirect_hosts: frozenset[str] = frozenset()
     token_prefixes: tuple[str, ...] = ()
     # Prefixes declared by every other connection in the registry, filled in by
     # Registry. A connection without prefixes of its own accepts a token only
@@ -112,6 +115,7 @@ class Connection:
             display_name=data["display_name"],
             oauth=OAuth.from_mapping(data["oauth"]),
             hosts=frozenset(hosts),
+            redirect_hosts=frozenset(data.get("redirect_hosts", ())),
             token_prefixes=tuple(data.get("token_prefixes", ())),
             base_url=base_url,
             docs=data.get("docs"),
@@ -165,6 +169,18 @@ class Connection:
         """
         parsed = urlsplit(url)
         return parsed.scheme == "https" and parsed.hostname in self.hosts
+
+    def allows_redirect(self, url: str) -> bool:
+        """Whether a download may follow a redirect here; the token may not.
+
+        Exact hostname matching against the declared lists only: a named
+        host is no safer than an address literal, so nothing is accepted
+        for merely looking like a public name.
+        """
+        parsed = urlsplit(url)
+        return parsed.scheme == "https" and (
+            parsed.hostname in self.hosts or parsed.hostname in self.redirect_hosts
+        )
 
     def reauthorization_message(self) -> str:
         """Text for the user when the token is missing or unusable.
