@@ -12,6 +12,7 @@ from typing import Any
 from gete._yaml import read_yaml
 from gete.errors import DeclarationError
 from gete.schema import validate_document
+from gete.shared_credentials import SHARED_CREDENTIALS
 
 # Tools that do not say otherwise are treated as writes. Anything not declared
 # read-only is governed as a write; that is the safe side to err on.
@@ -103,6 +104,14 @@ def tool_effect(tool: Mapping[str, Any]) -> str:
 
 
 def has_write_tools(agent: Mapping[str, Any]) -> bool:
+    # A shared credential's tools are not in the tools list, but the writes
+    # among them are writes all the same; the write policies must see them.
+    if any(
+        SHARED_CREDENTIALS[name].has_write_tools
+        for name in agent.get("shared_credentials", ())
+        if name in SHARED_CREDENTIALS
+    ):
+        return True
     return any(tool_effect(tool) == "write" for tool in agent.get("tools", ()))
 
 
@@ -117,6 +126,8 @@ def policy_applies(policy: Policy, agent: Mapping[str, Any]) -> bool:
     if policy.when == "has_secret_env":
         runtime: Mapping[str, Any] = agent.get("runtime", {})
         return bool(runtime.get("agent_engine", {}).get("secret_env"))
+    if policy.when == "has_shared_credentials":
+        return bool(agent.get("shared_credentials"))
     raise ValueError(f"unknown policy condition {policy.when!r}")
 
 

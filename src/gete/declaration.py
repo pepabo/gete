@@ -76,6 +76,10 @@ class Agent:
         return tuple(self.data.get("tools", ()))
 
     @property
+    def shared_credentials(self) -> tuple[str, ...]:
+        return tuple(self.data.get("shared_credentials", ()))
+
+    @property
     def env(self) -> Mapping[str, str]:
         env: Mapping[str, str] = self._agent_engine().get("env", {})
         return env

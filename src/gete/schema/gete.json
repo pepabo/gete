@@ -63,6 +63,27 @@
         "type": "object"
       }
     },
+    "shared_credentials": {
+      "description": "Where each shared credential's token lives, named once for the project. An agent declares that it uses the credential; it cannot point it at a secret of its own choosing.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "slack_post": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "token_secret"
+          ],
+          "properties": {
+            "token_secret": {
+              "description": "Secret Manager secret holding the Slack bot token (xoxb-). The latest version is used.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
     "terraform": {
       "type": "object",
       "additionalProperties": false,
