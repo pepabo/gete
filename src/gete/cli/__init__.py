@@ -72,7 +72,9 @@ def validate(check_secrets: bool, import_check: bool) -> None:
 
 @main.command()
 @click.argument(
-    "directory", type=click.Path(exists=True, file_okay=False, path_type=Path)
+    "directory",
+    required=False,
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
 )
 @click.option(
     "--out", type=click.Path(dir_okay=False, path_type=Path), help="Where to write."
@@ -82,10 +84,14 @@ def validate(check_secrets: bool, import_check: bool) -> None:
     is_flag=True,
     help='Speak Terraform\'s data "external" protocol: JSON on stdin, JSON on stdout.',
 )
-def archive(directory: Path, out: Path | None, external: bool) -> None:
+def archive(directory: Path | None, out: Path | None, external: bool) -> None:
     """Pack one agent directory into the archive Agent Engine receives."""
     if external:
+        # Terraform's data "external" sends the directory in the stdin JSON
+        # and passes no arguments.
         sys.exit(external_program(sys.stdin, sys.stdout, sys.stderr))
+    if directory is None:
+        raise click.UsageError("Missing argument 'DIRECTORY'.")
     try:
         result = build_archive(directory)
     except GeteError as error:

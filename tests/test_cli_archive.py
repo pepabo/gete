@@ -41,3 +41,28 @@ def test_archive_refuses_an_agent_that_does_not_validate(
         )
     assert result.exit_code == 1
     assert "nope" in result.output
+
+
+def test_external_mode_needs_no_directory_argument(project: ProjectBuilder) -> None:
+    """Terraform's data "external" runs `gete archive --external` with JSON on stdin."""
+    import json
+
+    directory = project.write_agent("mail-triage")
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=project.root):
+        result = runner.invoke(
+            main,
+            ["archive", "--external"],
+            input=json.dumps({"directory": str(directory)}),
+        )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert set(payload) == {"archive", "sha256"}
+
+
+def test_plain_mode_still_requires_the_directory(project: ProjectBuilder) -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=project.root):
+        result = runner.invoke(main, ["archive"])
+    assert result.exit_code != 0
+    assert "DIRECTORY" in result.output
