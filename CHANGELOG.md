@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.5](https://github.com/pepabo/gete/compare/v0.2.4...v0.2.5) - 2026-08-25
+
+- Accept --external without the directory argument by @haruotsu in https://github.com/pepabo/gete/pull/17
+
 ## [v0.2.4](https://github.com/pepabo/gete/compare/v0.2.3...v0.2.4) - 2026-08-25
 
 - Resolve packages through the malware-blocking mirror, by declaration by @haruotsu in https://github.com/pepabo/gete/pull/12
