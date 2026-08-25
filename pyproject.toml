@@ -14,7 +14,7 @@ dependencies = [
     # deployed runtime stays inside it as well.
     # The mcp extra is what makes mcp: tools work; without it the toolset
     # module fails to import where the agent is deployed.
-    "google-adk[mcp]>=2.6,<2.7",
+    "google-adk[mcp]>=2.6,<2.8",
     "httpx>=0.28",
     "jsonschema>=4.23",
     "pyyaml>=6.0",
@@ -44,6 +44,15 @@ dev = [
 [build-system]
 requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
 build-backend = "hatchling.build"
+
+# Takumi Guard, a malware-blocking PyPI mirror (reachable anonymously).
+# Declared here rather than left to each machine's uv config, so everyone
+# resolves through the same index and the lockfile's URLs stay put.
+# Artifact integrity does not depend on the mirror: uv checks every
+# download against the hashes in uv.lock.
+[[tool.uv.index]]
+url = "https://pypi.flatt.tech/simple/"
+default = true
 
 [tool.hatch.version]
 source = "vcs"
