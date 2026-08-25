@@ -26,7 +26,7 @@ class Policy:
     instruction_prefix: str | None = None
     redact_keys: tuple[str, ...] = ()
     redact_digit_only_keys: tuple[str, ...] = ()
-    redact_patterns: tuple[tuple[str, str], ...] = ()
+    redact_patterns: tuple[tuple[str, str, int | None], ...] = ()
     # Mask texts, when the policy sets them; None means "no opinion".
     redact_hidden_mask: str | None = None
     redact_digits_mask: str | None = None
@@ -45,8 +45,7 @@ class Policy:
             redact_keys=tuple(redact.get("keys", ())),
             redact_digit_only_keys=tuple(redact.get("digit_only_keys", ())),
             redact_patterns=tuple(
-                (entry["pattern"], entry["replacement"])
-                for entry in redact.get("patterns", ())
+                _pattern(entry) for entry in redact.get("patterns", ())
             ),
             redact_hidden_mask=redact.get("masks", {}).get("hidden"),
             redact_digits_mask=redact.get("masks", {}).get("digits"),
@@ -71,6 +70,19 @@ def duplicate_policy_names(entries: Iterable[Mapping[str, Any]]) -> list[str]:
             duplicates.append(name)
         seen.add(name)
     return duplicates
+
+
+def _pattern(entry: Mapping[str, Any]) -> tuple[str, str, int | None]:
+    """One redact pattern, with the group whose digits replace {digits}, if any."""
+    import re
+
+    group = entry.get("digits_group")
+    if group is not None and group > re.compile(entry["pattern"]).groups:
+        raise DeclarationError(
+            f"digits_group {group} names a group the pattern "
+            f"{entry['pattern']!r} does not have"
+        )
+    return (entry["pattern"], entry["replacement"], group)
 
 
 def load_policy_documents(paths: Iterable[Path]) -> list[dict[str, Any]]:

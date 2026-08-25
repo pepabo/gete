@@ -314,3 +314,38 @@ def test_redact_masks_are_declared_in_the_policy() -> None:
             ],
             source="p.yaml",
         )
+
+
+def test_redact_pattern_may_count_digits_of_a_group() -> None:
+    policy = [
+        {
+            "name": "x",
+            "when": "always",
+            "redact": {
+                "patterns": [
+                    {
+                        "pattern": "(n: )(\\d+)",
+                        "replacement": "\\g<1>{digits}",
+                        "digits_group": 2,
+                    }
+                ]
+            },
+        }
+    ]
+    validate_document("policy", policy, source="p.yaml")
+    with pytest.raises(DeclarationError, match="digits_group"):
+        validate_document(
+            "policy",
+            [
+                {
+                    "name": "x",
+                    "when": "always",
+                    "redact": {
+                        "patterns": [
+                            {"pattern": "a", "replacement": "b", "digits_group": "two"}
+                        ]
+                    },
+                }
+            ],
+            source="p.yaml",
+        )
