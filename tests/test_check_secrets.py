@@ -119,3 +119,26 @@ def test_an_enabled_version_on_a_later_page_is_found(project: ProjectBuilder) ->
         {"name": "a", "runtime": {"agent_engine": {"secret_env": {"TOKEN": "token"}}}},
     )
     assert check_secrets(loaded, gcp) == []
+
+
+def test_a_shared_credentials_token_secret_is_checked(project: ProjectBuilder) -> None:
+    """The deployment reads it like any secret_env entry; a missing version
+    fails with the same misleading message."""
+    gcp = FakeGcp()
+    gcp.route(
+        "GET",
+        versions("slack-bot-token"),
+        GcpError(404, "Secret [slack-bot-token] not found"),
+    )
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "shared_credentials": {"slack_post": {"token_secret": "slack-bot-token"}},
+        }
+    )
+    project.write_agent("poster", {"shared_credentials": ["slack_post"]})
+    loaded = load_project(project.root / "gete.yaml")
+    reported = [str(problem) for problem in check_secrets(loaded, gcp)]
+    assert any("slack-bot-token" in message for message in reported)

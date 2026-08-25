@@ -170,3 +170,46 @@ def test_generated_file_is_valid_hcl_for_terraform_fmt(
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+SHARED_PROJECT: dict[str, Any] = {
+    "version": 1,
+    "project": "example-project",
+    "location": "us-central1",
+    "shared_credentials": {"slack_post": {"token_secret": "slack-bot-token"}},
+}
+
+
+def test_a_shared_credentials_token_secret_is_wired_into_secret_env(
+    project: ProjectBuilder,
+) -> None:
+    """The secret is named once in gete.yaml; the agent only declares use."""
+    project.write_project(SHARED_PROJECT)
+    project.write_agent("poster", {"shared_credentials": ["slack_post"]})
+    assert 'SLACK_BOT_TOKEN = "slack-bot-token"' in files(project)["poster.tf"]
+
+
+def test_the_agents_own_secret_env_survives_next_to_the_injection(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(SHARED_PROJECT)
+    project.write_agent(
+        "poster",
+        {
+            "shared_credentials": ["slack_post"],
+            "runtime": {
+                "agent_engine": {"secret_env": {"SOME_TOKEN": "some-secret-name"}}
+            },
+        },
+    )
+    text = files(project)["poster.tf"]
+    assert re.search(r'SOME_TOKEN\s+= "some-secret-name"', text)
+    assert 'SLACK_BOT_TOKEN = "slack-bot-token"' in text
+
+
+def test_without_the_project_entry_nothing_is_injected(
+    project: ProjectBuilder,
+) -> None:
+    """validate reports it; the generated call must not invent a secret name."""
+    project.write_agent("poster", {"shared_credentials": ["slack_post"]})
+    assert "SLACK_BOT_TOKEN" not in files(project)["poster.tf"]

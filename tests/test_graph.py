@@ -104,3 +104,10 @@ def test_free_text_in_a_label_cannot_break_the_diagram(project: ProjectBuilder) 
     text = graph(project)
     assert '"The "internal" API"' not in text
     assert "#quot;internal#quot;" in text
+
+
+def test_shared_credential_tools_appear(project: ProjectBuilder) -> None:
+    project.write_agent("poster", {"shared_credentials": ["slack_post"]})
+    text = graph(project)
+    assert "slack_post" in text
+    assert "bot" in text
