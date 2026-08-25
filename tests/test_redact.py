@@ -111,7 +111,7 @@ def test_rules_combine_from_policies_in_order() -> None:
     rules = RedactRules.from_policies([first, second])
     assert rules.keys == ("bank_name", "iban")
     assert rules.digit_only_keys == ("account_number",)
-    assert rules.patterns == (("x", "1"), ("y", "2"))
+    assert rules.patterns == (("x", "1", None), ("y", "2", None))
 
 
 def test_mask_strings_come_from_the_policy() -> None:
@@ -165,3 +165,53 @@ def test_mask_texts_are_not_format_strings() -> None:
     assert redact({"account_number": "1234567"}, rules) == {
         "account_number": "[7 digits] {see policy}"
     }
+
+
+def test_a_pattern_can_replace_matched_digits_with_their_count() -> None:
+    """Free text carries numbers whose length is evidence while the digits are not."""
+    rules = RedactRules(
+        patterns=((r"(NUMBER)(\s*[:.]\s*)([\d-]+)", r"\g<1>\g<2>{digits}", 3),),
+        digits="[{n}#]",
+    )
+    assert redact_text("NUMBER: 123-456", rules) == "NUMBER: [6#]"
+    assert redact_text("no digits here", rules) == "no digits here"
+
+
+def test_digit_counting_patterns_flow_from_policies() -> None:
+    policy = Policy.from_mapping(
+        {
+            "name": "x",
+            "when": "always",
+            "redact": {
+                "patterns": [
+                    {
+                        "pattern": r"(NUMBER)(: )(\d+)",
+                        "replacement": r"\g<1>\g<2>{digits}",
+                        "digits_group": 3,
+                    },
+                    {"pattern": "plain", "replacement": "PLAIN"},
+                ]
+            },
+        }
+    )
+    rules = RedactRules.from_policies([policy])
+    assert redact_text("NUMBER: 42 plain", rules) == "NUMBER: [2 digits] PLAIN"
+
+
+def test_digits_group_beyond_the_pattern_is_refused() -> None:
+    import pytest
+
+    from gete.errors import DeclarationError
+
+    with pytest.raises(DeclarationError, match="digits_group"):
+        Policy.from_mapping(
+            {
+                "name": "x",
+                "when": "always",
+                "redact": {
+                    "patterns": [
+                        {"pattern": "(a)", "replacement": "{digits}", "digits_group": 2}
+                    ]
+                },
+            }
+        )

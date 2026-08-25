@@ -1,7 +1,7 @@
 """Redaction of tool results, driven by the policies' redact rules."""
 
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -22,7 +22,10 @@ class RedactRules:
 
     keys: tuple[str, ...] = ()
     digit_only_keys: tuple[str, ...] = ()
-    patterns: tuple[tuple[str, str], ...] = ()
+    # (pattern, replacement) or (pattern, replacement, digits_group). With a
+    # group, {digits} in the replacement carries the count of digits in that
+    # group's match, formatted like digit_only_keys values.
+    patterns: tuple[tuple[str, str] | tuple[str, str, int | None], ...] = ()
     hidden: str = REDACTED
     digits: str = DIGITS
 
@@ -34,7 +37,7 @@ class RedactRules:
         """
         keys: list[str] = []
         digit_only: list[str] = []
-        patterns: list[tuple[str, str]] = []
+        patterns: list[tuple[str, str] | tuple[str, str, int | None]] = []
         hidden = REDACTED
         digits = DIGITS
         for policy in policies:
@@ -67,9 +70,31 @@ def mask_digits(value: Any, rules: RedactRules | None = None) -> str:
 
 def redact_text(text: str, rules: RedactRules) -> str:
     """Apply the patterns in order to free text."""
-    for pattern, replacement in rules.patterns:
-        text = re.sub(pattern, replacement, text)
+    for entry in rules.patterns:
+        pattern, replacement = entry[0], entry[1]
+        group = entry[2] if len(entry) > 2 else None
+        if group is None:
+            text = re.sub(pattern, replacement, text)
+        else:
+            text = re.sub(pattern, _count_digits(replacement, group, rules), text)
     return text
+
+
+def _count_digits(
+    replacement: str, group: int, rules: RedactRules
+) -> "Callable[[re.Match[str]], str]":
+    """Expand the replacement with {digits} carrying the group's digit count.
+
+    The count is evidence the way digit_only_keys keeps it; the digits are not.
+    """
+
+    def expand(match: re.Match[str]) -> str:
+        count = len(re.sub(r"[^0-9]", "", match.group(group) or ""))
+        return match.expand(
+            replacement.replace("{digits}", rules.digits.replace("{n}", str(count)))
+        )
+
+    return expand
 
 
 def redact(value: Any, rules: RedactRules) -> Any:

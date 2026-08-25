@@ -65,6 +65,11 @@
                 },
                 "replacement": {
                   "type": "string"
+                },
+                "digits_group": {
+                  "description": "Regex group whose digits are counted; {digits} in the replacement carries the count, formatted like digit_only_keys values.",
+                  "type": "integer",
+                  "minimum": 1
                 }
               }
             }
