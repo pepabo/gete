@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.7](https://github.com/pepabo/gete/compare/v0.2.6...v0.2.7) - 2026-08-26
+
+- Document the way from an empty project to a listed agent by @haruotsu in https://github.com/pepabo/gete/pull/22
+- Check token elimination per agent, not across the registry by @haruotsu in https://github.com/pepabo/gete/pull/24
+
 ## [v0.2.6](https://github.com/pepabo/gete/compare/v0.2.5...v0.2.6) - 2026-08-25
 
 - Let a pattern replace matched digits with their count by @haruotsu in https://github.com/pepabo/gete/pull/19
