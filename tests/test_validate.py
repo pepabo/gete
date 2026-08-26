@@ -1,6 +1,7 @@
 """Rules applied after the schemas: what the declarations promise each other."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import ProjectBuilder
@@ -15,6 +16,30 @@ def problems(project: ProjectBuilder) -> list[str]:
         str(problem)
         for problem in validate_project(load_project(project.root / "gete.yaml"))
     ]
+
+
+# A connection of one's own whose tokens carry no prefix, as README shows.
+INTERNAL_API: dict[str, Any] = {
+    "display_name": "Internal API",
+    "hosts": ["api.internal.example.com"],
+    "token_prefixes": [],
+    "oauth": {
+        "authorization_url": "https://auth.internal.example.com/authorize",
+        "token_url": "https://auth.internal.example.com/token",
+        "scopes": {"read": "Read internal data"},
+    },
+}
+
+
+def write_internal_api(project: ProjectBuilder) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"internal-api": INTERNAL_API},
+        }
+    )
 
 
 def test_a_well_formed_project_has_no_problems(project: ProjectBuilder) -> None:
@@ -243,6 +268,37 @@ def test_connection_overrides_go_through_the_connection_checks(
     )
     project.write_agent("mail-triage")
     assert any("googleapis.com" in p for p in problems(project))
+
+
+def test_a_prefixless_connection_of_ones_own_is_accepted(
+    project: ProjectBuilder,
+) -> None:
+    """Declaring one does not depend on which prefixless connections gete ships."""
+    write_internal_api(project)
+    project.write_agent("mail-triage", {"connections": ["internal-api"]})
+    assert problems(project) == []
+
+
+def test_two_prefixless_connections_on_one_agent_are_reported(
+    project: ProjectBuilder,
+) -> None:
+    """Either authorization's token would be accepted as the other's."""
+    write_internal_api(project)
+    project.write_agent("mail-triage", {"connections": ["freee", "internal-api"]})
+    found = problems(project)
+    assert any(
+        "elimination" in p and "freee" in p and "internal-api" in p for p in found
+    ), found
+
+
+def test_prefixless_connections_on_separate_agents_are_accepted(
+    project: ProjectBuilder,
+) -> None:
+    """An agent is handed its own connections' tokens and no others."""
+    write_internal_api(project)
+    project.write_agent("mail-triage", {"connections": ["freee"]})
+    project.write_agent("partner-review", {"connections": ["internal-api"]})
+    assert problems(project) == []
 
 
 def test_agent_schema_errors_are_reported_with_their_file(

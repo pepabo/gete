@@ -43,7 +43,7 @@
       }
     },
     "token_prefixes": {
-      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination.",
+      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination; an agent may declare only one such connection.",
       "type": "array",
       "uniqueItems": true,
       "items": {
