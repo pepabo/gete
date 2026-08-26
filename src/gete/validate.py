@@ -6,7 +6,7 @@ from typing import Any
 
 from gete._yaml import read_yaml
 from gete.connection import Registry
-from gete.connection.checks import connection_problems
+from gete.connection.checks import connection_problems, elimination_problems
 from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
 from gete.policies import duplicate_policy_names
@@ -110,6 +110,9 @@ def _agent_problems(
                 f"connections: authorization id {authorization_id!r} is longer than "
                 f"{MAX_AUTHORIZATION_ID_LENGTH} characters"
             )
+    found.extend(
+        f"connections: {message}" for message in elimination_problems(known, registry)
+    )
     declared_shared: Mapping[str, Any] = project.data.get("shared_credentials", {})
     for name in agent.shared_credentials:
         credential = SHARED_CREDENTIALS.get(name)

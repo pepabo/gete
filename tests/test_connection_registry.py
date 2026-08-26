@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 from gete.connection import Connection, Registry
-from gete.connection.checks import connection_problems
+from gete.connection.checks import connection_problems, elimination_problems
 from gete.errors import DeclarationError, RetiredConnection, UnknownConnection
 
 EXAMPLE: dict[str, Any] = {
@@ -214,17 +214,28 @@ def test_prefixed_connection_still_refuses_jwts_and_foreign_tokens(
     assert not github.accepts_token("a.b.c")
 
 
-def test_two_prefixless_connections_are_reported_on_both_sides() -> None:
+def test_two_prefixless_connections_are_reported_as_one_pairing() -> None:
     """Elimination cannot tell two services apart when neither announces itself."""
     freee = connection(id="freee", token_prefixes=[])
     internal = connection(id="internal", token_prefixes=[])
     registry = Registry([freee, internal])
-    assert any(
-        "internal" in p for p in connection_problems(registry.get("freee"), registry)
-    )
-    assert any(
-        "freee" in p for p in connection_problems(registry.get("internal"), registry)
-    )
+    found = elimination_problems(["internal", "freee"], registry)
+    assert [p for p in found if "freee" in p and "internal" in p] == found
+    assert len(found) == 1
+
+
+def test_a_prefixless_connection_is_no_problem_on_its_own() -> None:
+    """The registry holds all of them; only what one agent holds can collide."""
+    freee = connection(id="freee", token_prefixes=[])
+    internal = connection(id="internal", token_prefixes=[])
+    registry = Registry([freee, internal])
+    assert elimination_problems(["internal"], registry) == []
+    assert connection_problems(registry.get("internal"), registry) == []
+
+
+def test_connections_that_announce_themselves_never_collide(catalog: Registry) -> None:
+    """Prefixes are checked against each other; only the prefixless are counted."""
+    assert elimination_problems(["freee", "github", "google"], catalog) == []
 
 
 def test_www_googleapis_is_too_broad() -> None:

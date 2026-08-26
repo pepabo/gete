@@ -1,5 +1,6 @@
 """Rules beyond the schema, shared by the catalog tests and validate."""
 
+from collections.abc import Iterable
 from urllib.parse import urlsplit
 
 from gete.connection.registry import GOOGLE_ACCESS_TOKEN_PREFIX, Connection, Registry
@@ -30,6 +31,33 @@ _JWT_EXAMPLE = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
 _GOOGLE_ACCESS_TOKEN_EXAMPLE = GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB"
 
 
+def elimination_problems(
+    connection_ids: Iterable[str], registry: Registry
+) -> list[str]:
+    """Describe connections that cannot be held together, or return an empty list.
+
+    A connection without token prefixes accepts whatever no other connection
+    claims. Two of them are indistinguishable: a token issued by either
+    authorization passes as the other's. Only the connections handed to the
+    same agent can be confused that way, so the pairing is what is refused,
+    not the second prefixless connection an installation declares. The
+    registry holds every connection gete ships as well, and declaring a
+    service of your own must not depend on which of those announce themselves.
+    """
+    prefixless = sorted(
+        connection_id
+        for connection_id in set(connection_ids)
+        if not registry.get(connection_id, include_retired=True).token_prefixes
+    )
+    if len(prefixless) < 2:
+        return []
+    return [
+        f"{', '.join(prefixless)} declare no token_prefixes; only one of an "
+        "agent's connections may accept tokens by elimination, or a token from "
+        "one of them would be accepted as another's"
+    ]
+
+
 def connection_problems(connection: Connection, registry: Registry) -> list[str]:
     """Describe what is wrong with the connection, or return an empty list."""
     # A connection taken from the registry knows the other connections'
@@ -48,13 +76,6 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
     for other in registry.all(include_retired=True):
         if other.id == connection.id:
             continue
-        if not connection.token_prefixes and not other.token_prefixes:
-            # Two services that do not announce themselves would accept each
-            # other's tokens; elimination can only tell one such service apart.
-            problems.append(
-                f"token_prefixes: empty, like {other.id}; only one connection may "
-                "accept tokens by elimination"
-            )
         for prefix in connection.token_prefixes:
             for theirs in other.token_prefixes:
                 if prefix.startswith(theirs) or theirs.startswith(prefix):

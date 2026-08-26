@@ -155,6 +155,12 @@ connections:
       scopes: {read: Read internal data}
 ```
 
+`token_prefixes: []` says the service does not announce itself: a token is
+taken as its own once no other connection's prefix matches it. Two such
+connections cannot be told apart, so an agent may hold only one of them.
+Declaring a second one in `gete.yaml` is fine; naming both under one agent's
+`connections` is what `gete validate` refuses.
+
 Adding a connection to the catalog is one YAML file under
 `src/gete/catalog/connections/`; the conformance tests check it.
 
