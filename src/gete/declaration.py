@@ -69,7 +69,25 @@ class Agent:
 
     @property
     def connections(self) -> tuple[str, ...]:
-        return tuple(self.data.get("connections", ()))
+        """Connection ids, whichever way each entry is written.
+
+        An entry is the id itself, or a mapping that also selects scopes from
+        the connection's menu; everything that only needs to know which
+        connections the agent holds reads the ids from here.
+        """
+        return tuple(
+            entry if isinstance(entry, str) else str(entry["id"])
+            for entry in self.data.get("connections", ())
+        )
+
+    @property
+    def scope_selections(self) -> dict[str, tuple[str, ...]]:
+        """Selected optional scopes by id; ids that select nothing are absent."""
+        return {
+            str(entry["id"]): tuple(entry["scopes"])
+            for entry in self.data.get("connections", ())
+            if not isinstance(entry, str)
+        }
 
     @property
     def tools(self) -> tuple[Mapping[str, Any], ...]:

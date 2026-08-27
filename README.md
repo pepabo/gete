@@ -212,6 +212,28 @@ connections:
       scopes: {read: Read internal data}
 ```
 
+A `hosts` entry is an exact host name; nothing is matched by suffix. When one
+host serves unrelated APIs side by side — `www.googleapis.com` carries Drive
+and Calendar next to GCP's storage and compute — the entry can be scoped to a
+path prefix, written `host/path/`, and requests must stay below that path.
+A bare entry admits every path on its host, so declaring the same host bare
+next to a scoped entry — or setting `base_url` on that host, which lists it
+bare — is reported: the scoping would silently not happen.
+
+A connection's `oauth.scopes` go to every agent that declares it, so they stay
+a read-only minimum. Scopes under `oauth.optional_scopes` are a menu: an agent
+gets one only by selecting it in its own declaration, and the selection lands
+in that agent's own authorization, so consenting to one agent's writes grants
+nothing to any other. A scope outside the menu is refused by `gete validate`.
+
+```yaml
+# agent.yaml
+connections:
+  - freee                       # the defaults only
+  - id: google                  # the defaults plus a selection from the menu
+    scopes: [https://www.googleapis.com/auth/spreadsheets]
+```
+
 `oauth.pkce: true` asks Gemini Enterprise to carry a code challenge through
 the flow. An authorization server that requires PKCE refuses the code exchange
 without one, and there is no other way to ask for it from a declaration.

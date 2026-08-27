@@ -43,6 +43,7 @@ def format_connection(connection: Connection) -> str:
     """
     oauth = connection.oauth
     scopes = [f"{scope}: {text}" for scope, text in oauth.scopes.items()]
+    optional = [f"{scope}: {text}" for scope, text in oauth.optional_scopes.items()]
     fields: list[tuple[str, list[str]]] = [
         # The same word the listing uses; the reason gets a line of its own.
         ("status", ["retired" if connection.retired else "available"]),
@@ -63,6 +64,9 @@ def format_connection(connection: Connection) -> str:
         ("authorization", [oauth.authorization_url]),
         ("token url", [oauth.token_url]),
         ("scopes", scopes or [NONE_DECLARED]),
+        # The menu, because the OAuth client has to be prepared for every
+        # scope an agent may select, not only the defaults.
+        ("optional scopes", optional or [NONE_DECLARED]),
         ("client id", [connection.client_id_secret]),
         ("client secret", [connection.client_secret_secret]),
         ("redirect uri", [REDIRECT_URI]),

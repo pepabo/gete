@@ -10,7 +10,7 @@ is refused rather than sent to a host it was never meant for.
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from gete.catalog import catalog_connections
 from gete.errors import DeclarationError, RetiredConnection, UnknownConnection
@@ -66,7 +66,10 @@ def looks_like_jwt(token: str) -> bool:
 class OAuth:
     """How users authorize the connection.
 
-    scopes maps a scope to the explanation shown on the consent screen.
+    scopes maps a scope to the explanation shown on the consent screen; every
+    agent that declares the connection gets them. optional_scopes is the menu
+    an agent may select from on top of that, in the same shape; none of them
+    reach a token unless the agent declares them.
     scope_parameter is the query parameter that carries the user scopes; Slack
     uses user_scope because scope means the app's own permissions there.
     authorization_query, when set, is used verbatim as the authorization URL's
@@ -80,6 +83,7 @@ class OAuth:
     authorization_url: str
     token_url: str
     scopes: Mapping[str, str]
+    optional_scopes: Mapping[str, str] = field(default_factory=dict)
     scope_parameter: str = "scope"
     authorization_query: Mapping[str, str] | None = None
     pkce: bool = False
@@ -92,6 +96,7 @@ class OAuth:
             authorization_url=str(_rooted(data["authorization_url"], base_url)),
             token_url=str(_rooted(data["token_url"], base_url)),
             scopes=dict(data["scopes"]),
+            optional_scopes=dict(data.get("optional_scopes", {})),
             scope_parameter=data.get("scope_parameter", "scope"),
             pkce=bool(data.get("pkce", False)),
             authorization_query=(
@@ -100,6 +105,26 @@ class OAuth:
                 else None
             ),
         )
+
+
+def _stays_below(path: str, prefix: str) -> bool:
+    """Whether the request path stays below the prefix however a server reads it.
+
+    A dot segment or an encoded separator - percent-encoded any number of
+    times - is refused rather than resolved: resolving would have to guess
+    how many times the server decodes.
+    """
+    for segment in path.split("/"):
+        decoded = unquote(segment)
+        while decoded != segment:
+            segment, decoded = decoded, unquote(decoded)
+        if segment in (".", "..") or "/" in segment or "\\" in segment:
+            return False
+    if not prefix.endswith("/"):
+        # The schema requires the trailing slash; a definition that dodged it
+        # must not widen the ceiling to /prefix-and-more.
+        prefix += "/"
+    return path.startswith("/" + prefix)
 
 
 @dataclass(frozen=True)
@@ -225,21 +250,31 @@ class Connection:
         """Whether a token may be attached to a request for this URL.
 
         Only https, and only an exact host match. Prefix or suffix matching
-        would accept names such as slack.com.example.com.
+        would accept names such as slack.com.example.com. An entry written as
+        host/path/ admits only requests below that path: some platforms serve
+        unrelated APIs from one host, and the path is where they part.
         """
         parsed = urlsplit(url)
-        return parsed.scheme == "https" and parsed.hostname in self.hosts
+        if parsed.scheme != "https" or parsed.hostname is None:
+            return False
+        for entry in self.hosts:
+            host, slash, prefix = entry.partition("/")
+            if parsed.hostname != host:
+                continue
+            if not slash or _stays_below(parsed.path, prefix):
+                return True
+        return False
 
     def allows_redirect(self, url: str) -> bool:
         """Whether a download may follow a redirect here; the token may not.
 
-        Exact hostname matching against the declared lists only: a named
-        host is no safer than an address literal, so nothing is accepted
-        for merely looking like a public name.
+        Exact matching against the declared lists only: a named host is no
+        safer than an address literal, so nothing is accepted for merely
+        looking like a public name.
         """
         parsed = urlsplit(url)
-        return parsed.scheme == "https" and (
-            parsed.hostname in self.hosts or parsed.hostname in self.redirect_hosts
+        return self.allows(url) or (
+            parsed.scheme == "https" and parsed.hostname in self.redirect_hosts
         )
 
     def reauthorization_message(self) -> str:

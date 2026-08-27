@@ -98,14 +98,36 @@ def _agent_problems(
             f"{MIN_SERVICE_ACCOUNT_ID_LENGTH} and {MAX_SERVICE_ACCOUNT_ID_LENGTH} "
             "characters; Terraform would be refused at apply time"
         )
+    # known holds only the ids the registry resolved; the rules below look
+    # them up again. Duplicates are tracked apart so an unknown connection
+    # declared twice is still one duplicate, not two unknowns.
     known: set[str] = set()
+    declared: set[str] = set()
     for connection_id in agent.connections:
+        if connection_id in declared:
+            # uniqueItems cannot see that a string entry and a mapping entry
+            # name the same connection.
+            found.append(f"connections: {connection_id} is declared twice")
+            continue
+        declared.add(connection_id)
         try:
             connection = registry.get(connection_id)
         except GeteError as error:
             found.append(f"connections: {error}")
             continue
         known.add(connection_id)
+        menu = connection.oauth.optional_scopes
+        outside = [
+            scope
+            for scope in agent.scope_selections.get(connection_id, ())
+            if scope not in menu
+        ]
+        if outside:
+            offered = ", ".join(sorted(menu)) or "nothing"
+            found.append(
+                f"connections: {connection_id} does not offer "
+                f"{', '.join(outside)}; oauth.optional_scopes offers {offered}"
+            )
         if connection.needs_base_url:
             # The definition left the root open because it moves with the
             # installation. Nothing it declares is an address until then: not

@@ -85,6 +85,49 @@ def test_base_url_host_is_allowed_too() -> None:
     assert entry.allows("https://api.example.com/v1")
 
 
+@pytest.mark.parametrize(
+    ("url", "allowed"),
+    [
+        ("https://shared.example.com/api/v1/things", True),
+        ("https://shared.example.com/api/", True),
+        ("https://shared.example.com/api", False),
+        ("https://shared.example.com/apix/v1", False),
+        ("https://shared.example.com/other/v1", False),
+        ("https://shared.example.com/", False),
+        ("https://shared.example.com/api/../other/v1", False),
+        ("https://shared.example.com/api/%2e%2e/other/v1", False),
+        ("https://shared.example.com/api/%252e%252e/other/v1", False),
+        ("https://shared.example.com/api/..%2fother/v1", False),
+        ("https://shared.example.com/api/x%5c../other", False),
+        ("http://shared.example.com/api/v1", False),
+    ],
+)
+def test_a_path_scoped_host_allows_only_requests_below_the_path(
+    url: str, allowed: bool
+) -> None:
+    """Some platforms serve unrelated APIs from one host; a host/path/ entry
+    admits one API without admitting the platform. A dot segment or an encoded
+    separator is refused rather than resolved, because resolving would have to
+    guess how many times the server decodes."""
+    entry = connection(hosts=["shared.example.com/api/"])
+    assert entry.allows(url) is allowed
+
+
+def test_a_plain_hostname_entry_keeps_admitting_every_path() -> None:
+    entry = connection(hosts=["api.example.com", "shared.example.com/api/"])
+    assert entry.allows("https://api.example.com/anything/at/all")
+    assert not entry.allows("https://shared.example.com/anything/at/all")
+
+
+def test_a_redirect_may_go_below_a_path_scoped_host_but_not_beside_it() -> None:
+    entry = connection(
+        hosts=["shared.example.com/api/"], redirect_hosts=["cdn.example.com"]
+    )
+    assert entry.allows_redirect("https://shared.example.com/api/download")
+    assert not entry.allows_redirect("https://shared.example.com/other/download")
+    assert entry.allows_redirect("https://cdn.example.com/download")
+
+
 def test_oauth_client_defaults_to_ge_oauth_id() -> None:
     entry = connection()
     assert entry.secret_prefix == "ge-oauth-example"
@@ -93,6 +136,42 @@ def test_oauth_client_defaults_to_ge_oauth_id() -> None:
     assert (
         connection(oauth_client="shared-client").client_id_secret
         == "shared-client-client-id"
+    )
+
+
+def test_optional_scopes_are_a_menu_next_to_the_defaults() -> None:
+    entry = connection(
+        oauth={**EXAMPLE["oauth"], "optional_scopes": {"write": "Change data"}}
+    )
+    assert entry.oauth.scopes == {"read": "Read data"}
+    assert entry.oauth.optional_scopes == {"write": "Change data"}
+
+
+def test_a_connection_without_a_menu_offers_nothing() -> None:
+    assert connection().oauth.optional_scopes == {}
+
+
+def test_an_optional_scope_repeated_in_the_defaults_is_reported() -> None:
+    entry = connection(
+        oauth={**EXAMPLE["oauth"], "optional_scopes": {"read": "Read data"}}
+    )
+    assert any(
+        "read" in problem for problem in connection_problems(entry, Registry([entry]))
+    )
+
+
+def test_a_menu_next_to_a_verbatim_authorization_query_is_reported() -> None:
+    """The query is used verbatim; no selection could ever reach the consent screen."""
+    entry = connection(
+        oauth={
+            **EXAMPLE["oauth"],
+            "authorization_query": {"response_type": "code"},
+            "optional_scopes": {"write": "Change data"},
+        }
+    )
+    assert any(
+        "authorization_query" in problem
+        for problem in connection_problems(entry, Registry([entry]))
     )
 
 
@@ -177,6 +256,32 @@ def test_connection_without_hosts_is_reported() -> None:
     )
 
 
+def test_a_path_scoped_entry_next_to_the_bare_host_is_reported() -> None:
+    """The bare entry admits every path, so the scoped one reads as a
+    restriction it does not make."""
+    entry = connection(hosts=["shared.example.com", "shared.example.com/api/"])
+    assert any(
+        "shared.example.com/api/" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
+
+
+def test_a_base_url_on_the_scoped_host_is_reported_as_the_source() -> None:
+    """base_url puts its host on the list bare; a scoped entry cannot narrow it."""
+    entry = connection(
+        hosts=["shared.example.com/api/"], base_url="https://shared.example.com"
+    )
+    assert any(
+        "base_url" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
+
+
+def test_a_path_scoped_entry_without_the_bare_host_is_not_reported() -> None:
+    entry = connection(hosts=["api.example.com", "shared.example.com/api/"])
+    assert connection_problems(entry, Registry([entry])) == []
+
+
 def test_mcp_host_must_be_a_declared_host() -> None:
     entry = connection(mcp={"url": "https://mcp.example.com/mcp"})
     assert any(
@@ -188,6 +293,26 @@ def test_mcp_host_must_be_a_declared_host() -> None:
         mcp={"url": "https://mcp.example.com/mcp"},
     )
     assert connection_problems(good, Registry([good])) == []
+
+
+def test_mcp_url_below_a_path_scoped_host_is_a_declared_host() -> None:
+    entry = connection(
+        hosts=["shared.example.com/api/"],
+        mcp={"url": "https://shared.example.com/api/mcp"},
+    )
+    assert connection_problems(entry, Registry([entry])) == []
+
+
+def test_mcp_url_beside_the_scoped_path_is_reported() -> None:
+    """The MCP server is spoken to with the token; beside the path is off-limits."""
+    entry = connection(
+        hosts=["shared.example.com/api/"],
+        mcp={"url": "https://shared.example.com/mcp"},
+    )
+    assert any(
+        "mcp.url" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
 
 
 def test_examples_are_checked_against_accepts_token() -> None:

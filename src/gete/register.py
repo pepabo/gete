@@ -12,7 +12,7 @@ steps for a person instead and carries on with the next agent.
 
 import base64
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -47,10 +47,39 @@ def in_use_by_another(message: str) -> bool:
     return AUTHORIZATION_IN_USE in message
 
 
-def authorization_uri(connection: Connection, client_id: str) -> str:
-    """Where the user is sent to consent, with the scopes the connection declares."""
+def requested_scopes(connection: Connection, selected: Sequence[str]) -> list[str]:
+    """The connection's default scopes plus the agent's selection, in that order.
+
+    The selection must come from the connection's optional_scopes menu. The
+    menu is the reviewed ceiling, and register can be run without validate, so
+    a scope from outside it is refused here too rather than sent to the
+    consent screen.
+    """
+    menu = connection.oauth.optional_scopes
+    unknown = [scope for scope in selected if scope not in menu]
+    if unknown:
+        raise DeclarationError(
+            f"connection {connection.id}: {', '.join(unknown)} not in "
+            "oauth.optional_scopes; an agent selects from the menu only"
+        )
+    defaults = list(connection.oauth.scopes)
+    return defaults + [scope for scope in selected if scope not in defaults]
+
+
+def authorization_uri(
+    connection: Connection, client_id: str, selected_scopes: Sequence[str] = ()
+) -> str:
+    """Where the user is sent to consent: the default scopes plus the selection."""
     oauth = connection.oauth
     if oauth.authorization_query is not None:
+        if selected_scopes:
+            # The query is used as written; building the selection into it
+            # would second-guess the form known to work, and leaving it out
+            # would grant less than the agent declared without a word.
+            raise DeclarationError(
+                f"connection {connection.id} fixes its authorization_query; "
+                "a scope selection cannot reach the consent screen"
+            )
         # The form known to work for this service; Gemini Enterprise adds
         # client_id and redirect_uri itself.
         params: dict[str, str] = dict(oauth.authorization_query)
@@ -59,7 +88,9 @@ def authorization_uri(connection: Connection, client_id: str) -> str:
             "client_id": client_id,
             "redirect_uri": REDIRECT_URI,
             "response_type": "code",
-            oauth.scope_parameter: " ".join(oauth.scopes),
+            oauth.scope_parameter: " ".join(
+                requested_scopes(connection, selected_scopes)
+            ),
             # Without offline access there is no refresh token and reading
             # stops an hour after consent.
             "access_type": "offline",
@@ -74,8 +105,14 @@ def authorization_body(
     connection: Connection,
     client_id: str,
     client_secret: str,
+    selected_scopes: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """The Authorization resource, named per agent so two agents never share one."""
+    """The Authorization resource, named per agent so two agents never share one.
+
+    The scope selection rides in the authorization URI, so the selection is
+    per agent too: another agent on the same connection consents to its own
+    scopes and no more.
+    """
     if connection.needs_base_url:
         # validate refuses this, but register can be run without it, and what
         # would be stored here is the link every user of the agent is sent to.
@@ -84,7 +121,7 @@ def authorization_body(
     oauth2: dict[str, Any] = {
         "clientId": client_id,
         "clientSecret": client_secret,
-        "authorizationUri": authorization_uri(connection, client_id),
+        "authorizationUri": authorization_uri(connection, client_id, selected_scopes),
         "tokenUri": connection.oauth.token_url,
     }
     if connection.oauth.pkce:
@@ -222,6 +259,19 @@ class Registrar:
         return f"projects/{self._number}/locations/{self._ge_location}"
 
     def _register(self, agent: Agent, engine: str, summary: Summary) -> None:
+        seen: set[str] = set()
+        for connection_id in agent.connections:
+            if connection_id in seen:
+                # The schema cannot see that a string entry and a mapping
+                # entry name the same connection, and scope selections are
+                # keyed by id, so one entry's selection would stand for every
+                # duplicate silently.
+                raise DeclarationError(
+                    f"connections: {connection_id} is declared twice; "
+                    "only one entry's scope selection could reach the "
+                    "consent screen"
+                )
+            seen.add(connection_id)
         engines_url = (
             f"https://{self._location}-aiplatform.googleapis.com/v1/projects/"
             f"{self._gcp_project}/locations/{self._location}/reasoningEngines"
@@ -236,7 +286,10 @@ class Registrar:
         )
         authorizations = [
             self._upsert_authorization(
-                agent, self._registry.get(connection_id), summary
+                agent,
+                self._registry.get(connection_id),
+                agent.scope_selections.get(connection_id, ()),
+                summary,
             )
             for connection_id in agent.connections
         ]
@@ -299,7 +352,11 @@ class Registrar:
         summary.registered.append(agent.name)
 
     def _upsert_authorization(
-        self, agent: Agent, connection: Connection, summary: Summary
+        self,
+        agent: Agent,
+        connection: Connection,
+        selected_scopes: Sequence[str],
+        summary: Summary,
     ) -> str:
         body = authorization_body(
             self._parent,
@@ -307,6 +364,7 @@ class Registrar:
             connection,
             self._secret(connection.client_id_secret),
             self._secret(connection.client_secret_secret),
+            selected_scopes,
         )
         resource = str(body["name"])
         identifier = resource.rsplit("/", 1)[-1]
