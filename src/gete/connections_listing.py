@@ -44,7 +44,9 @@ def format_connection(connection: Connection) -> str:
     oauth = connection.oauth
     scopes = [f"{scope}: {text}" for scope, text in oauth.scopes.items()]
     fields: list[tuple[str, list[str]]] = [
-        ("status", [connection.retired or "available"]),
+        # The same word the listing uses; the reason gets a line of its own.
+        ("status", ["retired" if connection.retired else "available"]),
+        *([("retired", [connection.retired])] if connection.retired else []),
         (
             "source",
             ["catalog" if connection.id in catalog_connections() else "gete.yaml"],
