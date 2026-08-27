@@ -395,7 +395,8 @@ def test_an_openapi_description_travels_in_the_archive(
     (directory / "specs").mkdir()
     (directory / "specs" / "service.yaml").write_text(OPENAPI_SPEC)
     files = members(build_archive(directory))
-    assert files["specs/service.yaml"] == OPENAPI_SPEC.encode()
+    document = yaml.safe_load(files["specs/service.yaml"])
+    assert document["paths"]["/things"]["get"]["operationId"] == "ListThings"
     resolved = yaml.safe_load(files[RESOLVED_FILE])
     assert resolved["tools"][0]["openapi"]["spec"] == "./specs/service.yaml"
 
@@ -406,4 +407,158 @@ def test_an_openapi_description_outside_the_agent_directory_is_refused(
     directory = prepare_openapi(project, "../shared.yaml")
     (project.agents_dir / "shared.yaml").write_text(OPENAPI_SPEC)
     with pytest.raises(DeclarationError, match="outside"):
+        build_archive(directory)
+
+
+WIDE_OPENAPI_SPEC = """
+openapi: 3.0.0
+info: {title: Example, version: "1.0"}
+servers: [{url: "https://tenant.example.com"}]
+paths:
+  /things:
+    get:
+      operationId: ListThings
+      responses: {"200": {description: ok}}
+    post:
+      operationId: CreateThing
+      responses: {"201": {description: made}}
+  /others:
+    get:
+      operationId: ListOthers
+      responses: {"200": {description: ok}}
+"""
+
+
+def test_the_archived_description_is_pruned_to_the_declared_operations(
+    project: ProjectBuilder,
+) -> None:
+    """Cutting a published description down by hand breaks quietly - dropped
+    path-level parameters, flattened $refs - so the archive does the cutting
+    from the declaration."""
+    directory = prepare_openapi(project, "./specs/service.yaml")
+    (directory / "specs").mkdir()
+    (directory / "specs" / "service.yaml").write_text(WIDE_OPENAPI_SPEC)
+    files = members(build_archive(directory))
+    document = yaml.safe_load(files["specs/service.yaml"])
+    assert list(document["paths"]) == ["/things"]
+    assert list(document["paths"]["/things"]) == ["get"]
+    assert "servers" not in document
+
+
+def test_two_blocks_over_one_file_keep_the_union_of_their_operations(
+    project: ProjectBuilder,
+) -> None:
+    """A read block and a write block commonly share one description; the
+    archived file must carry what either of them declared."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"rooted-api": ROOTED_API},
+        }
+    )
+    directory = project.write_agent(
+        "mail-triage",
+        {
+            "connections": ["rooted-api"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": "./specs/service.yaml",
+                        "connection": "rooted-api",
+                        "operations": ["ListThings"],
+                        "effect": "read",
+                    }
+                },
+                {
+                    "openapi": {
+                        "spec": "./specs/service.yaml",
+                        "connection": "rooted-api",
+                        "operations": ["CreateThing"],
+                    }
+                },
+            ],
+        },
+    )
+    (directory / "specs").mkdir()
+    (directory / "specs" / "service.yaml").write_text(WIDE_OPENAPI_SPEC)
+    files = members(build_archive(directory))
+    document = yaml.safe_load(files["specs/service.yaml"])
+    assert set(document["paths"]["/things"]) == {"get", "post"}
+    assert "/others" not in document["paths"]
+
+
+def test_a_pruned_description_archives_the_same_bytes_every_time(
+    project: ProjectBuilder,
+) -> None:
+    """Pruning happens on the way in; it must not cost the determinism the
+    hash comparison rests on."""
+    directory = prepare_openapi(project, "./specs/service.yaml")
+    (directory / "specs").mkdir()
+    (directory / "specs" / "service.yaml").write_text(WIDE_OPENAPI_SPEC)
+    assert build_archive(directory).archive == build_archive(directory).archive
+
+
+POINTED_OPENAPI_SPEC = """
+openapi: 3.0.0
+info: {title: Example, version: "1.0"}
+paths:
+  /things:
+    post:
+      operationId: CreateThing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {name: {type: string}}
+      responses: {"201": {description: made}}
+  /things/{thing_id}:
+    parameters:
+      - {name: thing_id, in: path, required: true, schema: {type: string}}
+    put:
+      operationId: UpdateThing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/paths/~1things/post/requestBody/content/application~1json/schema"
+      responses: {"200": {description: ok}}
+"""
+
+
+def test_an_archive_refuses_a_declaration_pruning_cannot_keep(
+    project: ProjectBuilder,
+) -> None:
+    """A reference into another path's subtree resolves in the repo's file
+    and dangles once that path is pruned away. The packing must say so; a
+    miss the archive carries would surface at the deployed agent's cold
+    start."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"rooted-api": ROOTED_API},
+        }
+    )
+    directory = project.write_agent(
+        "mail-triage",
+        {
+            "connections": ["rooted-api"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": "./specs/service.yaml",
+                        "connection": "rooted-api",
+                        "operations": ["UpdateThing"],
+                    }
+                }
+            ],
+        },
+    )
+    (directory / "specs").mkdir()
+    (directory / "specs" / "service.yaml").write_text(POINTED_OPENAPI_SPEC)
+    with pytest.raises(DeclarationError, match="pruned"):
         build_archive(directory)

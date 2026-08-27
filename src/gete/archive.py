@@ -18,7 +18,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib.metadata import requires
 from pathlib import Path, PurePosixPath
-from typing import TextIO
+from typing import Any, TextIO
 
 import yaml
 
@@ -31,6 +31,7 @@ from gete.declaration import (
     resolve,
 )
 from gete.errors import DeclarationError
+from gete.openapi import declaration_problems, load_spec, pruned_description
 from gete.templates import template_text
 from gete.validate import validate_project
 
@@ -111,14 +112,41 @@ def build_archive(directory: Path, *, project: Project | None = None) -> Archive
         entries[name] = instruction.read_bytes()
     # OpenAPI descriptions are read from the archive, never the network: a
     # vendor changing a published description must not change a deployed
-    # agent's tools.
+    # agent's tools. What travels is pruned to the declared operations -
+    # cutting a description down by hand breaks quietly, so the archive does
+    # the cutting; a file two blocks share keeps the union of their choices.
+    descriptions: dict[str, tuple[Path, set[str]]] = {}
+    blocks: list[tuple[str, Any]] = []
     for index, tool in enumerate(agent.tools):
         if "openapi" in tool:
-            spec_path = agent.directory / str(tool["openapi"]["spec"])
+            block = tool["openapi"]
+            spec_path = agent.directory / str(block["spec"])
             name = _archive_input(
                 agent, spec_path, f"tools[{index}].openapi.spec", kind="file"
             )
-            entries[name] = spec_path.read_bytes()
+            _, selected = descriptions.setdefault(name, (spec_path, set()))
+            selected.update(map(str, block["operations"]))
+            blocks.append((name, block))
+    pruned_by_name: dict[str, Any] = {}
+    for name, (spec_path, selected) in descriptions.items():
+        pruned = pruned_description(load_spec(spec_path), selected)
+        pruned_by_name[name] = pruned
+        entries[name] = yaml.safe_dump(
+            pruned, sort_keys=False, allow_unicode=True
+        ).encode()
+    # The runtime holds each block against the archived description, not the
+    # repo's file. A reference into another path's subtree resolves in the
+    # repo and dangles once that path is pruned away; holding the declaration
+    # against what actually travels keeps the miss from surfacing at the
+    # deployed agent's cold start.
+    for name, block in blocks:
+        problems = declaration_problems(block, pruned_by_name[name])
+        if problems:
+            lines = "; ".join(problems)
+            raise DeclarationError(
+                f"{name}, pruned to the declared operations, cannot carry "
+                f"its declaration: {lines}"
+            )
     if agent.source is not None:
         # Agent Engine imports from the archive root, so the source directory's
         # contents go there and the resolved declaration points at ".".

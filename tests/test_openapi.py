@@ -7,7 +7,12 @@ from typing import Any
 import pytest
 
 from gete.errors import DeclarationError
-from gete.openapi import declaration_problems, load_spec, read_operations
+from gete.openapi import (
+    declaration_problems,
+    load_spec,
+    pruned_description,
+    read_operations,
+)
 
 MINIMAL = """
 openapi: 3.0.0
@@ -858,3 +863,105 @@ def test_an_operation_id_that_cannot_name_a_tool_is_reported() -> None:
     found = declaration_problems(block(operations=["list search results"]), spec)
     assert len(found) == 1
     assert "name" in found[0]
+
+
+def test_a_path_placeholder_no_parameter_declares_is_reported() -> None:
+    """A tool that cannot say which record it addresses would still validate;
+    hand-pruned descriptions lose path-level parameters exactly this way."""
+    spec = json.loads(json.dumps(SPEC))
+    del spec["paths"]["/tickets/{ticket_id}"]["parameters"]
+    found = declaration_problems(block(operations=["ShowTicket"]), spec)
+    assert len(found) == 1
+    assert "{ticket_id}" in found[0]
+
+
+def test_a_placeholder_satisfied_through_a_reference_passes() -> None:
+    """Path-level parameters are commonly written as $ref; resolution has
+    already happened by the time the placeholders are checked."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/tickets/{ticket_id}"]["parameters"] = [
+        {"$ref": "#/components/parameters/TicketId"}
+    ]
+    spec["components"]["parameters"]["TicketId"] = {
+        "name": "ticket_id",
+        "in": "path",
+        "required": True,
+        "schema": {"type": "integer"},
+    }
+    assert declaration_problems(block(operations=["ShowTicket"]), spec) == []
+
+
+def test_pruned_description_keeps_only_the_selected_operations() -> None:
+    pruned = pruned_description(SPEC, ["ShowTicket"])
+    assert list(pruned["paths"]) == ["/tickets/{ticket_id}"]
+    assert set(pruned["paths"]["/tickets/{ticket_id}"]) == {"parameters", "get"}
+
+
+def test_pruned_description_keeps_what_the_kept_operations_reference() -> None:
+    """The two ways hand-pruning breaks quietly: a dropped path-level
+    parameter, and a flattened $ref chain. Both survive here, and what
+    nothing references stays behind."""
+    spec = with_update_body(
+        {"$ref": "#/components/schemas/TicketWrapper"},
+        TicketWrapper={
+            "type": "object",
+            "properties": {"ticket": {"$ref": "#/components/schemas/Ticket"}},
+        },
+        Ticket={"type": "object", "properties": {"status": {"type": "string"}}},
+        Unrelated={"type": "object"},
+    )
+    pruned = pruned_description(spec, ["UpdateTicket", "ListSearchResults"])
+    # The path-level parameter rides with the kept path item.
+    tickets = pruned["paths"]["/tickets/{ticket_id}"]
+    assert tickets["parameters"][0]["name"] == "ticket_id"
+    assert "get" not in tickets and "delete" not in tickets
+    # The $ref chain is grafted transitively; the unreferenced schema is not.
+    schemas = pruned["components"]["schemas"]
+    assert set(schemas) == {"TicketUpdate", "TicketWrapper", "Ticket"}
+    assert pruned["components"]["parameters"]["Query"]["name"] == "query"
+
+
+def test_pruned_description_leaves_the_published_servers_behind() -> None:
+    pruned = pruned_description(SPEC, ["ShowTicket"])
+    assert "servers" not in pruned
+
+
+def test_a_pruned_description_still_carries_the_declaration() -> None:
+    sound = block(
+        operations=["ListSearchResults", "ShowTicket"],
+        params={"ListSearchResults": {"query": {"prefix": "type:ticket "}}},
+    )
+    pruned = pruned_description(SPEC, ["ListSearchResults", "ShowTicket"])
+    assert declaration_problems(sound, pruned) == []
+
+
+def test_pruned_description_resolves_a_referenced_path_item() -> None:
+    """A path item may itself be a $ref; the resolved item is what travels."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/things"] = {"$ref": "#/components/pathItems/Things"}
+    spec["components"]["pathItems"] = {
+        "Things": {
+            "get": {
+                "operationId": "ListThings",
+                "responses": {"200": {"description": "ok"}},
+            }
+        }
+    }
+    pruned = pruned_description(spec, ["ListThings"])
+    assert "get" in pruned["paths"]["/things"]
+
+
+def test_pruned_description_does_not_graft_a_pointer_into_paths() -> None:
+    """Grafting one would re-select what pruning just left out; the pointer
+    dangles exactly as an unresolvable one always did."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"] = [
+        {"$ref": "#/paths/~1tickets~1{ticket_id}/parameters/0"}
+    ]
+    pruned = pruned_description(spec, ["ListSearchResults"])
+    assert list(pruned["paths"]) == ["/search"]
+
+
+def test_pruned_description_needs_a_document_with_paths() -> None:
+    with pytest.raises(DeclarationError, match="paths"):
+        pruned_description({"openapi": "3.0.0"}, ["ListThings"])

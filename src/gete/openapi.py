@@ -25,6 +25,7 @@ __all__ = [
     "declaration_problems",
     "exposes",
     "load_spec",
+    "pruned_description",
     "read_operations",
 ]
 
@@ -244,6 +245,103 @@ def read_operations(spec: Any) -> tuple[dict[str, Operation], list[str]]:
     return operations, duplicates
 
 
+def pruned_description(spec: Any, selected: Iterable[str]) -> dict[str, Any]:
+    """The description reduced to the named operations.
+
+    Cutting a published description down by hand breaks quietly: path-level
+    parameters fall away, a flattened $ref takes the arguments it carried,
+    and validate cannot tell a pruned description from one that never
+    declared them. So the cutting is done here, from what read_operations
+    already knows. A kept method rides with its whole path item - path-level
+    parameters included - and every node a kept part references is grafted
+    at its original pointer, transitively, so $ref keeps resolving. All the
+    rest stays behind: unselected operations, unreferenced components, and
+    the published servers, which nothing ever reads.
+    """
+    wanted = set(map(str, selected))
+    paths = spec.get("paths") if isinstance(spec, Mapping) else None
+    if not isinstance(paths, Mapping):
+        raise DeclarationError(
+            "the document has no paths; is it an OpenAPI description?"
+        )
+    kept_paths: dict[str, Any] = {}
+    for path, item in paths.items():
+        path_item = _resolve(spec, item)
+        if not isinstance(path_item, Mapping):
+            continue
+        kept = {
+            key: value
+            for key, value in path_item.items()
+            if key not in HTTP_METHODS
+            or (isinstance(value, Mapping) and value.get("operationId") in wanted)
+        }
+        if any(method in kept for method in HTTP_METHODS):
+            kept_paths[str(path)] = kept
+    document: dict[str, Any] = {}
+    for key in ("openapi", "info"):
+        if isinstance(spec, Mapping) and key in spec:
+            document[key] = spec[key]
+    document["paths"] = kept_paths
+    _graft_references(spec, document)
+    return document
+
+
+def _graft_references(spec: Any, document: dict[str, Any]) -> None:
+    """Copy every locally referenced node into the document, transitively.
+
+    Each target lands at its original JSON pointer, so the references it was
+    found under keep resolving. Pointers into ``paths`` stay behind: grafting
+    one would re-select what pruning just left out.
+    """
+    queue: list[Any] = [document["paths"]]
+    grafted: set[str] = set()
+    while queue:
+        node = queue.pop(0)
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                if (
+                    key == "$ref"
+                    and isinstance(value, str)
+                    and value.startswith("#/")
+                    and value not in grafted
+                ):
+                    grafted.add(value)
+                    target = _graft(spec, document, value)
+                    if target is not None:
+                        queue.append(target)
+                else:
+                    queue.append(value)
+        elif isinstance(node, list):
+            queue.extend(node)
+
+
+def _graft(spec: Any, document: dict[str, Any], pointer: str) -> Any:
+    """Place one pointer's target into the document, returning it.
+
+    A pointer that cannot be followed, or that leads into paths or through
+    anything but mappings, grafts nothing - the reference dangles exactly as
+    an unresolvable one always did, and the rules speak in their own words.
+    """
+    parts = [
+        part.replace("~1", "/").replace("~0", "~") for part in pointer[2:].split("/")
+    ]
+    if not parts or parts[0] == "paths":
+        return None
+    source: Any = spec
+    for part in parts:
+        if not isinstance(source, Mapping) or part not in source:
+            return None
+        source = source[part]
+    where = document
+    for part in parts[:-1]:
+        node = where.setdefault(part, {})
+        if not isinstance(node, dict):
+            return None
+        where = node
+    where[parts[-1]] = source
+    return source
+
+
 def declaration_problems(block: Mapping[str, Any], spec: Any) -> list[str]:
     """Hold one ``openapi:`` block against the description it selects from.
 
@@ -319,6 +417,19 @@ def _operation_problems(operation: Operation, effect: str) -> list[str]:
             found.append(
                 f"operations: {name!r} requires {where} parameter "
                 f"{parameter.get('name')!r}, which a declaration does not send"
+            )
+    declared_in_path = {
+        str(parameter.get("name"))
+        for parameter in operation.parameters
+        if parameter.get("in") == "path"
+    }
+    for placeholder in re.findall(r"\{([^{}]*)\}", operation.path):
+        if placeholder not in declared_in_path:
+            # The tool could never say which record the request addresses;
+            # hand-pruned descriptions lose path-level parameters this way.
+            found.append(
+                f"operations: {name!r} has {{{placeholder}}} in its path, "
+                "and no path parameter declares it"
             )
     if operation.body_media is not None and operation.body is None:
         found.append(
