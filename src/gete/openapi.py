@@ -24,14 +24,18 @@ __all__ = ["Operation", "declaration_problems", "load_spec", "read_operations"]
 # The keys of a path item that name operations (RFC 9110 methods, lowercase).
 HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 
-# The verbs the connection client offers. DELETE is deliberately not one of
-# them; the client's docstring holds the reason.
-SUPPORTED_METHODS = frozenset({"get", "post", "put", "patch"})
+# The verbs the connection client offers.
+SUPPORTED_METHODS = frozenset({"get", "post", "put", "patch", "delete"})
 
 # Methods that always change state. POST is not among them: search endpoints
 # commonly take one, and the declaration's effect is where the difference is
 # said.
-WRITE_METHODS = frozenset({"put", "patch"})
+WRITE_METHODS = frozenset({"put", "patch", "delete"})
+
+# Methods the client sends without a body. A GET's is dropped by convention,
+# a DELETE's has no meaning (RFC 9110); an operation that needs one would
+# lose arguments silently.
+BODYLESS_METHODS = frozenset({"get", "delete"})
 
 # What a Gemini function may be called; the operationId becomes the tool name.
 TOOL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
@@ -236,17 +240,10 @@ def _operation_problems(operation: Operation, effect: str) -> list[str]:
             f"operations: {name!r} cannot name a tool; letters, digits, "
             "underscores, and hyphens only"
         )
-    if operation.method == "delete":
-        found.append(
-            f"operations: {name!r} is a DELETE, which gete does not send: "
-            "a deletion cannot be read back or corrected afterwards, so it "
-            "stays outside what a declaration can reach"
-        )
-        return found
     if operation.method not in SUPPORTED_METHODS:
         found.append(
             f"operations: {name!r} is {operation.method.upper()}, "
-            "which is not one of GET, POST, PUT, PATCH"
+            "which is not one of GET, POST, PUT, PATCH, DELETE"
         )
         return found
     if operation.method in WRITE_METHODS and effect != "write":
@@ -267,10 +264,10 @@ def _operation_problems(operation: Operation, effect: str) -> list[str]:
             "only a JSON body can be declared"
         )
     elif operation.body is not None:
-        if operation.method == "get":
+        if operation.method in BODYLESS_METHODS:
             found.append(
-                f"operations: {name!r} is a GET with a request body, "
-                "which is not supported"
+                f"operations: {name!r} is a {operation.method.upper()} with "
+                "a request body, which is not supported"
             )
         body_type = operation.body.get("type")
         if body_type is not None and body_type != "object":

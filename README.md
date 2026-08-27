@@ -185,11 +185,12 @@ tools:
   file into the archive and the runtime reads it from there, so a vendor
   editing their published description changes nothing until someone
   re-archives deliberately.
-- **Writes ride the same rails.** PUT and PATCH operations must sit in a
-  block declared `effect: write`, which the confirmation policies key on,
-  and results pass the same redaction as every other tool. DELETE cannot be
-  declared at all — the client offers no delete verb, and the reason is
-  written where the verbs live.
+- **Writes ride the same rails.** PUT, PATCH, and DELETE operations must
+  sit in a block declared `effect: write`, which the confirmation policies
+  key on, and results pass the same redaction as every other tool. A change
+  that may already have been applied is never resent — for a DELETE, what
+  it removed usually cannot be brought back, so a confirmation policy on
+  write tools is worth having before declaring one.
 
 ### Connections
 

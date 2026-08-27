@@ -118,6 +118,10 @@ class OpenApiTool(BaseTool):
         state = getattr(tool_context, "state", None)
         if self._method == "get":
             return await client.get_json(url, params=query or None, state=state)
+        if self._method == "delete":
+            # No body: DELETE gives one no meaning, and validate refused any
+            # operation that declares one.
+            return await client.delete_json(url, params=query or None, state=state)
         send = {
             "post": client.post_json,
             "put": client.put_json,

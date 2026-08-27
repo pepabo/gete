@@ -86,6 +86,10 @@ SPEC: dict[str, Any] = {
                 },
                 "responses": {"200": {"description": "ok"}},
             },
+            "delete": {
+                "operationId": "DeleteTicket",
+                "responses": {"204": {"description": "gone"}},
+            },
         },
     },
 }
@@ -253,6 +257,9 @@ class RecordingClient:
     ) -> Any:
         return self._record("PATCH", url, params, body, kwargs)
 
+    async def delete_json(self, url: str, params: Any = None, **kwargs: Any) -> Any:
+        return self._record("DELETE", url, params, None, kwargs)
+
     def _record(
         self, method: str, url: str, params: Any, body: Any, kwargs: Any
     ) -> Any:
@@ -338,6 +345,17 @@ async def test_a_put_operation_sends_the_json_body_with_the_put_verb(
     assert call["method"] == "PUT"
     assert call["url"] == "https://acme.example.com/tickets/7"
     assert call["body"] == {"ticket": {"status": "solved"}}
+
+
+async def test_a_delete_operation_uses_the_delete_verb(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    built = toolset(tmp_path, operations=["DeleteTicket"], effect="write")
+    await run(built, "DeleteTicket", {"ticket_id": "7"})
+    call = client.calls[0]
+    assert call["method"] == "DELETE"
+    assert call["url"] == "https://acme.example.com/tickets/7"
+    assert call["body"] is None
 
 
 async def test_the_callers_state_reaches_the_client(

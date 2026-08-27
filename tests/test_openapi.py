@@ -208,10 +208,30 @@ def test_a_duplicated_operation_id_cannot_be_selected() -> None:
     assert "more than once" in found[0]
 
 
-def test_delete_operations_are_refused_with_the_reason() -> None:
-    found = declaration_problems(block(operations=["DeleteTicket"]), SPEC)
+def test_a_delete_may_be_declared_as_a_write() -> None:
+    sound = block(operations=["DeleteTicket"], effect="write")
+    assert declaration_problems(sound, SPEC) == []
+
+
+def test_a_delete_may_not_be_declared_as_a_read() -> None:
+    found = declaration_problems(
+        block(operations=["DeleteTicket"], effect="read"), SPEC
+    )
     assert len(found) == 1
-    assert "DELETE" in found[0]
+    assert "effect: write" in found[0]
+
+
+def test_a_delete_with_a_request_body_is_refused() -> None:
+    """The client sends no body on a DELETE; RFC 9110 gives one no meaning."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/tickets/{ticket_id}"]["delete"]["requestBody"] = {
+        "content": {"application/json": {"schema": {"type": "object"}}}
+    }
+    found = declaration_problems(
+        block(operations=["DeleteTicket"], effect="write"), spec
+    )
+    assert len(found) == 1
+    assert "request body" in found[0]
 
 
 def test_a_write_method_may_not_be_declared_as_a_read() -> None:
