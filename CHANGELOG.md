@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.2.8](https://github.com/pepabo/gete/compare/v0.2.7...v0.2.8) - 2026-08-27
+
+- Say which index an install from git resolves through by @haruotsu in https://github.com/pepabo/gete/pull/25
+- Let a connection leave its root open until the installation names it by @haruotsu in https://github.com/pepabo/gete/pull/27
+- Offer one reauthorization tool per connection, not per toolset by @haruotsu in https://github.com/pepabo/gete/pull/28
+- Let a connection ask for PKCE by @haruotsu in https://github.com/pepabo/gete/pull/29
+- Give a connection somewhere to say what a person must do first by @haruotsu in https://github.com/pepabo/gete/pull/30
+- Let a connection be read with POST and with fixed headers by @haruotsu in https://github.com/pepabo/gete/pull/31
+- Add the Notion MCP endpoint to the catalog by @haruotsu in https://github.com/pepabo/gete/pull/32
+
 ## [v0.2.7](https://github.com/pepabo/gete/compare/v0.2.6...v0.2.7) - 2026-08-26
 
 - Document the way from an empty project to a listed agent by @haruotsu in https://github.com/pepabo/gete/pull/22
