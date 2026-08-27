@@ -135,3 +135,13 @@ def test_a_catalog_connection_can_be_described_without_a_project() -> None:
         result = runner.invoke(main, ["connections", "github"])
     assert result.exit_code == 0, result.output
     assert "api.github.com" in result.output
+
+
+def test_a_retired_connection_reads_retired_with_the_reason_alongside() -> None:
+    """The listing says "retired"; describing one must not say something else."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(main, ["connections", "slack"])
+    assert result.exit_code == 0, result.output
+    assert "status" in result.output and "retired" in result.output
+    assert "native connector" in result.output

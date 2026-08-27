@@ -349,3 +349,44 @@ def test_redact_pattern_may_count_digits_of_a_group() -> None:
             ],
             source="p.yaml",
         )
+
+
+ROOTED: dict[str, Any] = {
+    "id": "example",
+    "display_name": "Example",
+    "hosts": [],
+    "oauth": {
+        "authorization_url": "{base_url}/oauth/authorizations/new",
+        "token_url": "{base_url}/oauth/tokens",
+        "scopes": {"read": "Read data"},
+    },
+    "mcp": {"url": "{base_url}/mcp"},
+}
+
+
+def test_connection_urls_may_be_written_around_the_installation_root() -> None:
+    """A catalog entry cannot spell a tenant's host, so it leaves a hole for one."""
+    validate_document("connection", ROOTED, source="c.yaml")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "{base_url}.example.com/oauth",
+        "{BASE_URL}/oauth",
+        "{base_url}oauth",
+        "http://{base_url}/oauth",
+        "{other}/oauth",
+        "https://api.example.com/?next={base_url}",
+        "https://api.example.com/x/{base_url}",
+        "{base_url}/a?next={base_url}",
+    ],
+)
+def test_only_the_whole_root_may_be_left_open(url: str) -> None:
+    """Half a host is not a root: what fills it would decide part of the name."""
+    with pytest.raises(DeclarationError):
+        validate_document(
+            "connection",
+            {**ROOTED, "oauth": {**ROOTED["oauth"], "token_url": url}},
+            source="c.yaml",
+        )
