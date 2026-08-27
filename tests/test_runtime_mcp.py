@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import yaml
 from conftest import ProjectBuilder
+from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.mcp_tool import McpToolset
 
 from gete.connection import Registry
@@ -15,6 +16,7 @@ from gete.errors import DeclarationError
 from gete.request_context import clear_tool_call
 from gete.runtime import build
 from gete.runtime.mcp import GeteMcpToolset, mcp_toolset
+from gete.runtime.reauthorization import ReauthorizationToolset
 
 CATALOG = Registry.from_catalog()
 FREEE_TOKEN = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
@@ -92,8 +94,9 @@ def test_build_turns_the_declaration_into_a_toolset(
             ],
         },
     )
-    [built] = build(path).tools
+    built, asking = build(path).tools
     assert isinstance(built, GeteMcpToolset)
+    assert isinstance(asking, ReauthorizationToolset)
     assert built.url == URL
     assert built.fixed_headers == {"X-Trace": "t-1"}
     assert built.timeout == 10
@@ -142,16 +145,6 @@ def test_header_provider_sends_nothing_for_a_wrong_shape_and_logs_no_value(
     with caplog.at_level(logging.WARNING):
         assert provider(Context({"mail-triage-freee": "ya29.not-freee"})) == {}
     assert "ya29.not-freee" not in caplog.text
-
-
-async def test_no_token_means_no_server_call_only_a_reauthorization_tool() -> None:
-    """Port 9 is the discard port; any attempt to connect would fail loudly."""
-    built = toolset({"url": "https://127.0.0.1:9/mcp", "connection": "freee"})
-    tools = await built.get_tools(Context({}))
-    assert [tool.name for tool in tools] == ["reauthorize_freee"]
-    result = await tools[0].run_async(args={}, tool_context=Context({}))
-    assert "freee" in str(result)
-    assert "Gemini Enterprise" in str(result)
 
 
 def test_a_fixed_authorization_header_is_refused_next_to_a_connection() -> None:
@@ -252,13 +245,6 @@ def write_tools_module(directory: Path) -> None:
     )
 
 
-async def test_no_readonly_context_also_means_no_server_call() -> None:
-    """agent.canonical_tools() passes no context; the rule must hold there too."""
-    built = toolset({"url": "https://127.0.0.1:9/mcp", "connection": "freee"})
-    tools = await built.get_tools()
-    assert [tool.name for tool in tools] == ["reauthorize_freee"]
-
-
 async def test_a_confirmation_flag_adk_no_longer_carries_fails_loudly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -281,3 +267,141 @@ async def test_a_confirmation_flag_adk_no_longer_carries_fails_loudly(
     )
     with pytest.raises(RuntimeError, match="require_confirmation"):
         await built.get_tools(Context({}))
+
+
+async def offered(path: Path, state: dict[str, Any]) -> list[str]:
+    """Every tool name the model would be shown, toolsets resolved as ADK does."""
+    names: list[str] = []
+    for tool in build(path).tools:
+        if isinstance(tool, BaseToolset):
+            names.extend(offer.name for offer in await tool.get_tools(Context(state)))
+        else:
+            names.append(str(tool.__name__))
+    return names
+
+
+async def reauthorizations(path: Path, state: dict[str, Any]) -> list[str]:
+    """Only the tools that ask the user to approve a connection again."""
+    names: list[str] = []
+    for tool in build(path).tools:
+        if isinstance(tool, ReauthorizationToolset):
+            names.extend(offer.name for offer in await tool.get_tools(Context(state)))
+    return names
+
+
+# Port 9 is the discard port; a toolset that tried to list would fail loudly.
+UNREACHABLE = "https://127.0.0.1:9/mcp"
+
+
+async def test_two_toolsets_on_one_connection_offer_one_reauthorization_tool(
+    project: ProjectBuilder,
+) -> None:
+    """Two declarations of one function are refused by the model API.
+
+    Splitting a server's reads from its writes takes two mcp: blocks, since
+    effect is per block. Nothing else about such an agent looks broken:
+    validate passes, and every user without a token lands in it.
+    """
+    path = resolved_path(
+        project,
+        "mail-triage",
+        {
+            "connections": ["freee"],
+            "tools": [
+                {
+                    "mcp": {
+                        "url": UNREACHABLE,
+                        "connection": "freee",
+                        "allow": ["get_deals"],
+                        "effect": "read",
+                    }
+                },
+                {
+                    "mcp": {
+                        "url": UNREACHABLE,
+                        "connection": "freee",
+                        "allow": ["create_deal"],
+                    }
+                },
+            ],
+        },
+    )
+    assert await offered(path, {}) == ["reauthorize_freee"]
+
+
+async def test_each_connection_still_gets_its_own_reauthorization_tool(
+    project: ProjectBuilder,
+) -> None:
+    """The user is told which authorization to approve; one tool would not say."""
+    path = resolved_path(
+        project,
+        "mail-triage",
+        {
+            "connections": ["freee", "github"],
+            "tools": [
+                {"mcp": {"url": UNREACHABLE, "connection": "freee"}},
+                {"mcp": {"url": "https://api.github.com/mcp", "connection": "github"}},
+            ],
+        },
+    )
+    assert sorted(await offered(path, {})) == [
+        "reauthorize_freee",
+        "reauthorize_github",
+    ]
+
+
+async def test_a_connection_holding_a_token_is_not_asked_to_authorize_again(
+    project: ProjectBuilder,
+) -> None:
+    path = resolved_path(
+        project,
+        "mail-triage",
+        {
+            "connections": ["freee", "github"],
+            "tools": [
+                {"mcp": {"url": UNREACHABLE, "connection": "freee"}},
+                {"mcp": {"url": "https://api.github.com/mcp", "connection": "github"}},
+            ],
+        },
+    )
+    state = {"mail-triage-github": "gho_16C7e42F292c6912E7710c838347Ae178B4a"}
+    assert await reauthorizations(path, state) == ["reauthorize_freee"]
+    assert await reauthorizations(path, {"mail-triage-freee": FREEE_TOKEN}) == [
+        "reauthorize_github"
+    ]
+
+
+async def test_the_reauthorization_tool_names_the_connection_to_the_user(
+    project: ProjectBuilder,
+) -> None:
+    path = resolved_path(
+        project,
+        "mail-triage",
+        {
+            "connections": ["freee"],
+            "tools": [{"mcp": {"url": UNREACHABLE, "connection": "freee"}}],
+        },
+    )
+    [asking] = [t for t in build(path).tools if isinstance(t, ReauthorizationToolset)]
+    [tool] = await asking.get_tools(Context({}))
+    result = await tool.run_async(args={}, tool_context=Context({}))
+    assert "freee" in str(result)
+    assert "Gemini Enterprise" in str(result)
+    # agent.canonical_tools() passes no context; the rule must hold there too.
+    assert [offer.name for offer in await asking.get_tools()] == ["reauthorize_freee"]
+
+
+async def test_a_toolset_without_a_token_offers_nothing_of_its_own() -> None:
+    """The tool that asks for authorization belongs to the connection, not here."""
+    built = toolset({"url": UNREACHABLE, "connection": "freee"})
+    assert await built.get_tools(Context({})) == []
+    assert await built.get_tools() == []
+
+
+async def test_an_mcp_tool_without_a_connection_asks_nobody_to_authorize(
+    project: ProjectBuilder,
+) -> None:
+    path = resolved_path(
+        project, "mail-triage", {"tools": [{"mcp": {"url": UNREACHABLE}}]}
+    )
+    assert not [t for t in build(path).tools if isinstance(t, ReauthorizationToolset)]

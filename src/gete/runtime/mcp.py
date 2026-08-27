@@ -6,11 +6,10 @@ import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from google.adk.tools.function_tool import FunctionTool
 from google.adk.tools.mcp_tool import McpToolset, StreamableHTTPConnectionParams
 
 from gete.connection.registry import Connection, Registry
-from gete.connection.runtime import describe_state, describe_token, token_for
+from gete.connection.runtime import usable_token
 from gete.errors import DeclarationError
 
 logger = logging.getLogger(__name__)
@@ -47,8 +46,9 @@ class GeteMcpToolset(McpToolset):
     With a connection, every request carries ``Authorization: Bearer <token>``
     taken from the state under the agent's authorization name, and only when
     the token has the connection's shape. Without a usable token the server is
-    not contacted at all; the only tool offered tells the user to authorize
-    again. ``does_not`` is appended to every tool description.
+    not contacted at all and nothing is offered; asking the user to authorize
+    again belongs to the connection, which may back more than one toolset.
+    ``does_not`` is appended to every tool description.
     """
 
     def __init__(
@@ -87,6 +87,10 @@ class GeteMcpToolset(McpToolset):
         )
 
     @property
+    def connection(self) -> Connection | None:
+        return self._connection
+
+    @property
     def connection_id(self) -> str | None:
         return self._connection.id if self._connection is not None else None
 
@@ -94,7 +98,7 @@ class GeteMcpToolset(McpToolset):
         # No context at all counts as no token: the Agent Card is built that
         # way, and an unauthenticated listing would still leave the server.
         if self._connection is not None and self._token(readonly_context) is None:
-            return [self._reauthorization_tool(self._connection)]
+            return []
         tools: list[Any] = await super().get_tools(readonly_context)
         kept = []
         for tool in tools:
@@ -128,41 +132,7 @@ class GeteMcpToolset(McpToolset):
         key = self._authorization_key
         if connection is None or key is None:
             return None
-        state = getattr(readonly_context, "state", None)
-        if state is None:
-            return None
-        token = token_for(state, key)
-        if token is None:
-            logger.warning(
-                "no token for %s under %r; state holds %s",
-                connection.id,
-                key,
-                describe_state(state),
-            )
-            return None
-        if not connection.accepts_token(token):
-            logger.warning(
-                "token for %s under %r has the wrong shape: %s",
-                connection.id,
-                key,
-                describe_token(connection, token),
-            )
-            return None
-        return token
-
-    @staticmethod
-    def _reauthorization_tool(connection: Connection) -> Any:
-        message = connection.reauthorization_message()
-
-        def reauthorize() -> dict[str, str]:
-            return {"error": message}
-
-        reauthorize.__name__ = f"reauthorize_{connection.id.replace('-', '_')}"
-        reauthorize.__doc__ = (
-            f"The {connection.display_name} tools are unavailable until the user "
-            "authorizes again. Call this to get the message to show them."
-        )
-        return FunctionTool(reauthorize)
+        return usable_token(connection, key, getattr(readonly_context, "state", None))
 
 
 def fixed_headers(

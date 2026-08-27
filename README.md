@@ -138,6 +138,11 @@ registration:
 Tools that do not say `effect: read` count as writes, which is what the
 `has_write_tools` policies key on.
 
+`allow` and `effect` are declared per `mcp:` block, so one server's reads and
+writes are split by naming it twice — the same `url` and `connection`, two
+lists of tool names, two effects. Where a server hands out one grant for both,
+that is the only place an agent can say it means to read.
+
 ### Connections
 
 `gete connections` lists what ships: `freee`, `google`, `github`, and `slack`

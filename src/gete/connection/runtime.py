@@ -82,6 +82,35 @@ def describe_token(connection: Connection, token: str) -> str:
     return "matches none of the declared shapes"
 
 
+def usable_token(connection: Connection, key: str, state: Any) -> str | None:
+    """The user's token for a connection under one key, or None with the reason logged.
+
+    Values are never logged: a token is the user's credential, and its key and
+    shape are enough to tell an authorization that never arrived from one that
+    arrived carrying some other service's token.
+    """
+    if state is None:
+        return None
+    token = token_for(state, key)
+    if token is None:
+        logger.warning(
+            "no token for %s under %r; state holds %s",
+            connection.id,
+            key,
+            describe_state(state),
+        )
+        return None
+    if not connection.accepts_token(token):
+        logger.warning(
+            "token for %s under %r has the wrong shape: %s",
+            connection.id,
+            key,
+            describe_token(connection, token),
+        )
+        return None
+    return token
+
+
 @cache
 def _catalog() -> Registry:
     return Registry.from_catalog()
