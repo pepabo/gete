@@ -12,9 +12,11 @@ token_prefixes: []
 
 oauth:
   authorization_url: "{base_url}/oauth/authorizations/new"
-  # The token endpoint reads credentials from the body, so it does not matter
-  # which of the two Gemini Enterprise sends. A connection cannot say; the
-  # Authorization resource has no field for it.
+  # Zendesk documents the client credentials as body parameters of the token
+  # request (client_secret_post); whether a Basic header also works is not
+  # documented. A connection cannot choose which of the two Gemini Enterprise
+  # sends - the Authorization resource has no field for it - so whether the
+  # exchange goes through is exactly what verified below would vouch for.
   token_url: "{base_url}/oauth/tokens"
   scopes:
     read: Read tickets, users, and help center articles
