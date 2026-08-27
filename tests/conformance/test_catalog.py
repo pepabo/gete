@@ -60,6 +60,51 @@ def test_google_hosts_are_specific_apis_not_the_whole_domain() -> None:
     assert all(host.endswith(".googleapis.com") for host in hosts)
 
 
+def test_google_defaults_stay_the_read_only_minimum() -> None:
+    """A bare `connections: [google]` grants what it always did, nothing more."""
+    assert set(CATALOG["google"]["oauth"]["scopes"]) == {
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar.readonly",
+    }
+
+
+def test_google_offers_workspace_reads_and_writes_on_the_menu() -> None:
+    menu = set(CATALOG["google"]["oauth"]["optional_scopes"])
+    assert {
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/documents.readonly",
+        "https://www.googleapis.com/auth/presentations.readonly",
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/presentations",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/gmail.send",
+    } <= menu
+
+
+def test_google_menu_has_no_blanket_drive_write_and_no_inbox_mutation() -> None:
+    """drive.file writes only what the agent created or opened, and sending
+    mail does not need the power to rewrite or delete the inbox."""
+    menu = set(CATALOG["google"]["oauth"]["optional_scopes"])
+    assert "https://www.googleapis.com/auth/drive" not in menu
+    assert "https://www.googleapis.com/auth/gmail.modify" not in menu
+    assert "https://mail.google.com/" not in menu
+
+
+def test_google_sending_mail_says_so_on_the_consent_screen() -> None:
+    """Sending as the user is outward and irreversible; the text must not soften it."""
+    menu = CATALOG["google"]["oauth"]["optional_scopes"]
+    assert "as you" in menu["https://www.googleapis.com/auth/gmail.send"]
+
+
+def test_google_hosts_cover_the_docs_and_slides_apis() -> None:
+    hosts = CATALOG["google"]["hosts"]
+    assert "docs.googleapis.com" in hosts
+    assert "slides.googleapis.com" in hosts
+
+
 def test_catalog_files_are_read_with_dates_as_strings() -> None:
     """The loader used for the catalog is the same one that keeps dates as strings."""
     text = (

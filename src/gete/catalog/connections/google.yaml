@@ -2,6 +2,7 @@ id: google
 display_name: Google Workspace
 docs: https://developers.google.com/workspace
 
+# The ceiling: every host a token may be sent to, whatever scopes it carries.
 # One host per API. Listing googleapis.com as a whole would let a Workspace
 # authorization reach GCP APIs, and so would www.googleapis.com, which serves
 # storage, compute, and oauth2 next to the Workspace APIs.
@@ -11,17 +12,41 @@ hosts:
   - sheets.googleapis.com
   - drive.googleapis.com
   - people.googleapis.com
+  - docs.googleapis.com
+  - slides.googleapis.com
 token_prefixes:
   - ya29.
 
 oauth:
   authorization_url: https://accounts.google.com/o/oauth2/v2/auth
   token_url: https://oauth2.googleapis.com/token
-  # Read-only. Asking for write access would let an agent send or approve
-  # on the user's behalf, and gete agents are not meant to.
+  # The floor: what every agent that declares the connection gets. Read-only
+  # and minimal, so a bare `connections: [google]` keeps meaning what it
+  # always meant.
   scopes:
     https://www.googleapis.com/auth/gmail.readonly: Read the subject, sender, and body of your mail
     https://www.googleapis.com/auth/calendar.readonly: Read your calendar events
+  # The menu: an agent gets one of these only by selecting it in its own
+  # declaration, and the selection lands in that agent's authorization alone.
+  # Write access lives here and never in the defaults, so no agent can write
+  # without saying so on its consent screen.
+  #
+  # drive.file reaches only the files the agent creates or the user opens
+  # with it; Drive-wide write is deliberately not offered. gmail.send is the
+  # heaviest entry - mail sent as the user is outward and cannot be recalled -
+  # and it grants sending alone: gmail.modify and mail.google.com are not
+  # offered, because rewriting or deleting the inbox is not needed to send.
+  optional_scopes:
+    https://www.googleapis.com/auth/spreadsheets.readonly: Read your spreadsheets
+    https://www.googleapis.com/auth/drive.readonly: Read your Drive files
+    https://www.googleapis.com/auth/documents.readonly: Read your documents
+    https://www.googleapis.com/auth/presentations.readonly: Read your presentations
+    https://www.googleapis.com/auth/spreadsheets: Read and edit your spreadsheets
+    https://www.googleapis.com/auth/documents: Read and edit your documents
+    https://www.googleapis.com/auth/presentations: Read and edit your presentations
+    https://www.googleapis.com/auth/calendar.events: Read and edit events on your calendars
+    https://www.googleapis.com/auth/drive.file: Read and edit the Drive files this agent creates or opens
+    https://www.googleapis.com/auth/gmail.send: Send mail as you
 
 examples:
   accepts:
