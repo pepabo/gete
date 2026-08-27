@@ -138,6 +138,11 @@ registration:
 Tools that do not say `effect: read` count as writes, which is what the
 `has_write_tools` policies key on.
 
+`allow` and `effect` are declared per `mcp:` block, so one server's reads and
+writes are split by naming it twice — the same `url` and `connection`, two
+lists of tool names, two effects. Where a server hands out one grant for both,
+that is the only place an agent can say it means to read.
+
 ### Connections
 
 `gete connections` lists what ships: `freee`, `google`, `github`, and `slack`
@@ -163,6 +168,28 @@ taken as its own once no other connection's prefix matches it. Two such
 connections cannot be told apart, so an agent may hold only one of them.
 Declaring a second one in `gete.yaml` is fine; naming both under one agent's
 `connections` is what `gete validate` refuses.
+
+A service whose root moves with the installation — the tenant in a subdomain,
+or a deployment you host — writes its URLs around `{base_url}`, and the
+installation fills it in:
+
+```yaml
+connections:
+  rooted-api:
+    display_name: Rooted API
+    hosts: []                       # the only host comes from base_url
+    base_url: https://acme.example.com
+    oauth:
+      authorization_url: "{base_url}/oauth/authorizations/new"
+      token_url: "{base_url}/oauth/tokens"
+      scopes: {read: Read data}
+```
+
+Leave `base_url` out and nothing the connection declares is an address: no
+host is added, and `gete validate` refuses it where an agent names it. That is
+how a definition reaches the catalog without knowing a tenant. Writing a
+stand-in host instead would put a name a stranger can register on the list of
+places a user's token may be sent.
 
 Some of what a connection needs is not gete's to do. The OAuth client is
 registered by a person, at the provider, once; `setup` is where a connection
