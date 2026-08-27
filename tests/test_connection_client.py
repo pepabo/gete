@@ -548,6 +548,94 @@ async def test_a_post_that_may_have_been_applied_is_not_sent_again() -> None:
     assert dropped == 1
 
 
+async def test_put_and_patch_send_the_body_with_the_users_token() -> None:
+    """Updates are commonly PUT or PATCH; declared write tools have to reach them."""
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    reader = client(handler)
+    assert await reader.put_json(URL, {"status": "solved"}) == {"ok": True}
+    assert await reader.patch_json(URL, {"status": "open"}) == {"ok": True}
+    assert [request.method for request in seen] == ["PUT", "PATCH"]
+    assert json.loads(seen[0].content) == {"status": "solved"}
+    assert json.loads(seen[1].content) == {"status": "open"}
+    assert all(
+        request.headers["Authorization"] == f"Bearer {TOKEN}" for request in seen
+    )
+
+
+@pytest.mark.parametrize("verb", ["put_json", "patch_json"])
+async def test_put_and_patch_stay_inside_the_declared_hosts(verb: str) -> None:
+    bind()
+    with pytest.raises(ExternalServiceError):
+        await getattr(client(ok({})), verb)("https://api.example.com/x", {})
+
+
+@pytest.mark.parametrize("verb", ["put_json", "patch_json"])
+async def test_put_and_patch_results_go_through_the_policies_redaction(
+    verb: str,
+) -> None:
+    bind(rules=RedactRules(keys=("bank_name",)))
+    result = await getattr(client(ok({"bank_name": "Example Bank"})), verb)(URL, {})
+    assert result == {"bank_name": "[redacted]"}
+
+
+async def test_a_rate_limited_put_is_retried() -> None:
+    """429 is refused before the service acts on it, so sending it again is safe."""
+    bind()
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"})
+        return httpx.Response(200, json={"ok": True})
+
+    assert await client(handler).put_json(URL, {}) == {"ok": True}
+    assert attempts == 2
+
+
+@pytest.mark.parametrize("verb", ["put_json", "patch_json"])
+async def test_an_update_that_may_have_been_applied_is_not_sent_again(
+    verb: str,
+) -> None:
+    """Neither a 5xx nor a dropped connection says the service did nothing."""
+    bind()
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(503)
+
+    with pytest.raises(ExternalServiceError, match="503"):
+        await getattr(client(handler), verb)(URL, {})
+    assert attempts == 1
+
+    dropped = 0
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        nonlocal dropped
+        dropped += 1
+        raise httpx.ConnectError("no route")
+
+    with pytest.raises(ExternalServiceError):
+        await getattr(client(refuse), verb)(URL, {})
+    assert dropped == 1
+
+
+async def test_an_empty_answer_is_returned_as_none() -> None:
+    """Updates often answer 204 No Content; that is a success, not a failure."""
+    bind()
+    handler = lambda request: httpx.Response(204)  # noqa: E731
+    assert await client(handler).put_json(URL, {"status": "solved"}) is None
+
+
 async def test_a_call_header_wins_whatever_case_it_is_written_in() -> None:
     """Header names do not care about case; a merge that did would send both."""
     bind()
