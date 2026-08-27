@@ -3,17 +3,21 @@ display_name: Google Workspace
 docs: https://developers.google.com/workspace
 
 # The ceiling: every host a token may be sent to, whatever scopes it carries.
-# One host per API. Listing googleapis.com as a whole would let a Workspace
-# authorization reach GCP APIs, and so would www.googleapis.com, which serves
-# storage, compute, and oauth2 next to the Workspace APIs.
+# One entry per API. Listing googleapis.com as a whole would let a Workspace
+# authorization reach GCP APIs, and so would a bare www.googleapis.com, which
+# serves storage, compute, and oauth2 next to Drive and Calendar. Those two
+# are served nowhere else - their service names drive.googleapis.com and
+# calendar-json.googleapis.com route no requests - so their entries scope
+# www.googleapis.com to the APIs' own paths, Drive uploads included.
 hosts:
   - gmail.googleapis.com
-  - calendar-json.googleapis.com
   - sheets.googleapis.com
-  - drive.googleapis.com
-  - people.googleapis.com
   - docs.googleapis.com
   - slides.googleapis.com
+  - people.googleapis.com
+  - www.googleapis.com/calendar/
+  - www.googleapis.com/drive/
+  - www.googleapis.com/upload/drive/
 token_prefixes:
   - ya29.
 
@@ -41,6 +45,7 @@ oauth:
     https://www.googleapis.com/auth/drive.readonly: Read your Drive files
     https://www.googleapis.com/auth/documents.readonly: Read your documents
     https://www.googleapis.com/auth/presentations.readonly: Read your presentations
+    https://www.googleapis.com/auth/contacts.readonly: Read your contacts
     https://www.googleapis.com/auth/spreadsheets: Read and edit your spreadsheets
     https://www.googleapis.com/auth/documents: Read and edit your documents
     https://www.googleapis.com/auth/presentations: Read and edit your presentations

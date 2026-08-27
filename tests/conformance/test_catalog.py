@@ -55,9 +55,37 @@ def test_google_hosts_are_specific_apis_not_the_whole_domain() -> None:
     """A Workspace authorization must not be usable against GCP APIs."""
     hosts = CATALOG["google"]["hosts"]
     assert "googleapis.com" not in hosts
-    # www.googleapis.com serves storage, compute, and oauth2 as well.
+    # www.googleapis.com serves storage, compute, and oauth2 as well; it may
+    # appear only scoped to the path of an API that has no other home.
     assert "www.googleapis.com" not in hosts
-    assert all(host.endswith(".googleapis.com") for host in hosts)
+    for host in hosts:
+        name, _, path = host.partition("/")
+        assert name.endswith(".googleapis.com")
+        if name == "www.googleapis.com":
+            assert path, host
+
+
+def test_google_reaches_drive_and_calendar_below_their_paths_only() -> None:
+    """Drive v3 and Calendar v3 are served from www.googleapis.com and nowhere
+    else. Their service names (drive.googleapis.com, calendar-json.googleapis.com)
+    route no requests and must not sit on the list looking like they do."""
+    hosts = CATALOG["google"]["hosts"]
+    assert "www.googleapis.com/calendar/" in hosts
+    assert "www.googleapis.com/drive/" in hosts
+    assert "www.googleapis.com/upload/drive/" in hosts
+    assert "drive.googleapis.com" not in hosts
+    assert "calendar-json.googleapis.com" not in hosts
+
+
+def test_google_scoped_entries_admit_the_apis_and_refuse_the_platform() -> None:
+    google = Registry.from_catalog().get("google")
+    assert google.allows("https://www.googleapis.com/calendar/v3/calendars/primary")
+    assert google.allows("https://www.googleapis.com/drive/v3/files")
+    assert google.allows("https://www.googleapis.com/upload/drive/v3/files")
+    assert not google.allows("https://www.googleapis.com/storage/v1/b/bucket")
+    assert not google.allows("https://www.googleapis.com/compute/v1/projects/p")
+    assert not google.allows("https://www.googleapis.com/oauth2/v4/token")
+    assert not google.allows("https://www.googleapis.com/drive/../storage/v1/b/b")
 
 
 def test_google_defaults_stay_the_read_only_minimum() -> None:
@@ -69,19 +97,21 @@ def test_google_defaults_stay_the_read_only_minimum() -> None:
 
 
 def test_google_offers_workspace_reads_and_writes_on_the_menu() -> None:
-    menu = set(CATALOG["google"]["oauth"]["optional_scopes"])
-    assert {
+    """The whole menu, pinned: every entry is reviewed, and every entry is
+    served by a host in the ceiling."""
+    assert set(CATALOG["google"]["oauth"]["optional_scopes"]) == {
         "https://www.googleapis.com/auth/spreadsheets.readonly",
         "https://www.googleapis.com/auth/drive.readonly",
         "https://www.googleapis.com/auth/documents.readonly",
         "https://www.googleapis.com/auth/presentations.readonly",
+        "https://www.googleapis.com/auth/contacts.readonly",
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/documents",
         "https://www.googleapis.com/auth/presentations",
         "https://www.googleapis.com/auth/calendar.events",
         "https://www.googleapis.com/auth/drive.file",
         "https://www.googleapis.com/auth/gmail.send",
-    } <= menu
+    }
 
 
 def test_google_menu_has_no_blanket_drive_write_and_no_inbox_mutation() -> None:
