@@ -66,7 +66,10 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
     if connection.id in registry.ids():
         connection = registry.get(connection.id, include_retired=True)
     problems: list[str] = []
-    if not connection.hosts:
+    # A connection whose root is not set yet names no hosts, because the root
+    # is where they come from. That is the state a shared definition is written
+    # in; validate refuses it where an agent picks it up, not here.
+    if not connection.hosts and not connection.needs_base_url:
         problems.append("hosts: at least one host is required")
     for host in sorted(connection.hosts):
         if host in TOO_BROAD_HOSTS:
@@ -96,7 +99,7 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
     )
     if not claims_google and connection.accepts_token(_GOOGLE_ACCESS_TOKEN_EXAMPLE):
         problems.append("a Google access token is accepted")
-    if connection.mcp_url is not None:
+    if connection.mcp_url is not None and not connection.needs_base_url:
         mcp_host = urlsplit(connection.mcp_url).hostname
         if mcp_host not in connection.hosts:
             problems.append(f"mcp.url: host {mcp_host} is not in hosts")

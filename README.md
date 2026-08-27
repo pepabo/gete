@@ -164,6 +164,28 @@ connections cannot be told apart, so an agent may hold only one of them.
 Declaring a second one in `gete.yaml` is fine; naming both under one agent's
 `connections` is what `gete validate` refuses.
 
+A service whose root moves with the installation — the tenant in a subdomain,
+or a deployment you host — writes its URLs around `{base_url}`, and the
+installation fills it in:
+
+```yaml
+connections:
+  rooted-api:
+    display_name: Rooted API
+    hosts: []                       # the only host comes from base_url
+    base_url: https://acme.example.com
+    oauth:
+      authorization_url: "{base_url}/oauth/authorizations/new"
+      token_url: "{base_url}/oauth/tokens"
+      scopes: {read: Read data}
+```
+
+Leave `base_url` out and nothing the connection declares is an address: no
+host is added, and `gete validate` refuses it where an agent names it. That is
+how a definition reaches the catalog without knowing a tenant. Writing a
+stand-in host instead would put a name a stranger can register on the list of
+places a user's token may be sent.
+
 Adding a connection to the catalog is one YAML file under
 `src/gete/catalog/connections/`; the conformance tests check it.
 

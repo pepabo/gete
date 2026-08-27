@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from conftest import FakeGcp, ProjectBuilder
 
-from gete.connection import Registry
+from gete.connection import Connection, Registry
 from gete.declaration import load_project
 from gete.errors import DeclarationError
 from gete.gcp import GcpError
@@ -97,6 +97,23 @@ def test_authorization_body_is_named_per_agent_and_carries_the_client() -> None:
     assert oauth["clientId"] == "id-1"
     assert oauth["clientSecret"] == "secret-1"
     assert oauth["tokenUri"] == "https://accounts.secure.freee.co.jp/public_api/token"
+
+
+def test_authorization_without_the_installation_root_is_refused() -> None:
+    """An unfilled root would be handed to users as the link they consent at."""
+    rooted = Connection.from_mapping(
+        {
+            "id": "rooted-api",
+            "display_name": "Rooted API",
+            "oauth": {
+                "authorization_url": "{base_url}/oauth/authorizations/new",
+                "token_url": "{base_url}/oauth/tokens",
+                "scopes": {},
+            },
+        }
+    )
+    with pytest.raises(DeclarationError, match="base_url"):
+        authorization_body(GE, "finance-agent", rooted, "id-1", "secret-1")
 
 
 def test_agent_body_points_at_the_engine_and_binds_authorizations() -> None:

@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from gete.connection import Connection, Registry, authorization_id
+from gete.connection.registry import missing_base_url
 from gete.declaration import Agent, Project
 from gete.errors import DeclarationError, GeteError
 from gete.gcp import GcpApi, GcpError
@@ -75,6 +76,10 @@ def authorization_body(
     client_secret: str,
 ) -> dict[str, Any]:
     """The Authorization resource, named per agent so two agents never share one."""
+    if connection.needs_base_url:
+        # validate refuses this, but register can be run without it, and what
+        # would be stored here is the link every user of the agent is sent to.
+        raise DeclarationError(f"connection {missing_base_url(connection.id)}")
     name = f"{parent}/authorizations/{authorization_id(agent_name, connection.id)}"
     return {
         "name": name,

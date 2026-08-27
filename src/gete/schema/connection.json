@@ -31,7 +31,7 @@
       }
     },
     "base_url": {
-      "description": "Root URL of the service when it differs per organization, such as GitHub Enterprise. Its host is added to hosts.",
+      "description": "Root URL of the service when it differs per installation, such as GitHub Enterprise or a tenant subdomain. Its host is added to hosts, and it replaces {base_url} wherever the connection's URLs are written around it.",
       "$ref": "#/$defs/https_url"
     },
     "redirect_hosts": {
@@ -61,10 +61,10 @@
       ],
       "properties": {
         "authorization_url": {
-          "$ref": "#/$defs/https_url"
+          "$ref": "#/$defs/rooted_url"
         },
         "token_url": {
-          "$ref": "#/$defs/https_url"
+          "$ref": "#/$defs/rooted_url"
         },
         "scopes": {
           "description": "Scope to the explanation shown on the consent screen.",
@@ -100,7 +100,7 @@
       ],
       "properties": {
         "url": {
-          "$ref": "#/$defs/https_url"
+          "$ref": "#/$defs/rooted_url"
         }
       }
     },
@@ -157,6 +157,11 @@
     "https_url": {
       "type": "string",
       "pattern": "^https://[^/?#\\s]+(?:[/?#]\\S*)?$"
+    },
+    "rooted_url": {
+      "description": "An https URL, or one written around {base_url} when the service's root differs per installation. The placeholder stands for the whole root and appears once, at the front; a catalog entry that spelled half a host, or tucked the root elsewhere into the URL, would let whatever fills it decide part of the name.",
+      "type": "string",
+      "pattern": "^(?:https://(?:(?!\\{base_url\\})[^/?#\\s])+|\\{base_url\\})(?:[/?#](?:(?!\\{base_url\\})\\S)*)?$"
     },
     "hostname": {
       "type": "string",
