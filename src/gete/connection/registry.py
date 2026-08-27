@@ -73,6 +73,8 @@ class OAuth:
     query string, and Gemini Enterprise appends client_id and redirect_uri.
     Both URLs may be written around {base_url} for a service whose root moves
     with the installation; they are not addresses until it is set.
+    pkce asks Gemini Enterprise to carry a code challenge through the flow;
+    authorization servers that require one refuse the exchange without it.
     """
 
     authorization_url: str
@@ -80,6 +82,7 @@ class OAuth:
     scopes: Mapping[str, str]
     scope_parameter: str = "scope"
     authorization_query: Mapping[str, str] | None = None
+    pkce: bool = False
 
     @classmethod
     def from_mapping(
@@ -90,6 +93,7 @@ class OAuth:
             token_url=str(_rooted(data["token_url"], base_url)),
             scopes=dict(data["scopes"]),
             scope_parameter=data.get("scope_parameter", "scope"),
+            pkce=bool(data.get("pkce", False)),
             authorization_query=(
                 dict(data["authorization_query"])
                 if "authorization_query" in data

@@ -163,6 +163,10 @@ connections:
       scopes: {read: Read internal data}
 ```
 
+`oauth.pkce: true` asks Gemini Enterprise to carry a code challenge through
+the flow. An authorization server that requires PKCE refuses the code exchange
+without one, and there is no other way to ask for it from a declaration.
+
 `token_prefixes: []` says the service does not announce itself: a token is
 taken as its own once no other connection's prefix matches it. Two such
 connections cannot be told apart, so an agent may hold only one of them.

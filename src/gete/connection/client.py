@@ -1,7 +1,11 @@
 """Reading an external service with the user's token.
 
 The client only reads. Writes belong to the agent, split into a tool that
-shows what will happen and one that does it.
+shows what will happen and one that does it. POST is here because reading
+often takes one - search endpoints usually do - and not as a way around that
+split: a POST that changes something is a write, governed by the declaration's
+effect and the policies like any other, and a request that may already have
+been applied is never sent twice.
 
 Retries, re-authorization, and the destination check live here once. Written
 per connection, the one that gets it wrong leaves the user with a failure
@@ -18,6 +22,7 @@ import logging
 import math
 import types
 import urllib.parse
+from collections.abc import Mapping
 from functools import cache
 from typing import Any, Self
 
@@ -108,6 +113,22 @@ def _loggable(url: str) -> str:
     return urllib.parse.urlunsplit((parts.scheme, authority, parts.path, "", ""))
 
 
+def _refuse_masking_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    """Headers a caller may add; never one that stands in for the user's token.
+
+    An Authorization header would be sent in place of the caller's own, so the
+    service would answer as whoever the header names. The rule that one token
+    is never swapped for another only holds if the header cannot be written.
+    """
+    for name in headers:
+        if name.lower() == "authorization":
+            raise ExternalServiceError(
+                f"header {name} would stand in for the caller's token; "
+                "a connection is read with the caller's own credential"
+            )
+    return dict(headers)
+
+
 def _refuse_userinfo(url: str) -> None:
     """No credentials in the URL: httpx would send them as Basic auth in
     place of the caller's token, and allows() never sees them."""
@@ -164,10 +185,15 @@ class ConnectionClient:
         target: Connection | str,
         client: httpx.AsyncClient | None = None,
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         # An id is resolved at request time against the running call's
         # registry; shared_client() is created before any call exists.
         self._target = target
+        # Constants the service wants on every request, such as the API
+        # version it speaks. Held by the client so a tool cannot forget one on
+        # the call that needed it.
+        self._headers = _refuse_masking_headers(headers or {})
         self._owns_client = client is None
         # One client serves every user of the connection, so a cookie stored
         # from one user's response would ride on the next user's request.
@@ -201,17 +227,44 @@ class ConnectionClient:
         params: dict[str, Any] | None = None,
         max_bytes: int = MAX_FILE_BYTES,
         state: Any = None,
+        headers: Mapping[str, str] | None = None,
     ) -> Any:
         """GET and return the JSON body after the policies' redaction."""
-        response = await self._request(url, params, state=state)
-        body = await _read_limited(response, max_bytes)
+        response = await self._request(
+            "GET", url, params=params, headers=headers, state=state
+        )
+        return await self._json(response, max_bytes)
+
+    async def post_json(
+        self,
+        url: str,
+        body: Any = None,
+        params: dict[str, Any] | None = None,
+        max_bytes: int = MAX_FILE_BYTES,
+        state: Any = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        """POST a JSON body and return the JSON answer after redaction.
+
+        For endpoints that read but take a POST to say what to read; search is
+        usually one. Nothing here can tell such an endpoint from one that
+        changes something, so a request that may already have been applied is
+        not sent a second time.
+        """
+        response = await self._request(
+            "POST", url, params=params, body=body, headers=headers, state=state
+        )
+        return await self._json(response, max_bytes)
+
+    async def _json(self, response: httpx.Response, max_bytes: int) -> Any:
+        payload = await _read_limited(response, max_bytes)
         call = current_tool_call()
         rules = (
             call.redact_rules
             if call is not None and call.redact_rules
             else RedactRules()
         )
-        return redact(json.loads(body), rules)
+        return redact(json.loads(payload), rules)
 
     async def get_bytes(
         self,
@@ -228,7 +281,7 @@ class ConnectionClient:
         connection's own hosts.
         """
         connection = self._connection()
-        response = await self._request(url, params, state=state)
+        response = await self._request("GET", url, params=params, state=state)
         for _ in range(MAX_REDIRECTS):
             if not response.is_redirect:
                 break
@@ -236,8 +289,10 @@ class ConnectionClient:
             await response.aclose()
             _check_redirect(connection, target)
             headers = (
-                self._authorization(connection, target, state)
+                {**self._headers, **self._authorization(connection, target, state)}
                 if connection.allows(target)
+                # Off the connection's own hosts nothing of ours travels: not
+                # the token, and not the constants that name this service.
                 else {}
             )
             request = self._client.build_request("GET", target, headers=headers)
@@ -271,9 +326,12 @@ class ConnectionClient:
 
     async def _request(
         self,
+        method: str,
         url: str,
-        params: dict[str, Any] | None,
         *,
+        params: dict[str, Any] | None = None,
+        body: Any = None,
+        headers: Mapping[str, str] | None = None,
         state: Any = None,
     ) -> httpx.Response:
         connection = self._connection()
@@ -284,7 +342,17 @@ class ConnectionClient:
                 f"{_loggable(url)} is not a {connection.display_name} host; "
                 "the token stays here"
             )
-        headers = self._authorization(connection, url, state)
+        # Header names do not care about case, so neither may the merge: a
+        # dict would keep "Accept" next to "accept" and send both. The token
+        # is put in last, so nothing can displace it.
+        sent = httpx.Headers(self._headers)
+        sent.update(_refuse_masking_headers(headers or {}))
+        sent.update(self._authorization(connection, url, state))
+        # A GET can be sent again because sending it again changes nothing.
+        # Anything else may already have been applied by the time the answer
+        # went missing, so only a refusal the service made before acting - a
+        # rate limit - is worth a second attempt.
+        idempotent = method == "GET"
         # Who read what is the service's audit log's business. The token is
         # the user's credential and the query is the user's work; neither is
         # logged.
@@ -294,11 +362,11 @@ class ConnectionClient:
             try:
                 # Streamed, so a limit can stop a body instead of buffering it.
                 request = self._client.build_request(
-                    "GET", url, params=params, headers=headers
+                    method, url, params=params, json=body, headers=sent
                 )
                 response = await self._client.send(request, stream=True)
             except httpx.HTTPError as error:
-                if attempt == MAX_ATTEMPTS - 1:
+                if not idempotent or attempt == MAX_ATTEMPTS - 1:
                     raise ExternalServiceError(
                         f"could not connect to {connection.display_name}: {error}"
                     ) from error
@@ -329,7 +397,7 @@ class ConnectionClient:
                 continue
             if response.status_code >= 500:
                 await response.aclose()
-                if attempt == MAX_ATTEMPTS - 1:
+                if not idempotent or attempt == MAX_ATTEMPTS - 1:
                     raise ExternalServiceError(
                         f"{connection.display_name} answered {response.status_code}"
                     )
