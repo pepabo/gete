@@ -405,6 +405,214 @@ def test_a_body_declared_only_as_alternatives_is_refused() -> None:
     assert "properties" in found[0]
 
 
+def with_comment_body(**extra: Any) -> dict[str, Any]:
+    """UpdateTicket's body nested two levels deep: ticket.comment.public
+    decides whether the requester is mailed, and a declaration must be able
+    to pin it."""
+    return with_update_body(
+        {
+            "type": "object",
+            "properties": {
+                "ticket": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string"},
+                        "comment": {
+                            "type": "object",
+                            "properties": {
+                                "body": {"type": "string"},
+                                "public": {"type": "boolean"},
+                            },
+                        },
+                    },
+                }
+            },
+        },
+        **extra,
+    )
+
+
+def test_a_dotted_fix_reaches_into_the_body() -> None:
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        params={"UpdateTicket": {"ticket.comment.public": {"value": False}}},
+    )
+    assert declaration_problems(sound, with_comment_body()) == []
+
+
+def test_a_dotted_fix_whose_leaf_is_missing_names_the_level_that_missed() -> None:
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            params={"UpdateTicket": {"ticket.comment.pubilc": {"value": False}}},
+        ),
+        with_comment_body(),
+    )
+    assert len(found) == 1
+    assert "'pubilc' is not a property of ticket.comment" in found[0]
+    # The properties that do exist are named, so the fix can be corrected.
+    assert "body" in found[0] and "public" in found[0]
+
+
+def test_a_dotted_fix_resolves_through_a_reference() -> None:
+    """Nested properties are commonly written as $ref; the walk resolves them
+    the way the top level was resolved."""
+    spec = with_update_body(
+        {
+            "type": "object",
+            "properties": {"ticket": {"$ref": "#/components/schemas/Ticket"}},
+        },
+        Ticket={
+            "type": "object",
+            "properties": {"comment": {"$ref": "#/components/schemas/Comment"}},
+        },
+        Comment={"type": "object", "properties": {"public": {"type": "boolean"}}},
+    )
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        params={"UpdateTicket": {"ticket.comment.public": {"value": False}}},
+    )
+    assert declaration_problems(sound, spec) == []
+
+
+def test_a_dotted_fix_resolves_through_a_nested_allof() -> None:
+    spec = with_update_body(
+        {
+            "type": "object",
+            "properties": {
+                "ticket": {
+                    "allOf": [
+                        {"$ref": "#/components/schemas/TicketCore"},
+                        {"properties": {"tags": {"type": "array"}}},
+                    ]
+                }
+            },
+        },
+        TicketCore={
+            "type": "object",
+            "properties": {"comment": {"type": "object"}},
+        },
+    )
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        params={"UpdateTicket": {"ticket.comment": {"value": {"public": False}}}},
+    )
+    assert declaration_problems(sound, spec) == []
+
+
+def test_a_dotted_fix_on_an_operation_without_a_body_is_reported() -> None:
+    found = declaration_problems(
+        block(
+            params={"ShowTicket": {"ticket.comment": {"value": 1}}},
+            operations=["ShowTicket"],
+        ),
+        SPEC,
+    )
+    assert len(found) == 1
+    assert "declares none" in found[0]
+
+
+def test_a_parameter_whose_name_holds_a_dot_is_matched_before_any_path() -> None:
+    """Query parameters with dots in their names exist in the wild; a literal
+    match must keep meaning what it always meant."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"].append(
+        {"name": "page.size", "in": "query", "schema": {"type": "integer"}}
+    )
+    sound = block(params={"ListSearchResults": {"page.size": {"value": 25}}})
+    assert declaration_problems(sound, spec) == []
+
+
+def test_a_dotted_prefix_needs_a_string_property() -> None:
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            params={"UpdateTicket": {"ticket.comment.public": {"prefix": "x"}}},
+        ),
+        with_comment_body(),
+    )
+    assert len(found) == 1
+    assert "string" in found[0] and "boolean" in found[0]
+
+
+def test_a_dotted_prefix_on_a_string_property_passes() -> None:
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        params={"UpdateTicket": {"ticket.comment.body": {"prefix": "[agent] "}}},
+    )
+    assert declaration_problems(sound, with_comment_body()) == []
+
+
+def test_a_dotted_fix_into_unenumerable_ground_is_not_reported() -> None:
+    """A freeform object may still hold the path; only a certain miss is
+    reported, as for flat names."""
+    spec = with_update_body(
+        {"type": "object", "properties": {"meta": {"type": "object"}}}
+    )
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        params={"UpdateTicket": {"meta.note.kind": {"value": "internal"}}},
+    )
+    assert declaration_problems(sound, spec) == []
+
+
+def test_a_dotted_fix_into_a_scalar_is_reported() -> None:
+    """A string holds no properties, so the miss is certain."""
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            params={"UpdateTicket": {"ticket.comment.body.tone": {"value": "x"}}},
+        ),
+        with_comment_body(),
+    )
+    assert len(found) == 1
+    assert "holds no properties" in found[0]
+
+
+def test_a_name_that_is_both_a_parameter_and_a_body_path_is_refused() -> None:
+    """Like the flat ambiguity: the fix cannot choose between the query
+    parameter 'ticket.comment' and the body's ticket.comment."""
+    spec = with_comment_body()
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["parameters"] = [
+        {"name": "ticket.comment", "in": "query", "schema": {"type": "string"}}
+    ]
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            params={"UpdateTicket": {"ticket.comment": {"value": "x"}}},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "cannot choose" in found[0]
+
+
+def test_a_literal_match_wins_over_a_merely_possible_body_path() -> None:
+    """A freeform body may hold anything; a possibility must not take a
+    literally matching parameter away."""
+    spec = with_update_body(
+        {"type": "object", "properties": {"meta": {"type": "object"}}}
+    )
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["parameters"] = [
+        {"name": "meta.note", "in": "query", "schema": {"type": "string"}}
+    ]
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        params={"UpdateTicket": {"meta.note": {"value": "x"}}},
+    )
+    assert declaration_problems(sound, spec) == []
+
+
 def test_a_fix_matching_a_parameter_and_a_body_property_is_refused() -> None:
     """The runtime applies fixes by name; one name in two places would fix both."""
     spec = json.loads(json.dumps(SPEC))
@@ -421,6 +629,221 @@ def test_a_fix_matching_a_parameter_and_a_body_property_is_refused() -> None:
     )
     assert len(found) == 1
     assert "both" in found[0]
+
+
+def test_only_must_name_a_selected_operation() -> None:
+    found = declaration_problems(block(only={"ShowTicket": ["ticket_id"]}), SPEC)
+    assert found == ["only: 'ShowTicket' is not one of this block's operations"]
+
+
+def test_an_only_entry_that_names_no_parameter_is_reported() -> None:
+    found = declaration_problems(
+        block(only={"ListSearchResults": ["query", "sort"]}), SPEC
+    )
+    assert len(found) == 1
+    assert "sort" in found[0]
+    assert "query" in found[0] and "per_page" in found[0]
+
+
+def test_an_only_entry_may_reach_into_the_body() -> None:
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        only={"UpdateTicket": ["ticket_id", "ticket.comment.body"]},
+    )
+    assert declaration_problems(sound, with_comment_body()) == []
+
+
+def test_only_on_one_operation_leaves_the_others_whole() -> None:
+    sound = block(
+        operations=["ListSearchResults", "ShowTicket"],
+        only={"ListSearchResults": ["query"]},
+    )
+    assert declaration_problems(sound, SPEC) == []
+
+
+def test_an_only_entry_naming_a_header_is_reported() -> None:
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"].append(
+        {"name": "X-Trace", "in": "header", "schema": {"type": "string"}}
+    )
+    found = declaration_problems(
+        block(only={"ListSearchResults": ["query", "X-Trace"]}), spec
+    )
+    assert len(found) == 1
+    assert "header" in found[0]
+
+
+def test_a_required_parameter_left_out_of_only_is_reported() -> None:
+    """Every request needs it; leaving it out is not narrowing but breaking."""
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            only={"UpdateTicket": ["ticket.comment.body"]},
+        ),
+        with_comment_body(),
+    )
+    assert len(found) == 1
+    assert "ticket_id" in found[0]
+    assert "required" in found[0]
+
+
+def test_a_required_parameter_left_out_of_only_but_fixed_passes() -> None:
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        only={"UpdateTicket": ["ticket.comment.body"]},
+        params={"UpdateTicket": {"ticket_id": {"value": 7}}},
+    )
+    assert declaration_problems(sound, with_comment_body()) == []
+
+
+def test_a_required_body_property_left_out_of_only_is_reported() -> None:
+    spec = with_update_body(
+        {
+            "type": "object",
+            "required": ["ticket"],
+            "properties": {
+                "ticket": {"type": "object"},
+                "audit": {"type": "object"},
+            },
+        }
+    )
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            only={"UpdateTicket": ["ticket_id", "audit"]},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "'ticket'" in found[0] and "required" in found[0]
+
+
+def test_a_name_listed_in_only_and_fixed_by_value_is_refused() -> None:
+    """Fixed means the declaration's, listed means the model's; it cannot be
+    both."""
+    found = declaration_problems(
+        block(
+            only={"ListSearchResults": ["query", "per_page"]},
+            params={"ListSearchResults": {"per_page": {"value": 25}}},
+        ),
+        SPEC,
+    )
+    assert len(found) == 1
+    assert "per_page" in found[0]
+
+
+def test_a_prefix_on_a_parameter_only_does_not_expose_is_refused() -> None:
+    """A prefix wraps what the model writes, and the model writes nothing
+    there."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"].append(
+        {"name": "sort", "in": "query", "schema": {"type": "string"}}
+    )
+    found = declaration_problems(
+        block(
+            only={"ListSearchResults": ["query"]},
+            params={"ListSearchResults": {"sort": {"prefix": "-"}}},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "'sort'" in found[0] and "only" in found[0]
+
+
+def test_a_nested_fix_under_a_parent_only_does_not_send_is_refused() -> None:
+    """The fix rides on its parent object; a parent that is never sent would
+    leave the constraint silently unapplied."""
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            only={"UpdateTicket": ["ticket_id"]},
+            params={"UpdateTicket": {"ticket.comment.public": {"value": False}}},
+        ),
+        with_comment_body(),
+    )
+    assert len(found) == 1
+    assert "ticket.comment.public" in found[0] and "only" in found[0]
+
+
+def test_a_nested_fix_under_an_exposed_parent_passes_with_only() -> None:
+    sound = block(
+        operations=["UpdateTicket"],
+        effect="write",
+        only={"UpdateTicket": ["ticket_id", "ticket.comment.body"]},
+        params={"UpdateTicket": {"ticket.comment.public": {"value": False}}},
+    )
+    assert declaration_problems(sound, with_comment_body()) == []
+
+
+def test_an_only_entry_naming_a_dotted_parameter_is_matched_literally() -> None:
+    """A dot in a listed name is only a path when nothing carries the name
+    literally, exactly as params reads it - required or not."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"].append(
+        {
+            "name": "page.size",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer"},
+        }
+    )
+    sound = block(only={"ListSearchResults": ["query", "page.size"]})
+    assert declaration_problems(sound, spec) == []
+
+
+def test_a_prefix_on_a_dotted_parameter_listed_in_only_passes() -> None:
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"].append(
+        {"name": "page.size", "in": "query", "schema": {"type": "string"}}
+    )
+    sound = block(
+        only={"ListSearchResults": ["query", "page.size"]},
+        params={"ListSearchResults": {"page.size": {"prefix": "p"}}},
+    )
+    assert declaration_problems(sound, spec) == []
+
+
+def test_an_only_entry_matching_a_parameter_and_a_body_property_is_refused() -> None:
+    """The runtime exposes by name; one name in two places would expose
+    both, and the declaration said neither."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["parameters"] = [
+        {"name": "ticket", "in": "query", "schema": {"type": "string"}}
+    ]
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            only={"UpdateTicket": ["ticket_id", "ticket"]},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "both" in found[0]
+
+
+def test_an_only_path_through_a_name_a_parameter_carries_is_refused() -> None:
+    """The runtime keys exposure by the path's first segment; a query
+    parameter with that name would ride along whole, never listed."""
+    spec = with_comment_body()
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["parameters"] = [
+        {"name": "ticket", "in": "query", "schema": {"type": "string"}}
+    ]
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            only={"UpdateTicket": ["ticket_id", "ticket.comment.body"]},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "'ticket'" in found[0] and "cannot choose" in found[0]
 
 
 def test_a_get_with_a_request_body_is_refused() -> None:

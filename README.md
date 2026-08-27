@@ -163,6 +163,16 @@ tools:
           per_page: {value: 25}
       describe:
         ListSearchResults: Search tickets. The kind is fixed to tickets.
+  - openapi:
+      spec: ./specs/helpdesk.yaml
+      connection: helpdesk
+      operations: [UpdateTicket]
+      effect: write
+      only:
+        UpdateTicket: [ticket_id, ticket.comment.body]   # all the model may write
+      params:
+        UpdateTicket:
+          ticket.comment.public: {value: false}          # internal note, never mail
 ```
 
 - **`operations` is required, never defaulted.** A published description
@@ -178,6 +188,21 @@ tools:
   declared, so there is nothing left for the model to say. `prefix` and
   `suffix` wrap what the model writes; the declared text comes first, so
   nothing the model writes can displace it.
+- **A dotted name reaches into the JSON body.** Services commonly nest what
+  matters: whether a helpdesk comment goes out to the requester is a boolean
+  two levels down. `ticket.comment.public: {value: false}` pins it there —
+  the leaf disappears from what the model sees, and the declared value is
+  written wherever its parent object is sent, overwriting anything found
+  there and never conjuring the parent up. A name that matches a parameter
+  literally keeps meaning that parameter.
+- **`only` names what the model may write.** Published update operations
+  accept the whole record — status, assignee, tags — when an agent is only
+  meant to add a comment. Everything `only` leaves unlisted is taken out of
+  the declaration and never sent, even smuggled into the arguments; a
+  `params` value still rides. A name a parameter carries literally stays
+  that parameter's, as with `params`. Counting up what goes out fails safe
+  as the description grows: a new field stays unexposed until someone
+  declares it.
 - **`describe` replaces the vendor's text.** Vendor descriptions are written
   for developers sitting next to the docs and often cite links a model
   cannot follow; `does_not` is appended to every tool, as with `mcp:`.

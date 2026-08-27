@@ -286,6 +286,10 @@ def test_an_optional_scope_needs_a_non_empty_explanation() -> None:
             }
         },
         {"openapi": {**OPENAPI_TOOL["openapi"], "params": {"ListThings": {"q": {}}}}},
+        # An empty only would expose nothing at all; leaving only out is how
+        # everything is exposed.
+        {"openapi": {**OPENAPI_TOOL["openapi"], "only": {"ListThings": []}}},
+        {"openapi": {**OPENAPI_TOOL["openapi"], "only": {"ListThings": "query"}}},
         {
             "openapi": {
                 **OPENAPI_TOOL["openapi"],
@@ -333,6 +337,13 @@ def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
                     }
                 },
                 "describe": {"ListThings": "List the things."},
+            }
+        },
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                # A dotted name reaches into the JSON body.
+                "only": {"ListThings": ["query", "thing.note.kind"]},
             }
         },
     ],
