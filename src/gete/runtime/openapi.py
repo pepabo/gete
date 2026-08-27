@@ -356,11 +356,16 @@ def _tool(
 ) -> OpenApiTool:
     """One tool: the declaration without the fixed parameters, and the
     arguments that rebuild the request from what the model writes."""
-    tree = allow_tree(only) if only is not None else None
+    literal = {
+        parameter.original_name
+        for parameter in parsed.parameters
+        if parameter.param_location not in ("header", "cookie")
+    }
+    tree = allow_tree(only, literal=literal) if only is not None else None
     arguments: list[Argument] = []
     visible: list[Any] = []
     applied: set[str] = set()
-    nested = _nested_fixes(parsed, fixes, applied)
+    nested = _nested_fixes(parsed, fixes, applied, literal)
     for parameter in parsed.parameters:
         if parameter.param_location in ("header", "cookie"):
             # Never model-driven; validate refused the required ones.
@@ -432,7 +437,10 @@ def _tool(
 
 
 def _nested_fixes(
-    parsed: Any, fixes: Mapping[str, Mapping[str, Any]], applied: set[str]
+    parsed: Any,
+    fixes: Mapping[str, Mapping[str, Any]],
+    applied: set[str],
+    literal: set[str],
 ) -> list[NestedFix]:
     """The fixes that address a path into the body rather than a parameter.
 
@@ -441,11 +449,6 @@ def _nested_fixes(
     A fixed value's leaf is taken out of the declared schema - its value is
     declared, so there is nothing for the model to say there.
     """
-    literal = {
-        parameter.original_name
-        for parameter in parsed.parameters
-        if parameter.param_location not in ("header", "cookie")
-    }
     body_parameters = {
         parameter.original_name: parameter
         for parameter in parsed.parameters

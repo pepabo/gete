@@ -775,6 +775,72 @@ def test_a_nested_fix_under_an_exposed_parent_passes_with_only() -> None:
     assert declaration_problems(sound, with_comment_body()) == []
 
 
+def test_an_only_entry_naming_a_dotted_parameter_is_matched_literally() -> None:
+    """A dot in a listed name is only a path when nothing carries the name
+    literally, exactly as params reads it - required or not."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"].append(
+        {
+            "name": "page.size",
+            "in": "query",
+            "required": True,
+            "schema": {"type": "integer"},
+        }
+    )
+    sound = block(only={"ListSearchResults": ["query", "page.size"]})
+    assert declaration_problems(sound, spec) == []
+
+
+def test_a_prefix_on_a_dotted_parameter_listed_in_only_passes() -> None:
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/search"]["get"]["parameters"].append(
+        {"name": "page.size", "in": "query", "schema": {"type": "string"}}
+    )
+    sound = block(
+        only={"ListSearchResults": ["query", "page.size"]},
+        params={"ListSearchResults": {"page.size": {"prefix": "p"}}},
+    )
+    assert declaration_problems(sound, spec) == []
+
+
+def test_an_only_entry_matching_a_parameter_and_a_body_property_is_refused() -> None:
+    """The runtime exposes by name; one name in two places would expose
+    both, and the declaration said neither."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["parameters"] = [
+        {"name": "ticket", "in": "query", "schema": {"type": "string"}}
+    ]
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            only={"UpdateTicket": ["ticket_id", "ticket"]},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "both" in found[0]
+
+
+def test_an_only_path_through_a_name_a_parameter_carries_is_refused() -> None:
+    """The runtime keys exposure by the path's first segment; a query
+    parameter with that name would ride along whole, never listed."""
+    spec = with_comment_body()
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["parameters"] = [
+        {"name": "ticket", "in": "query", "schema": {"type": "string"}}
+    ]
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            only={"UpdateTicket": ["ticket_id", "ticket.comment.body"]},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "'ticket'" in found[0] and "cannot choose" in found[0]
+
+
 def test_a_get_with_a_request_body_is_refused() -> None:
     """The client sends no body on a GET; the operation would lose arguments."""
     spec = json.loads(json.dumps(SPEC))

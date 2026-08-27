@@ -432,7 +432,11 @@ def _fix_problems(
     """What keeps the declared parameter fixes from being applied."""
     found: list[str] = []
     parameters, header_names, body_properties, enumerable = _argument_maps(operation)
-    tree = allow_tree(only) if only is not None else None
+    tree = (
+        allow_tree(only, literal=[*parameters, *body_properties])
+        if only is not None
+        else None
+    )
     for name, fix in fixes.items():
         if name in header_names:
             found.append(
@@ -504,8 +508,9 @@ def _only_problems(
     found: list[str] = []
     parameters, header_names, body_properties, enumerable = _argument_maps(operation)
     exposed = tuple(exposed)
-    # A dotted entry still sends its top-level argument, just narrowed.
-    covered = {entry.split(".")[0] for entry in exposed}
+    # A dotted entry still sends its top-level argument, just narrowed. The
+    # tree's own keys are the names the runtime will hold parameters against.
+    covered = set(allow_tree(exposed, literal=[*parameters, *body_properties]))
     fixed = {name for name, fix in fixes.items() if "value" in fix}
     for name in _required_names(operation, parameters):
         if name not in covered and name not in fixed:
@@ -526,6 +531,15 @@ def _only_problems(
                 "which a declaration does not send"
             )
             continue
+        if entry in parameters and entry in body_properties:
+            # The runtime exposes by name; one name in two places would
+            # expose both, and the declaration said neither.
+            found.append(
+                f"only.{operation.id}: {entry!r} names both a request "
+                f"parameter and a body property of {operation.id}; the "
+                "entry cannot choose between them"
+            )
+            continue
         literal = entry in parameters or entry in body_properties
         if literal and "." in entry and _certainly_in_body(spec, operation, entry):
             found.append(
@@ -536,9 +550,18 @@ def _only_problems(
         if literal:
             continue
         if "." in entry:
-            leaf = _walk_body(spec, operation, tuple(entry.split(".")))
+            segments = tuple(entry.split("."))
+            leaf = _walk_body(spec, operation, segments)
             if leaf.problem is not None:
                 found.append(f"only.{operation.id}: {entry!r} {leaf.problem}")
+            elif segments[0] in parameters:
+                # The runtime keys exposure by the first segment; a request
+                # parameter with that name would ride along whole.
+                found.append(
+                    f"only.{operation.id}: {entry!r} reaches into the body "
+                    f"through {segments[0]!r}, which also names a request "
+                    "parameter; the entry cannot choose between them"
+                )
             continue
         if enumerable:
             known = sorted({**body_properties, **parameters})
@@ -549,16 +572,20 @@ def _only_problems(
     return found
 
 
-def allow_tree(entries: Iterable[str]) -> dict[str, Any]:
+def allow_tree(entries: Iterable[str], literal: Iterable[str] = ()) -> dict[str, Any]:
     """An ``only`` list as a tree of what the model may write.
 
     A node of None means the whole subtree is the model's; a mapping narrows
     it to the named children. A bare name is broader than any dotted entry
-    under it, so it wins.
+    under it, so it wins. A name in ``literal`` is one some parameter
+    carries, dots and all, and stays whole - a dot marks a path only when
+    nothing claims the name literally, exactly as ``params`` reads it.
     """
+    names = set(map(str, literal))
     tree: dict[str, Any] = {}
     for entry in entries:
-        segments = str(entry).split(".")
+        text = str(entry)
+        segments = [text] if text in names else text.split(".")
         node = tree
         for segment in segments[:-1]:
             if segment in node and node[segment] is None:

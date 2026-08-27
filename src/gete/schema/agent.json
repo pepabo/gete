@@ -300,7 +300,7 @@
                   }
                 },
                 "only": {
-                  "description": "The arguments the model may write, by operationId. Everything unlisted is taken out of the declaration and never sent; a params value still rides. A dotted name exposes just that path into the JSON body. Naming what goes out fails safe when the description grows: a new field stays unexposed until someone declares it.",
+                  "description": "The arguments the model may write, by operationId. Everything unlisted is taken out of the declaration and never sent; a params value still rides. A dotted name exposes just that path into the JSON body when no parameter carries the name literally. Naming what goes out fails safe when the description grows: a new field stays unexposed until someone declares it.",
                   "type": "object",
                   "additionalProperties": {
                     "type": "array",

@@ -199,8 +199,10 @@ tools:
   accept the whole record — status, assignee, tags — when an agent is only
   meant to add a comment. Everything `only` leaves unlisted is taken out of
   the declaration and never sent, even smuggled into the arguments; a
-  `params` value still rides. Counting up what goes out fails safe as the
-  description grows: a new field stays unexposed until someone declares it.
+  `params` value still rides. A name a parameter carries literally stays
+  that parameter's, as with `params`. Counting up what goes out fails safe
+  as the description grows: a new field stays unexposed until someone
+  declares it.
 - **`describe` replaces the vendor's text.** Vendor descriptions are written
   for developers sitting next to the docs and often cite links a model
   cannot follow; `does_not` is appended to every tool, as with `mcp:`.

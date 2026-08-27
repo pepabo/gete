@@ -622,6 +622,28 @@ async def test_only_and_a_nested_fix_compose(
     }
 
 
+async def test_a_dotted_parameter_listed_in_only_stays_offered(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    """A dot in a listed name is only a path when nothing carries the name
+    literally, exactly as params reads it."""
+    document = copy.deepcopy(SPEC)
+    document["paths"]["/search"]["get"]["parameters"].append(
+        {"name": "page.size", "in": "query", "schema": {"type": "integer"}}
+    )
+    built = toolset(
+        tmp_path,
+        document=document,
+        operations=["ListSearchResults"],
+        only={"ListSearchResults": ["query", "page.size"]},
+    )
+    search = (await built.get_tools(context()))[0]
+    offered = {a.name: a.py_name for a in search._arguments if not a.fixed}
+    assert "page.size" in offered
+    await run(built, "ListSearchResults", {"query": "x", offered["page.size"]: 5})
+    assert client.calls[0]["params"] == {"query": "x", "page.size": 5}
+
+
 async def test_a_delete_operation_uses_the_delete_verb(
     tmp_path: Path, client: RecordingClient
 ) -> None:
