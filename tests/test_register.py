@@ -608,3 +608,28 @@ def test_a_notice_template_with_an_unknown_placeholder_is_reported(
     )
     assert summary.failed == ["finance"]
     assert any("display_nmae" in line for line in summary.messages)
+
+
+def test_pkce_is_carried_to_the_authorization_when_the_connection_asks() -> None:
+    """Some authorization servers refuse a code exchange without a verifier."""
+    body = authorization_body(GE, "finance-agent", _with_pkce(True), "id-1", "s")
+    assert body["serverSideOauth2"]["pkceVerificationEnabled"] is True
+
+
+def test_without_pkce_the_authorization_says_nothing_about_it() -> None:
+    """serverSideOauth2 is replaced whole on update, so absent is off."""
+    body = authorization_body(GE, "finance-agent", _with_pkce(False), "id-1", "s")
+    assert "pkceVerificationEnabled" not in body["serverSideOauth2"]
+
+
+def _with_pkce(enabled: bool) -> Connection:
+    oauth: dict[str, Any] = {
+        "authorization_url": "https://auth.example.com/authorize",
+        "token_url": "https://auth.example.com/token",
+        "scopes": {},
+    }
+    if enabled:
+        oauth["pkce"] = True
+    return Connection.from_mapping(
+        {"id": "example", "display_name": "Example", "oauth": oauth}
+    )

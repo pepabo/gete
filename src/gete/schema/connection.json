@@ -78,6 +78,10 @@
           "type": "string",
           "minLength": 1
         },
+        "pkce": {
+          "description": "Whether the authorization server is to be sent a code challenge. Some refuse a code exchange without one.",
+          "type": "boolean"
+        },
         "authorization_query": {
           "description": "Query string for the authorization URL, used verbatim. Gemini Enterprise adds client_id and redirect_uri.",
           "type": "object",
