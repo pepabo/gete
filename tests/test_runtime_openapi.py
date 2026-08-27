@@ -644,6 +644,22 @@ async def test_a_dotted_parameter_listed_in_only_stays_offered(
     assert client.calls[0]["params"] == {"query": "x", "page.size": 5}
 
 
+async def test_a_parent_the_filter_empties_is_not_sent(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    """Nothing of the write survived the filter; an emptied ticket riding
+    along would be a write the model never made."""
+    built = toolset(
+        tmp_path,
+        document=nested_comment_spec(),
+        operations=["UpdateTicket"],
+        effect="write",
+        only={"UpdateTicket": ["ticket_id", "ticket.comment.body"]},
+    )
+    await run(built, "UpdateTicket", {"ticket_id": "7", "ticket": {"status": "x"}})
+    assert client.calls[0]["body"] is None
+
+
 async def test_a_delete_operation_uses_the_delete_verb(
     tmp_path: Path, client: RecordingClient
 ) -> None:

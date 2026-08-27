@@ -81,7 +81,9 @@ def _filtered(value: Any, tree: Mapping[str, Any] | None) -> Any:
 
     A value where the tree expects an object cannot be carved, so nothing of
     it passes - the declaration wins over what the model wrote, as it does
-    for a smuggled fixed parameter.
+    for a smuggled fixed parameter. An object the filter empties is dropped
+    whole: an emptied parent riding along would be a write the model never
+    made.
     """
     if tree is None:
         return value
@@ -93,7 +95,7 @@ def _filtered(value: Any, tree: Mapping[str, Any] | None) -> Any:
             child = _filtered(item, tree[key])
             if child is not None:
                 kept[key] = child
-    return kept
+    return kept or None
 
 
 def _apply_nested(body: dict[str, Any], fix: NestedFix, tool: str) -> None:
