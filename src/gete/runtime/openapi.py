@@ -30,7 +30,13 @@ from gete.connection.registry import Connection, Registry
 from gete.connection.runtime import usable_token
 from gete.declaration import Agent
 from gete.errors import DeclarationError, GeteError
-from gete.openapi import Operation, declaration_problems, load_spec, read_operations
+from gete.openapi import (
+    Operation,
+    allow_tree,
+    declaration_problems,
+    load_spec,
+    read_operations,
+)
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,73 @@ class Argument:
     value: Any = None
     prefix: str = ""
     suffix: str = ""
+    # For a body argument only partly the model's: the tree of what may pass.
+    # None means everything; anything outside the tree is dropped unsent.
+    allowed: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class NestedFix:
+    """One constraint inside the JSON body, addressed by a dotted path.
+
+    A fixed value is written wherever its parent object is being sent -
+    overwriting anything found there, never conjuring the parent up. prefix
+    and suffix wrap the value the model wrote at the path, when there is one.
+    """
+
+    path: tuple[str, ...]
+    fixed: bool = False
+    value: Any = None
+    prefix: str = ""
+    suffix: str = ""
+
+
+def _filtered(value: Any, tree: Mapping[str, Any] | None) -> Any:
+    """What of the model's value may pass: the tree's subtrees of it.
+
+    A value where the tree expects an object cannot be carved, so nothing of
+    it passes - the declaration wins over what the model wrote, as it does
+    for a smuggled fixed parameter.
+    """
+    if tree is None:
+        return value
+    if not isinstance(value, Mapping):
+        return None
+    kept: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in tree:
+            child = _filtered(item, tree[key])
+            if child is not None:
+                kept[key] = child
+    return kept
+
+
+def _apply_nested(body: dict[str, Any], fix: NestedFix, tool: str) -> None:
+    node: Any = body
+    walked: list[str] = []
+    for segment in fix.path[:-1]:
+        if not isinstance(node, dict):
+            # The declaration says an object sits here; sending the request
+            # around the fix would drop the constraint on the floor.
+            raise GeteError(
+                f"{tool}: {'.'.join(walked)} is not an object, and "
+                f"{'.'.join(fix.path)} is declared inside it"
+            )
+        if segment not in node:
+            # The parent is not being sent, so neither is the field it holds.
+            return
+        node = node[segment]
+        walked.append(segment)
+    if not isinstance(node, dict):
+        raise GeteError(
+            f"{tool}: {'.'.join(walked)} is not an object, and "
+            f"{'.'.join(fix.path)} is declared inside it"
+        )
+    leaf = fix.path[-1]
+    if fix.fixed:
+        node[leaf] = fix.value
+    elif leaf in node and node[leaf] is not None:
+        node[leaf] = f"{fix.prefix}{node[leaf]}{fix.suffix}"
 
 
 class OpenApiTool(BaseTool):
@@ -63,6 +136,7 @@ class OpenApiTool(BaseTool):
         path: str,
         connection: Connection,
         arguments: Iterable[Argument],
+        nested_fixes: Iterable[NestedFix] = (),
         declaration: Any,
         require_confirmation: bool,
     ) -> None:
@@ -71,6 +145,7 @@ class OpenApiTool(BaseTool):
         self._path = path
         self._connection = connection
         self._arguments = tuple(arguments)
+        self._nested_fixes = tuple(nested_fixes)
         self._declaration = declaration
         self._require_confirmation = require_confirmation
 
@@ -98,6 +173,10 @@ class OpenApiTool(BaseTool):
             value = argument.value if argument.fixed else args.get(argument.py_name)
             if value is None:
                 continue
+            if argument.allowed is not None:
+                value = _filtered(value, argument.allowed)
+                if value is None:
+                    continue
             if argument.prefix or argument.suffix:
                 value = f"{argument.prefix}{value}{argument.suffix}"
             if argument.location == "path":
@@ -111,6 +190,8 @@ class OpenApiTool(BaseTool):
                 query[argument.name] = value
             else:
                 body[argument.name] = value
+        for fix in self._nested_fixes:
+            _apply_nested(body, fix, self.name)
         if "{" in path:
             raise GeteError(f"{self.name}: a path parameter was not given")
         url = root.rstrip("/") + path
@@ -215,6 +296,7 @@ def openapi_toolset(
                 parsed,
                 name=str(name),
                 fixes=spec.get("params", {}).get(name, {}),
+                only=spec.get("only", {}).get(name),
                 description=describe.get(name),
                 does_not=does_not,
                 connection=connection,
@@ -266,6 +348,7 @@ def _tool(
     *,
     name: str,
     fixes: Mapping[str, Mapping[str, Any]],
+    only: Iterable[str] | None = None,
     description: str | None,
     does_not: str | None,
     connection: Connection,
@@ -273,9 +356,11 @@ def _tool(
 ) -> OpenApiTool:
     """One tool: the declaration without the fixed parameters, and the
     arguments that rebuild the request from what the model writes."""
+    tree = allow_tree(only) if only is not None else None
     arguments: list[Argument] = []
     visible: list[Any] = []
     applied: set[str] = set()
+    nested = _nested_fixes(parsed, fixes, applied)
     for parameter in parsed.parameters:
         if parameter.param_location in ("header", "cookie"):
             # Never model-driven; validate refused the required ones.
@@ -294,6 +379,14 @@ def _tool(
                 )
             )
             continue
+        if tree is not None and parameter.original_name not in tree:
+            # Not the model's to write: neither shown nor ever sent.
+            continue
+        allowed = tree.get(parameter.original_name) if tree is not None else None
+        if allowed is not None and parameter.param_location == "body":
+            _narrow_declared(parameter.param_schema, allowed)
+        else:
+            allowed = None
         arguments.append(
             Argument(
                 name=parameter.original_name,
@@ -301,6 +394,7 @@ def _tool(
                 location=parameter.param_location,
                 prefix=str(fix.get("prefix", "")),
                 suffix=str(fix.get("suffix", "")),
+                allowed=allowed,
             )
         )
         visible.append(parameter)
@@ -331,6 +425,90 @@ def _tool(
         path=str(parsed.endpoint.path),
         connection=connection,
         arguments=arguments,
+        nested_fixes=nested,
         declaration=declaration,
         require_confirmation=require_confirmation,
     )
+
+
+def _nested_fixes(
+    parsed: Any, fixes: Mapping[str, Mapping[str, Any]], applied: set[str]
+) -> list[NestedFix]:
+    """The fixes that address a path into the body rather than a parameter.
+
+    A name that matches a parameter literally is that parameter's, exactly as
+    validate read it; only what matches nothing literally is read as a path.
+    A fixed value's leaf is taken out of the declared schema - its value is
+    declared, so there is nothing for the model to say there.
+    """
+    literal = {
+        parameter.original_name
+        for parameter in parsed.parameters
+        if parameter.param_location not in ("header", "cookie")
+    }
+    body_parameters = {
+        parameter.original_name: parameter
+        for parameter in parsed.parameters
+        if parameter.param_location == "body"
+    }
+    found: list[NestedFix] = []
+    for name, fix in fixes.items():
+        if name in literal or "." not in name:
+            continue
+        segments = tuple(name.split("."))
+        parameter = body_parameters.get(segments[0])
+        if parameter is None:
+            continue  # reported with the other unapplied fixes
+        applied.add(name)
+        if "value" in fix:
+            _prune_declared(parameter.param_schema, segments[1:])
+            found.append(NestedFix(path=segments, fixed=True, value=fix["value"]))
+        else:
+            found.append(
+                NestedFix(
+                    path=segments,
+                    prefix=str(fix.get("prefix", "")),
+                    suffix=str(fix.get("suffix", "")),
+                )
+            )
+    return found
+
+
+def _narrow_declared(schema: Any, tree: Mapping[str, Any]) -> None:
+    """Show the model just the subtree an only entry names.
+
+    Best effort like _prune_declared: what the schema cannot show, the
+    request-time filter still keeps from being sent.
+    """
+    properties = getattr(schema, "properties", None)
+    if not isinstance(properties, dict):
+        return
+    for key in list(properties):
+        if key not in tree:
+            del properties[key]
+        elif isinstance(tree[key], Mapping):
+            _narrow_declared(properties[key], tree[key])
+    required = getattr(schema, "required", None)
+    if isinstance(required, list):
+        schema.required = [name for name in required if name in tree] or None
+
+
+def _prune_declared(schema: Any, segments: tuple[str, ...]) -> None:
+    """Take one nested property out of the parsed schema.
+
+    Best effort by design: a schema that cannot be walked cannot show the
+    property to the model either, and the request-time overwrite holds
+    regardless of what the model was shown.
+    """
+    for segment in segments[:-1]:
+        properties = getattr(schema, "properties", None)
+        if not isinstance(properties, Mapping) or segment not in properties:
+            return
+        schema = properties[segment]
+    properties = getattr(schema, "properties", None)
+    leaf = segments[-1]
+    if isinstance(properties, dict):
+        properties.pop(leaf, None)
+    required = getattr(schema, "required", None)
+    if isinstance(required, list) and leaf in required:
+        schema.required = [name for name in required if name != leaf] or None

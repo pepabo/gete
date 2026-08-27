@@ -10,7 +10,7 @@ a declaration against the description on machines that never deploy.
 """
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,7 +19,14 @@ import yaml
 
 from gete.errors import DeclarationError
 
-__all__ = ["Operation", "declaration_problems", "load_spec", "read_operations"]
+__all__ = [
+    "Operation",
+    "allow_tree",
+    "declaration_problems",
+    "exposes",
+    "load_spec",
+    "read_operations",
+]
 
 # The keys of a path item that name operations (RFC 9110 methods, lowercase).
 HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
@@ -265,14 +272,24 @@ def declaration_problems(block: Mapping[str, Any], spec: Any) -> list[str]:
             )
             continue
         found.extend(_operation_problems(operation, effect))
-    for key in ("params", "describe"):
+    for key in ("params", "describe", "only"):
         for name in block.get(key, {}):
             if name not in selected:
                 found.append(f"{key}: {name!r} is not one of this block's operations")
     for name, fixes in block.get("params", {}).items():
         operation = operations.get(name)
         if operation is not None and name in selected:
-            found.extend(_fix_problems(operation, fixes))
+            found.extend(
+                _fix_problems(spec, operation, fixes, block.get("only", {}).get(name))
+            )
+    for name, exposed in block.get("only", {}).items():
+        operation = operations.get(name)
+        if operation is not None and name in selected:
+            found.extend(
+                _only_problems(
+                    spec, operation, exposed, block.get("params", {}).get(name, {})
+                )
+            )
     return found
 
 
@@ -333,9 +350,61 @@ def _operation_problems(operation: Operation, effect: str) -> list[str]:
     return found
 
 
-def _fix_problems(operation: Operation, fixes: Mapping[str, Any]) -> list[str]:
-    """What keeps the declared parameter fixes from being applied."""
-    found: list[str] = []
+@dataclass(frozen=True)
+class _BodyLeaf:
+    """Where a dotted name landed in the body: a schema when the walk could
+    enumerate its way down, or the problem that stopped it. Neither means the
+    walk left enumerable ground, so the miss is not certain."""
+
+    schema: Mapping[str, Any] | None = None
+    problem: str | None = None
+    # Whether every segment was found in enumerated properties. A path into
+    # a freeform object is possible, never certain.
+    certain: bool = True
+
+
+def _walk_body(spec: Any, operation: Operation, segments: tuple[str, ...]) -> _BodyLeaf:
+    """Follow dotted segments through the body's properties, resolving and
+    folding each level the way the top level was."""
+    if operation.body is None:
+        return _BodyLeaf(
+            problem=f"reaches into the JSON body, and {operation.id} declares none"
+        )
+    node: Mapping[str, Any] | None = operation.body
+    trail: list[str] = []
+    for segment in segments:
+        if node is None:
+            return _BodyLeaf(certain=False)
+        declared = node.get("type")
+        if declared is not None and declared != "object":
+            return _BodyLeaf(
+                problem=f"{'.'.join(trail)!r} is a {declared}, which holds "
+                "no properties"
+            )
+        properties = node.get("properties")
+        if not isinstance(properties, Mapping):
+            return _BodyLeaf(certain=False)
+        if segment not in properties:
+            where = ".".join(trail) or "the body"
+            known = ", ".join(sorted(map(str, properties)))
+            return _BodyLeaf(
+                problem=f"{segment!r} is not a property of {where} "
+                f"(properties: {known})"
+            )
+        child = _resolve(spec, properties[segment])
+        if isinstance(child, Mapping):
+            child = _fold_allof(spec, child)
+        node = child if isinstance(child, Mapping) else None
+        trail.append(segment)
+    return _BodyLeaf(schema=node)
+
+
+def _argument_maps(
+    operation: Operation,
+) -> tuple[dict[str, Any], set[str], dict[str, Any], bool]:
+    """The names a declaration can speak about, by where they live: request
+    parameters, header names, top-level body properties, and whether the body
+    could be enumerated at all."""
     parameters: dict[str, Any] = {}
     header_names: set[str] = set()
     for parameter in operation.parameters:
@@ -351,6 +420,19 @@ def _fix_problems(operation: Operation, fixes: Mapping[str, Any]) -> list[str]:
         else {}
     )
     enumerable = operation.body is None or isinstance(properties, Mapping)
+    return parameters, header_names, body_properties, enumerable
+
+
+def _fix_problems(
+    spec: Any,
+    operation: Operation,
+    fixes: Mapping[str, Any],
+    only: Iterable[str] | None = None,
+) -> list[str]:
+    """What keeps the declared parameter fixes from being applied."""
+    found: list[str] = []
+    parameters, header_names, body_properties, enumerable = _argument_maps(operation)
+    tree = allow_tree(only) if only is not None else None
     for name, fix in fixes.items():
         if name in header_names:
             found.append(
@@ -367,7 +449,25 @@ def _fix_problems(operation: Operation, fixes: Mapping[str, Any]) -> list[str]:
                 "cannot choose between them"
             )
             continue
+        if (
+            (name in parameters or name in body_properties)
+            and "." in name
+            and _certainly_in_body(spec, operation, name)
+        ):
+            # A dot may sit in a parameter's literal name or mark a path into
+            # the body; when both readings hold, neither was declared.
+            found.append(
+                f"params.{operation.id}: {name!r} names both a parameter and "
+                "a path into the body; the fix cannot choose between them"
+            )
+            continue
         if name not in parameters and name not in body_properties:
+            if "." in name:
+                found.extend(
+                    f"params.{operation.id}: {name!r} {message}"
+                    for message in _dotted_problems(spec, operation, name, fix, tree)
+                )
+                continue
             # A body whose properties cannot be enumerated may still hold
             # the name; only a miss that is certain is reported.
             if enumerable:
@@ -378,6 +478,12 @@ def _fix_problems(operation: Operation, fixes: Mapping[str, Any]) -> list[str]:
                 )
             continue
         if "prefix" in fix or "suffix" in fix:
+            if not exposes(tree, (name,)):
+                found.append(
+                    f"params.{operation.id}.{name}: prefix and suffix wrap "
+                    f"what the model writes, and only does not expose {name!r}"
+                )
+                continue
             schema = parameters[name] if name in parameters else body_properties[name]
             declared = schema.get("type") if isinstance(schema, Mapping) else None
             if declared is not None and declared != "string":
@@ -386,3 +492,146 @@ def _fix_problems(operation: Operation, fixes: Mapping[str, Any]) -> list[str]:
                     f"string parameter, and {name!r} is {declared}"
                 )
     return found
+
+
+def _only_problems(
+    spec: Any,
+    operation: Operation,
+    exposed: Iterable[str],
+    fixes: Mapping[str, Any],
+) -> list[str]:
+    """What keeps the declared exposure list from carving the operation."""
+    found: list[str] = []
+    parameters, header_names, body_properties, enumerable = _argument_maps(operation)
+    exposed = tuple(exposed)
+    # A dotted entry still sends its top-level argument, just narrowed.
+    covered = {entry.split(".")[0] for entry in exposed}
+    fixed = {name for name, fix in fixes.items() if "value" in fix}
+    for name in _required_names(operation, parameters):
+        if name not in covered and name not in fixed:
+            found.append(
+                f"only.{operation.id}: {name!r} is required, and it is "
+                "neither listed nor fixed; every request needs it"
+            )
+    for entry in exposed:
+        if "value" in fixes.get(entry, {}):
+            found.append(
+                f"only.{operation.id}: {entry!r} is fixed by params; a fixed "
+                "parameter is not the model's to write"
+            )
+            continue
+        if entry in header_names:
+            found.append(
+                f"only.{operation.id}: {entry!r} is a header parameter, "
+                "which a declaration does not send"
+            )
+            continue
+        literal = entry in parameters or entry in body_properties
+        if literal and "." in entry and _certainly_in_body(spec, operation, entry):
+            found.append(
+                f"only.{operation.id}: {entry!r} names both a parameter and "
+                "a path into the body; the entry cannot choose between them"
+            )
+            continue
+        if literal:
+            continue
+        if "." in entry:
+            leaf = _walk_body(spec, operation, tuple(entry.split(".")))
+            if leaf.problem is not None:
+                found.append(f"only.{operation.id}: {entry!r} {leaf.problem}")
+            continue
+        if enumerable:
+            known = sorted({**body_properties, **parameters})
+            found.append(
+                f"only.{operation.id}: {entry!r} names no parameter of "
+                f"{operation.id} (parameters: {', '.join(known)})"
+            )
+    return found
+
+
+def allow_tree(entries: Iterable[str]) -> dict[str, Any]:
+    """An ``only`` list as a tree of what the model may write.
+
+    A node of None means the whole subtree is the model's; a mapping narrows
+    it to the named children. A bare name is broader than any dotted entry
+    under it, so it wins.
+    """
+    tree: dict[str, Any] = {}
+    for entry in entries:
+        segments = str(entry).split(".")
+        node = tree
+        for segment in segments[:-1]:
+            if segment in node and node[segment] is None:
+                break
+            node = node.setdefault(segment, {})
+        else:
+            node[segments[-1]] = None
+    return tree
+
+
+def exposes(tree: Mapping[str, Any] | None, path: Iterable[str]) -> bool:
+    """Whether the model may write the value at path under this tree.
+
+    No tree at all means everything is the model's; landing on a mapping
+    means the object itself is written, if only its named children.
+    """
+    if tree is None:
+        return True
+    node: Any = tree
+    for segment in path:
+        if node is None:
+            return True
+        if not isinstance(node, Mapping) or segment not in node:
+            return False
+        node = node[segment]
+    return True
+
+
+def _required_names(operation: Operation, parameters: Mapping[str, Any]) -> list[str]:
+    """Names a request cannot go without: required query and path parameters,
+    then the body's own required properties."""
+    names = [
+        str(parameter.get("name"))
+        for parameter in operation.parameters
+        if parameter.get("required") and str(parameter.get("name")) in parameters
+    ]
+    required = (operation.body or {}).get("required")
+    if isinstance(required, list):
+        names.extend(str(name) for name in required if name not in names)
+    return names
+
+
+def _certainly_in_body(spec: Any, operation: Operation, name: str) -> bool:
+    leaf = _walk_body(spec, operation, tuple(name.split(".")))
+    return leaf.problem is None and leaf.certain
+
+
+def _dotted_problems(
+    spec: Any,
+    operation: Operation,
+    name: str,
+    fix: Mapping[str, Any],
+    tree: Mapping[str, Any] | None,
+) -> list[str]:
+    """What keeps one dotted fix from reaching its place in the body."""
+    segments = tuple(name.split("."))
+    leaf = _walk_body(spec, operation, segments)
+    if leaf.problem is not None:
+        return [leaf.problem]
+    if "value" in fix and not exposes(tree, segments[:-1]):
+        # The fix rides on its parent object; a parent never sent would
+        # leave the constraint silently unapplied.
+        return ["is pinned inside a parent that only does not send"]
+    if "prefix" in fix or "suffix" in fix:
+        if not exposes(tree, segments):
+            return [
+                "takes a prefix or suffix, which wrap what the model "
+                "writes, and only does not expose it"
+            ]
+        declared = leaf.schema.get("type") if leaf.schema is not None else None
+        if declared is not None and declared != "string":
+            return [
+                "takes a prefix or suffix, which need a string property, "
+                f"and it is {declared}"
+            ]
+    return []
