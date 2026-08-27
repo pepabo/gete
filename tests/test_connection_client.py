@@ -422,3 +422,147 @@ async def test_401_uses_the_connections_reauthorization_message() -> None:
     bind()
     with pytest.raises(ReauthorizationRequired, match="LOCALIZED-REAUTHORIZE-PROMPT"):
         await client(lambda request: httpx.Response(401), target=declared).get_json(URL)
+
+
+async def test_post_json_sends_the_body_with_the_users_token() -> None:
+    """Search endpoints commonly take a POST; the client had no way to reach them."""
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"results": []})
+
+    result = await client(handler).post_json(URL, {"query": "invoice"})
+    assert result == {"results": []}
+    assert seen[0].method == "POST"
+    assert json.loads(seen[0].content) == {"query": "invoice"}
+    assert seen[0].headers["Authorization"] == f"Bearer {TOKEN}"
+
+
+async def test_post_json_stays_inside_the_declared_hosts() -> None:
+    bind()
+    with pytest.raises(ExternalServiceError):
+        await client(ok({})).post_json("https://api.example.com/x", {})
+
+
+async def test_post_json_results_go_through_the_policies_redaction() -> None:
+    bind(rules=RedactRules(keys=("bank_name",)))
+    result = await client(ok({"bank_name": "Example Bank"})).post_json(URL, {})
+    assert result == {"bank_name": "[redacted]"}
+
+
+async def test_fixed_headers_ride_on_every_request() -> None:
+    """Some APIs refuse a request that does not name the version it speaks."""
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    reader = ConnectionClient(
+        GITHUB,
+        client=httpx.AsyncClient(transport=transport),
+        backoff_seconds=0,
+        headers={"X-Api-Version": "2026-01-01"},
+    )
+    await reader.get_json(URL)
+    await reader.post_json(URL, {})
+    assert [request.headers["X-Api-Version"] for request in seen] == [
+        "2026-01-01",
+        "2026-01-01",
+    ]
+
+
+async def test_a_call_may_add_headers_of_its_own_over_the_fixed_ones() -> None:
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    reader = ConnectionClient(
+        GITHUB,
+        client=httpx.AsyncClient(transport=transport),
+        backoff_seconds=0,
+        headers={"Accept": "application/json", "X-Api-Version": "2026-01-01"},
+    )
+    await reader.get_json(URL, headers={"Accept": "text/csv"})
+    assert seen[0].headers["Accept"] == "text/csv"
+    assert seen[0].headers["X-Api-Version"] == "2026-01-01"
+
+
+@pytest.mark.parametrize("name", ["Authorization", "authorization"])
+async def test_a_header_may_never_stand_in_for_the_users_token(name: str) -> None:
+    """HTTP header names do not care about case, and neither may the check."""
+    bind()
+    with pytest.raises(ExternalServiceError, match="token"):
+        ConnectionClient(GITHUB, headers={name: "Bearer other"})
+    with pytest.raises(ExternalServiceError, match="token"):
+        await client(ok({})).get_json(URL, headers={name: "Bearer other"})
+
+
+async def test_a_rate_limited_post_is_retried() -> None:
+    """429 is refused before the service acts on it, so sending it again is safe."""
+    bind()
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"})
+        return httpx.Response(200, json={"ok": True})
+
+    assert await client(handler).post_json(URL, {}) == {"ok": True}
+    assert attempts == 2
+
+
+async def test_a_post_that_may_have_been_applied_is_not_sent_again() -> None:
+    """Neither a 5xx nor a dropped connection says the service did nothing."""
+    bind()
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(503)
+
+    with pytest.raises(ExternalServiceError, match="503"):
+        await client(handler).post_json(URL, {})
+    assert attempts == 1
+
+    dropped = 0
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        nonlocal dropped
+        dropped += 1
+        raise httpx.ConnectError("no route")
+
+    with pytest.raises(ExternalServiceError):
+        await client(refuse).post_json(URL, {})
+    assert dropped == 1
+
+
+async def test_a_call_header_wins_whatever_case_it_is_written_in() -> None:
+    """Header names do not care about case; a merge that did would send both."""
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    reader = ConnectionClient(
+        GITHUB,
+        client=httpx.AsyncClient(transport=transport),
+        backoff_seconds=0,
+        headers={"Accept": "application/json"},
+    )
+    await reader.get_json(URL, headers={"accept": "text/csv"})
+    assert seen[0].headers.get_list("accept") == ["text/csv"]
