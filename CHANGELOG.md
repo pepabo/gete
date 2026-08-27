@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.2.10](https://github.com/pepabo/gete/compare/v0.2.9...v0.2.10) - 2026-08-27
+
+- Let an agent select scopes from a connection's menu by @haruotsu in https://github.com/pepabo/gete/pull/37
+- Let a declaration reach into the body and count up what goes out by @haruotsu in https://github.com/pepabo/gete/pull/39
+- Prune the description to the declared operations at packing time by @haruotsu in https://github.com/pepabo/gete/pull/40
+
 ## [v0.2.9](https://github.com/pepabo/gete/compare/v0.2.8...v0.2.9) - 2026-08-27
 
 - Let a connection be written with PUT and PATCH by @haruotsu in https://github.com/pepabo/gete/pull/33
