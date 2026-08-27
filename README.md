@@ -195,8 +195,8 @@ tools:
 ### Connections
 
 `gete connections` lists what ships: `freee`, `google`, `github`, `notion-mcp`,
-and `slack` (retired, with the reason). Add your own or override a catalog
-entry in `gete.yaml`:
+`zendesk`, and `slack` (retired, with the reason). Add your own or override a
+catalog entry in `gete.yaml`:
 
 ```yaml
 connections:

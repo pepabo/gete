@@ -87,3 +87,25 @@ def test_notion_mcp_says_what_a_person_has_to_do_before_authorizing() -> None:
 def test_a_connection_fronting_another_grant_carries_no_scopes() -> None:
     """Nothing here chooses the permissions; the provider's consent screen does."""
     assert CATALOG["notion-mcp"]["oauth"]["scopes"] == {}
+
+
+def test_zendesk_leaves_its_root_open_until_an_installation_names_it() -> None:
+    """The tenant is a subdomain; a stand-in host would be a name a stranger
+    could register, and then a user's token would be sent there."""
+    zendesk = Registry.from_catalog().get("zendesk")
+    assert zendesk.needs_base_url
+    assert not zendesk.hosts
+    assert zendesk.oauth.authorization_url.startswith("{base_url}/")
+    assert zendesk.oauth.token_url.startswith("{base_url}/")
+
+
+def test_zendesk_offers_the_narrow_write_scope_next_to_read() -> None:
+    """write alone would cover users, organizations, and settings as well."""
+    scopes = CATALOG["zendesk"]["oauth"]["scopes"]
+    assert set(scopes) == {"read", "tickets:write"}
+
+
+def test_zendesk_says_what_a_person_has_to_do_before_authorizing() -> None:
+    setup = CATALOG["zendesk"]["setup"]
+    assert "OAuth" in setup
+    assert "redirect URI" in setup
