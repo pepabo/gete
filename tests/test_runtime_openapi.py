@@ -11,6 +11,7 @@ from conftest import ProjectBuilder
 from gete.connection import Registry
 from gete.declaration import RESOLVED_FILE, Agent, load_project, resolve
 from gete.errors import DeclarationError
+from gete.openapi import pruned_description
 from gete.request_context import clear_tool_call
 from gete.runtime import build
 from gete.runtime.openapi import OpenApiToolset, openapi_toolset
@@ -459,3 +460,28 @@ def test_build_turns_the_declaration_into_a_toolset(project: ProjectBuilder) -> 
     # The connection joins the reauthorization tool like an MCP one would.
     assert isinstance(asking, ReauthorizationToolset)
     assert asking.connection_ids == ("rooted-api",)
+
+
+async def test_the_pruned_description_builds_the_same_tools(tmp_path: Path) -> None:
+    """gete archive packs the pruned description; the runtime must offer
+    exactly what the whole one would have."""
+    operations = ["ListSearchResults", "ShowTicket", "UpdateTicket"]
+    whole_dir = tmp_path / "whole"
+    pruned_dir = tmp_path / "pruned"
+    whole_dir.mkdir()
+    pruned_dir.mkdir()
+    from_whole = toolset(whole_dir, operations=operations, effect="write")
+    from_pruned = toolset(
+        pruned_dir,
+        document=pruned_description(SPEC, operations),
+        operations=operations,
+        effect="write",
+    )
+    whole_tools = await from_whole.get_tools(context())
+    pruned_tools = await from_pruned.get_tools(context())
+    assert [tool.name for tool in whole_tools] == [tool.name for tool in pruned_tools]
+    for ours, theirs in zip(whole_tools, pruned_tools, strict=True):
+        assert (
+            ours._get_declaration().model_dump_json()
+            == theirs._get_declaration().model_dump_json()
+        )

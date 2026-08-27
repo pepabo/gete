@@ -31,6 +31,7 @@ from gete.declaration import (
     resolve,
 )
 from gete.errors import DeclarationError
+from gete.openapi import load_spec, pruned_description
 from gete.templates import template_text
 from gete.validate import validate_project
 
@@ -111,14 +112,24 @@ def build_archive(directory: Path, *, project: Project | None = None) -> Archive
         entries[name] = instruction.read_bytes()
     # OpenAPI descriptions are read from the archive, never the network: a
     # vendor changing a published description must not change a deployed
-    # agent's tools.
+    # agent's tools. What travels is pruned to the declared operations -
+    # cutting a description down by hand breaks quietly, so the archive does
+    # the cutting; a file two blocks share keeps the union of their choices.
+    descriptions: dict[str, tuple[Path, set[str]]] = {}
     for index, tool in enumerate(agent.tools):
         if "openapi" in tool:
-            spec_path = agent.directory / str(tool["openapi"]["spec"])
+            block = tool["openapi"]
+            spec_path = agent.directory / str(block["spec"])
             name = _archive_input(
                 agent, spec_path, f"tools[{index}].openapi.spec", kind="file"
             )
-            entries[name] = spec_path.read_bytes()
+            _, selected = descriptions.setdefault(name, (spec_path, set()))
+            selected.update(map(str, block["operations"]))
+    for name, (spec_path, selected) in descriptions.items():
+        pruned = pruned_description(load_spec(spec_path), selected)
+        entries[name] = yaml.safe_dump(
+            pruned, sort_keys=False, allow_unicode=True
+        ).encode()
     if agent.source is not None:
         # Agent Engine imports from the archive root, so the source directory's
         # contents go there and the resolved declaration points at ".".

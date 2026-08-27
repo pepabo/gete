@@ -185,6 +185,15 @@ tools:
   file into the archive and the runtime reads it from there, so a vendor
   editing their published description changes nothing until someone
   re-archives deliberately.
+- **The archive carries only what was declared.** Keep the vendor's
+  original in the repo; `gete archive` prunes it to the declared
+  operations, path-level parameters and every referenced component
+  riding along. Cutting a description down by hand breaks quietly —
+  path-level parameters fall away, a flattened `$ref` takes its arguments
+  with it, and `validate` cannot tell such a description from one that
+  never declared them — so the cutting is gete's job, and `validate` now
+  also reports a `{placeholder}` in a path that no path parameter
+  declares.
 - **Writes ride the same rails.** PUT, PATCH, and DELETE operations must
   sit in a block declared `effect: write`, which the confirmation policies
   key on, and results pass the same redaction as every other tool. A change
