@@ -1,5 +1,7 @@
 """gete connections: what an installation can declare, and what is known to work."""
 
+from typing import Any
+
 from click.testing import CliRunner
 from conftest import ProjectBuilder
 
@@ -55,3 +57,81 @@ def test_cli_connections_works_without_a_project() -> None:
         result = runner.invoke(main, ["connections"])
     assert result.exit_code == 0, result.output
     assert "freee" in result.output
+
+
+# What a person has to do before anyone can authorize: register the client,
+# put it where register reads it, and get the one-shot parts right.
+SETUP = (
+    "Register an OAuth client with the service yourself.\n"
+    "The consent screen is the service's own and grants more than reading."
+)
+
+WITH_SETUP: dict[str, Any] = {
+    "display_name": "Internal API",
+    "hosts": ["api.internal.example.com"],
+    "token_prefixes": ["ia_"],
+    "setup": SETUP,
+    "oauth": {
+        "authorization_url": "https://auth.internal.example.com/authorize",
+        "token_url": "https://auth.internal.example.com/token",
+        "scopes": {"read": "Read internal data"},
+    },
+}
+
+
+def describe(project: ProjectBuilder, connection_id: str) -> Any:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"internal-api": WITH_SETUP},
+        }
+    )
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=project.root):
+        return runner.invoke(main, ["connections", connection_id])
+
+
+def test_describing_a_connection_prints_what_a_person_has_to_do_first(
+    project: ProjectBuilder,
+) -> None:
+    result = describe(project, "internal-api")
+    assert result.exit_code == 0, result.output
+    for line in SETUP.splitlines():
+        assert line in result.output
+
+
+def test_the_description_names_the_secrets_and_the_redirect_uri(
+    project: ProjectBuilder,
+) -> None:
+    """Registering a client takes all three at once, and some cannot be undone."""
+    output = describe(project, "internal-api").output
+    assert "ge-oauth-internal-api-client-id" in output
+    assert "ge-oauth-internal-api-client-secret" in output
+    assert "https://vertexaisearch.cloud.google.com/oauth-redirect" in output
+
+
+def test_a_connection_without_setup_notes_is_still_described(
+    project: ProjectBuilder,
+) -> None:
+    result = describe(project, "freee")
+    assert result.exit_code == 0, result.output
+    assert "api.freee.co.jp" in result.output
+    assert "https://accounts.secure.freee.co.jp/public_api/token" in result.output
+
+
+def test_describing_an_unknown_connection_names_the_known_ones(
+    project: ProjectBuilder,
+) -> None:
+    result = describe(project, "salesforce")
+    assert result.exit_code == 1
+    assert "freee" in result.output
+
+
+def test_a_catalog_connection_can_be_described_without_a_project() -> None:
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(main, ["connections", "github"])
+    assert result.exit_code == 0, result.output
+    assert "api.github.com" in result.output
