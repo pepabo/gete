@@ -321,7 +321,7 @@
       "pattern": "^https://[^/?#\\s]+(?:[/?#]\\S*)?$"
     },
     "openapi_param": {
-      "description": "One parameter's constraint: a fixed value the model never sees, or text put around what the model writes. A fixed parameter is taken out of the declaration shown to the model - its value is declared, so there is nothing left for the model to say, and prefix or suffix would have nothing to wrap.",
+      "description": "One parameter's constraint: a fixed value the model never sees, or text put around what the model writes. A fixed parameter is taken out of the declaration shown to the model - its value is declared, so there is nothing left for the model to say, and prefix or suffix would have nothing to wrap. A null value is refused: the client drops absent values, so a fixed null would silently send nothing at all.",
       "oneOf": [
         {
           "type": "object",
@@ -330,7 +330,11 @@
             "value"
           ],
           "properties": {
-            "value": {}
+            "value": {
+              "not": {
+                "type": "null"
+              }
+            }
           }
         },
         {

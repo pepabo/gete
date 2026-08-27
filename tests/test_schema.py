@@ -181,6 +181,14 @@ def test_connections_must_be_unique() -> None:
             }
         },
         {"openapi": {**OPENAPI_TOOL["openapi"], "params": {"ListThings": {"q": {}}}}},
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                # The client drops absent values, so a fixed null would
+                # silently send nothing at all.
+                "params": {"ListThings": {"q": {"value": None}}},
+            }
+        },
     ],
 )
 def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
