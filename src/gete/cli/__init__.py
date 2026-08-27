@@ -189,17 +189,35 @@ def init(name: str) -> None:
 
 
 @main.command()
-def connections() -> None:
-    """List the connections agents can declare: catalog plus gete.yaml."""
+@click.argument("connection_id", required=False)
+def connections(connection_id: str | None) -> None:
+    """List the connections agents can declare, or describe one of them.
+
+    With an id, print what a person has to prepare before anyone can
+    authorize it: the OAuth client's secret names, the redirect URI, and
+    whatever the connection declares under setup.
+    """
     from gete.connection import Registry
-    from gete.connections_listing import connections_table, format_table
+    from gete.connections_listing import (
+        connections_table,
+        format_connection,
+        format_table,
+    )
 
     try:
         project = load_project(find_project_file(Path.cwd()))
         registry = Registry.from_catalog(project.connection_overrides)
     except GeteError:
         registry = Registry.from_catalog()
-    click.echo(format_table(connections_table(registry)), nl=False)
+    if connection_id is None:
+        click.echo(format_table(connections_table(registry)), nl=False)
+        return
+    try:
+        connection = registry.get(connection_id, include_retired=True)
+    except GeteError as error:
+        click.echo(str(error), err=True)
+        sys.exit(1)
+    click.echo(format_connection(connection), nl=False)
 
 
 @main.command()

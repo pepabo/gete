@@ -73,7 +73,7 @@ covers pointing it at a mirror.
 | `gete validate [--check-secrets] [--import-check]` | Schemas and rules; optionally secrets' versions and a deployment-shaped import | `--check-secrets` reads |
 | `gete run <name>` | Local conversation; tokens from `GETE_TOKEN_<CONNECTION>` | calls the model |
 | `gete graph [name...]` | Mermaid diagram of agents, engines, tools, connections | no |
-| `gete connections` | Catalog plus your own connections, with verification status | no |
+| `gete connections [id]` | Catalog plus your own; with an id, what a person must prepare | no |
 | `gete archive <dir> [--out file]` | The tar.gz Agent Engine receives; `--external` for Terraform | no |
 | `gete terraform [--out dir] [--check]` | Generate module calls; `--check` fails when stale | no |
 | `gete register [name...]` | Create/update authorizations, bring registrations in line | writes |
@@ -194,6 +194,37 @@ host is added, and `gete validate` refuses it where an agent names it. That is
 how a definition reaches the catalog without knowing a tenant. Writing a
 stand-in host instead would put a name a stranger can register on the list of
 places a user's token may be sent.
+
+Some of what a connection needs is not gete's to do. The OAuth client is
+registered by a person, at the provider, once; `setup` is where a connection
+says so, and `gete connections <id>` prints it next to the secret names and the
+redirect URI that registration asks for at the same moment:
+
+```yaml
+connections:
+  internal-api:
+    setup: |
+      Register an OAuth client in the service's admin console.
+      Put the client id and secret in Secret Manager under the names above.
+      The consent screen is the service's own; it grants writing as well.
+```
+
+Prose, not a checklist. What matters most about a connection is often not a
+step — what the consent screen actually grants, which providers hand out no way
+to delete a client again — and no check can see any of it.
+
+```
+$ gete connections internal-api
+internal-api  Internal API
+  ...
+  client id       ge-oauth-internal-api-client-id
+  client secret   ge-oauth-internal-api-client-secret
+  redirect uri    https://vertexaisearch.cloud.google.com/oauth-redirect
+
+Before anyone can authorize:
+  Register an OAuth client in the service's admin console.
+  ...
+```
 
 Adding a connection to the catalog is one YAML file under
 `src/gete/catalog/connections/`; the conformance tests check it.

@@ -132,6 +132,10 @@ class Connection:
     oauth_client: str | None = None
     mcp_url: str | None = None
     retired: str | None = None
+    # What a person has to do before anyone can authorize. Prose, because the
+    # parts that matter - what the consent screen grants, what cannot be
+    # undone - are not steps and no check can see them.
+    setup: str | None = None
     # Text shown to users asked to authorize again; None means the default.
     reauthorization: str | None = None
     verified: Mapping[str, str] = field(default_factory=dict)
@@ -159,6 +163,7 @@ class Connection:
             oauth_client=data.get("oauth_client"),
             mcp_url=_rooted(data.get("mcp", {}).get("url"), base_url),
             retired=data.get("retired"),
+            setup=data.get("setup"),
             reauthorization=data.get("messages", {}).get("reauthorization"),
             verified=dict(data.get("verified", {})),
             examples=Examples(

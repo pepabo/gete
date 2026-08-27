@@ -108,6 +108,11 @@
         }
       }
     },
+    "setup": {
+      "description": "What a person has to do before anyone can authorize: register the OAuth client, what the consent screen grants, anything that cannot be undone. gete can neither do nor check any of it; `gete connections <id>` prints it.",
+      "type": "string",
+      "minLength": 1
+    },
     "retired": {
       "description": "Why the connection is no longer usable. validate fails with this text.",
       "type": "string",
