@@ -289,13 +289,26 @@
                   "minLength": 1
                 },
                 "params": {
-                  "description": "Constraints on the operations' parameters, by operationId, then by parameter or body property name. What was pinned in code must not be lost by moving to a declaration.",
+                  "description": "Constraints on the operations' parameters, by operationId, then by parameter or body property name. A dotted name reaches into the JSON body when no parameter carries the name literally. What was pinned in code must not be lost by moving to a declaration.",
                   "type": "object",
                   "additionalProperties": {
                     "type": "object",
                     "minProperties": 1,
                     "additionalProperties": {
                       "$ref": "#/$defs/openapi_param"
+                    }
+                  }
+                },
+                "only": {
+                  "description": "The arguments the model may write, by operationId. Everything unlisted is taken out of the declaration and never sent; a params value still rides. A dotted name exposes just that path into the JSON body when no parameter carries the name literally. Naming what goes out fails safe when the description grows: a new field stays unexposed until someone declares it.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
                     }
                   }
                 },
