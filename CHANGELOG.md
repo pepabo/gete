@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.2.9](https://github.com/pepabo/gete/compare/v0.2.8...v0.2.9) - 2026-08-27
+
+- Let a connection be written with PUT and PATCH by @haruotsu in https://github.com/pepabo/gete/pull/33
+- Add the Zendesk connection to the catalog by @haruotsu in https://github.com/pepabo/gete/pull/34
+- Declare tools from an OpenAPI description by @haruotsu in https://github.com/pepabo/gete/pull/35
+
 ## [v0.2.8](https://github.com/pepabo/gete/compare/v0.2.7...v0.2.8) - 2026-08-27
 
 - Say which index an install from git resolves through by @haruotsu in https://github.com/pepabo/gete/pull/25
