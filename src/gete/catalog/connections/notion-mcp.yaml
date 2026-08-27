@@ -1,0 +1,60 @@
+id: notion-mcp
+display_name: Notion
+docs: https://developers.notion.com/docs/mcp
+
+# The MCP endpoint is a different issuer from the Notion API: it advertises its
+# own authorization server, and a token from here is not a Notion API token.
+# api.notion.com therefore does not belong on this list. Naming both would say
+# that either service's token may be sent to the other.
+hosts:
+  - mcp.notion.com
+# Opaque, and the server announces no prefix. Accepted by elimination, so an
+# agent may hold only one connection of this kind.
+token_prefixes: []
+
+oauth:
+  authorization_url: https://mcp.notion.com/authorize
+  # The endpoint accepts client_secret_post as well as client_secret_basic, so
+  # it does not matter which of the two Gemini Enterprise sends. A connection
+  # cannot say; the Authorization resource has no field for it.
+  token_url: https://mcp.notion.com/token
+  # Permissions belong to the Notion integration this endpoint fronts and are
+  # settled on its consent screen. The authorization URL carries no scopes.
+  scopes: {}
+  # Used verbatim as the query string; Gemini Enterprise appends client_id and
+  # redirect_uri. Without it, access_type and prompt are added, which are
+  # Google's vocabulary and mean nothing to this authorization server.
+  authorization_query:
+    response_type: code
+
+mcp:
+  url: https://mcp.notion.com/mcp
+
+setup: |
+  Register the OAuth client yourself, once. The endpoint offers dynamic client
+  registration (RFC 7591), but Gemini Enterprise is given a client id and
+  secret, so register a client and put the two in the secrets named above.
+
+  Register exactly one redirect URI: the one named above. The endpoint
+  implements registration without the client management half of it (RFC 7592)
+  - no registration access token comes back and the registration URI answers
+  404 - so a client registered with the wrong redirect URI cannot be deleted.
+  Every wrong attempt leaves one behind for good.
+
+  This endpoint fronts Notion's own integration rather than standing on its
+  own. The consent screen is Notion's, for that integration, and what it
+  grants cannot be narrowed from here: it covers writing, and reading the
+  workspace's members and their email addresses. An agent that means to only
+  read has to say so with allow and effect: read on its mcp: block. With a
+  server like this one, that block is the only place it can be said.
+
+verified:
+  gemini_enterprise: 2026-08-27
+
+# No accepted shape is declared: the tokens are opaque and the server promises
+# nothing about them, so any example would be a claim this cannot keep.
+examples:
+  rejects:
+    - "ya29.a0AfH6SMB" # Google access token
+    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT, such as an ID token
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub

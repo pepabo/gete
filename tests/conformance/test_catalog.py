@@ -14,7 +14,7 @@ CATALOG = catalog_connections()
 
 
 def test_catalog_has_the_initial_connections() -> None:
-    assert {"freee", "google", "github", "slack"} <= set(CATALOG)
+    assert {"freee", "google", "github", "notion-mcp", "slack"} <= set(CATALOG)
 
 
 @pytest.mark.parametrize("connection_id", sorted(CATALOG))
@@ -68,3 +68,22 @@ def test_catalog_files_are_read_with_dates_as_strings() -> None:
         .read_text(encoding="utf-8")
     )
     assert isinstance(load_yaml_text(text)["verified"]["gemini_enterprise"], str)
+
+
+def test_notion_mcp_does_not_reach_the_notion_api() -> None:
+    """The MCP endpoint is a different issuer; its token is not an API token."""
+    hosts = CATALOG["notion-mcp"]["hosts"]
+    assert hosts == ["mcp.notion.com"]
+    assert "api.notion.com" not in hosts
+
+
+def test_notion_mcp_says_what_a_person_has_to_do_before_authorizing() -> None:
+    """Its client cannot be deleted once registered, and its grant is not ours."""
+    setup = CATALOG["notion-mcp"]["setup"]
+    assert "redirect URI" in setup
+    assert "effect: read" in setup
+
+
+def test_a_connection_fronting_another_grant_carries_no_scopes() -> None:
+    """Nothing here chooses the permissions; the provider's consent screen does."""
+    assert CATALOG["notion-mcp"]["oauth"]["scopes"] == {}

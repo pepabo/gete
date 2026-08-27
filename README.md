@@ -145,9 +145,9 @@ that is the only place an agent can say it means to read.
 
 ### Connections
 
-`gete connections` lists what ships: `freee`, `google`, `github`, and `slack`
-(retired, with the reason). Add your own or override a catalog entry in
-`gete.yaml`:
+`gete connections` lists what ships: `freee`, `google`, `github`, `notion-mcp`,
+and `slack` (retired, with the reason). Add your own or override a catalog
+entry in `gete.yaml`:
 
 ```yaml
 connections:
