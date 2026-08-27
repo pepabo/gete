@@ -546,3 +546,23 @@ async def test_a_post_that_may_have_been_applied_is_not_sent_again() -> None:
     with pytest.raises(ExternalServiceError):
         await client(refuse).post_json(URL, {})
     assert dropped == 1
+
+
+async def test_a_call_header_wins_whatever_case_it_is_written_in() -> None:
+    """Header names do not care about case; a merge that did would send both."""
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+    reader = ConnectionClient(
+        GITHUB,
+        client=httpx.AsyncClient(transport=transport),
+        backoff_seconds=0,
+        headers={"Accept": "application/json"},
+    )
+    await reader.get_json(URL, headers={"accept": "text/csv"})
+    assert seen[0].headers.get_list("accept") == ["text/csv"]

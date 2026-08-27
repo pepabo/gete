@@ -342,11 +342,12 @@ class ConnectionClient:
                 f"{_loggable(url)} is not a {connection.display_name} host; "
                 "the token stays here"
             )
-        sent = {
-            **self._headers,
-            **_refuse_masking_headers(headers or {}),
-            **self._authorization(connection, url, state),
-        }
+        # Header names do not care about case, so neither may the merge: a
+        # dict would keep "Accept" next to "accept" and send both. The token
+        # is put in last, so nothing can displace it.
+        sent = httpx.Headers(self._headers)
+        sent.update(_refuse_masking_headers(headers or {}))
+        sent.update(self._authorization(connection, url, state))
         # A GET can be sent again because sending it again changes nothing.
         # Anything else may already have been applied by the time the answer
         # went missing, so only a refusal the service made before acting - a
