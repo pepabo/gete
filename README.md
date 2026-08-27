@@ -60,7 +60,10 @@ gete register                  # once the engines exist: authorizations and the 
 
 The rest of the way — the GCP project, the Terraform root the generated module
 calls need, and the one registration a person makes by hand — is in
-[docs/quickstart.md](docs/quickstart.md).
+[docs/quickstart.md](docs/quickstart.md). That install resolves from whatever
+index your uv names, PyPI unless you say otherwise;
+[the index it resolves from](docs/quickstart.md#the-index-this-resolves-from)
+covers pointing it at a mirror.
 
 ## Commands
 

@@ -47,9 +47,17 @@ build-backend = "hatchling.build"
 
 # Takumi Guard, a malware-blocking PyPI mirror (reachable anonymously).
 # Declared here rather than left to each machine's uv config, so everyone
-# resolves through the same index and the lockfile's URLs stay put.
-# Artifact integrity does not depend on the mirror: uv checks every
+# working on this repository resolves through the same index and the
+# lockfile's URLs stay put.
+# Artifact integrity does not depend on the mirror here: uv checks every
 # download against the hashes in uv.lock.
+# It reaches no further than this project, though. uv reads this while it
+# operates on gete itself, not while it installs gete somewhere else:
+# `uv tool install "gete[cli] @ git+..."` resolves from whatever index the
+# invoking environment names, and that path has no uv.lock to check hashes
+# against either. Left implicit it is invisible, since a developer machine
+# usually has the mirror in its own uv config and a CI runner does not, so
+# docs/quickstart.md states it where people install.
 [[tool.uv.index]]
 url = "https://pypi.flatt.tech/simple/"
 default = true

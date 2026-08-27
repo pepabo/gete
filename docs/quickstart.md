@@ -32,6 +32,39 @@ The `cli` extra is the command line; the runtime that ships inside the agent
 does not need it. Whatever version you install here also decides the module
 version the generated Terraform points at, so pin the same one in CI.
 
+### The index this resolves from
+
+An install from git resolves gete's dependencies from whatever index your uv
+is configured with, and it builds no lockfile, so there are no recorded
+hashes to check the downloads against. The `[[tool.uv.index]]` in gete's own
+`pyproject.toml` does not apply: uv reads that while it operates on the gete
+repository, not while it installs gete into your project.
+
+Unset, that means PyPI, which is a fine answer. If you would rather resolve
+through the same malware-blocking mirror gete itself is developed against
+(Takumi Guard, reachable anonymously), or through a mirror of your own, name
+it in the environment:
+
+```sh
+export UV_DEFAULT_INDEX=https://pypi.flatt.tech/simple/
+uv tool install "gete[cli] @ git+https://github.com/pepabo/gete"
+```
+
+One setting covers the whole way: `gete validate --import-check` builds its
+venv by shelling out to uv, which inherits the same variable. In GitHub
+Actions it belongs in `env:` on the job, next to the pinned version:
+
+```yaml
+- run: uv tool install "gete[cli] @ git+https://github.com/pepabo/gete@v0.2.7"
+  env:
+    UV_DEFAULT_INDEX: https://pypi.flatt.tech/simple/
+```
+
+Setting it on a machine instead, in `~/.config/uv/uv.toml`, is what most
+people end up doing locally. Worth knowing that this hides the question: with
+the mirror in a machine's config, a local install goes through it and the
+same command on a CI runner does not.
+
 ## 2. Turn on the APIs and sign in
 
 ```sh
