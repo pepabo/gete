@@ -6,11 +6,12 @@ policies like any other, and a request that may already have been applied is
 never sent twice. POST is also how many services read - search endpoints
 usually take one - and updates are commonly PUT or PATCH.
 
-There is no DELETE. An update can be read back afterwards and corrected by
-another update carrying the previous state; a deletion's success and its
-failure read the same from here - "not there" - and most services offer no
-way back. Until a guardrail exists that can tell those apart, "delete" stays
-out of what a declaration can reach.
+DELETE is the sharpest of the verbs: what it removes, most services cannot
+bring back, and afterwards its success and its failure read the same from
+here - "not there". It is offered all the same, because a declared delete is
+governed like every other write - the declaration's effect, the policies'
+confirmation - where a tool denied the verb would reach for its own HTTP
+client, outside every one of these guards.
 
 Retries, re-authorization, and the destination check live here once. Written
 per connection, the one that gets it wrong leaves the user with a failure
@@ -297,6 +298,26 @@ class ConnectionClient:
         """
         response = await self._request(
             "PATCH", url, params=params, body=body, headers=headers, state=state
+        )
+        return await self._json(response, max_bytes)
+
+    async def delete_json(
+        self,
+        url: str,
+        params: dict[str, Any] | None = None,
+        max_bytes: int = MAX_FILE_BYTES,
+        state: Any = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        """DELETE and return the JSON answer after redaction; 204 becomes None.
+
+        No body: DELETE gives one no meaning (RFC 9110), and bulk endpoints
+        say what to delete in the query. What a delete removes usually cannot
+        be brought back, so like every other change it is never sent a second
+        time once it may have been applied.
+        """
+        response = await self._request(
+            "DELETE", url, params=params, headers=headers, state=state
         )
         return await self._json(response, max_bytes)
 
