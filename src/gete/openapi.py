@@ -126,6 +126,49 @@ def _resolved_parameters(
     return tuple(merged)
 
 
+def _fold_allof(spec: Any, schema: Mapping[str, Any]) -> Mapping[str, Any]:
+    """One level of allOf folded into a plain schema.
+
+    Published bodies are often a composition - a shared core plus the
+    operation's own fields - and without folding, neither the rules nor the
+    parser would see the composed properties. One level covers that shape;
+    deeper nesting stays unread, and a body it hides ends up refused for
+    declaring no properties rather than half-read.
+    """
+    parts = schema.get("allOf")
+    if not isinstance(parts, list):
+        return schema
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    folded_type = schema.get("type")
+    for part in parts:
+        resolved = _resolve(spec, part)
+        if not isinstance(resolved, Mapping):
+            continue
+        if folded_type is None:
+            folded_type = resolved.get("type")
+        part_properties = resolved.get("properties")
+        if isinstance(part_properties, Mapping):
+            properties.update(part_properties)
+        part_required = resolved.get("required")
+        if isinstance(part_required, list):
+            required.extend(name for name in part_required if name not in required)
+    own = schema.get("properties")
+    if isinstance(own, Mapping):
+        properties.update(own)
+    own_required = schema.get("required")
+    if isinstance(own_required, list):
+        required.extend(name for name in own_required if name not in required)
+    folded = {key: value for key, value in schema.items() if key != "allOf"}
+    if properties:
+        folded["properties"] = properties
+    if required:
+        folded["required"] = required
+    if folded_type is not None:
+        folded["type"] = folded_type
+    return folded
+
+
 def _resolved_body(
     spec: Any, operation: Mapping[str, Any]
 ) -> tuple[Mapping[str, Any] | None, str | None]:
@@ -146,6 +189,8 @@ def _resolved_body(
             schema = None
             if isinstance(entry, Mapping):
                 schema = _resolve(spec, entry.get("schema"))
+            if isinstance(schema, Mapping):
+                schema = _fold_allof(spec, schema)
             return (schema if isinstance(schema, Mapping) else {}), media
     # No JSON among the media types; the first one names what was found.
     return None, next(iter(content))
@@ -269,31 +314,43 @@ def _operation_problems(operation: Operation, effect: str) -> list[str]:
                 f"operations: {name!r} is a {operation.method.upper()} with "
                 "a request body, which is not supported"
             )
-        body_type = operation.body.get("type")
-        if body_type is not None and body_type != "object":
-            found.append(
-                f"operations: {name!r} has a {body_type} JSON body; "
-                "only an object body can be declared"
-            )
+        else:
+            body_type = operation.body.get("type")
+            properties = operation.body.get("properties")
+            if body_type is not None and body_type != "object":
+                found.append(
+                    f"operations: {name!r} has a {body_type} JSON body; "
+                    "only an object body can be declared"
+                )
+            elif not (isinstance(properties, Mapping) and properties):
+                # The parser would offer the model one opaque body argument
+                # and the request would carry the payload wrapped under a
+                # key the service never declared.
+                found.append(
+                    f"operations: {name!r} has a JSON body that declares no "
+                    "properties; there is nothing to offer the model"
+                )
     return found
 
 
 def _fix_problems(operation: Operation, fixes: Mapping[str, Any]) -> list[str]:
     """What keeps the declared parameter fixes from being applied."""
     found: list[str] = []
-    schemas: dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
     header_names: set[str] = set()
     for parameter in operation.parameters:
         name = str(parameter.get("name"))
         if parameter.get("in") in ("query", "path"):
-            schemas[name] = parameter.get("schema")
+            parameters[name] = parameter.get("schema")
         else:
             header_names.add(name)
     properties = (operation.body or {}).get("properties")
+    body_properties: dict[str, Any] = (
+        {str(name): schema for name, schema in properties.items()}
+        if isinstance(properties, Mapping)
+        else {}
+    )
     enumerable = operation.body is None or isinstance(properties, Mapping)
-    if isinstance(properties, Mapping):
-        for name, schema in properties.items():
-            schemas.setdefault(str(name), schema)
     for name, fix in fixes.items():
         if name in header_names:
             found.append(
@@ -301,17 +358,27 @@ def _fix_problems(operation: Operation, fixes: Mapping[str, Any]) -> list[str]:
                 "which a declaration does not send"
             )
             continue
-        if name not in schemas:
+        if name in parameters and name in body_properties:
+            # The runtime applies a fix by name; one name in two places
+            # would be fixed in both, and the declaration said neither.
+            found.append(
+                f"params.{operation.id}: {name!r} names both a request "
+                f"parameter and a body property of {operation.id}; the fix "
+                "cannot choose between them"
+            )
+            continue
+        if name not in parameters and name not in body_properties:
             # A body whose properties cannot be enumerated may still hold
             # the name; only a miss that is certain is reported.
             if enumerable:
+                known = sorted({**body_properties, **parameters})
                 found.append(
                     f"params.{operation.id}: {name!r} names no parameter of "
-                    f"{operation.id} (parameters: {', '.join(sorted(schemas))})"
+                    f"{operation.id} (parameters: {', '.join(known)})"
                 )
             continue
         if "prefix" in fix or "suffix" in fix:
-            schema = schemas[name]
+            schema = parameters[name] if name in parameters else body_properties[name]
             declared = schema.get("type") if isinstance(schema, Mapping) else None
             if declared is not None and declared != "string":
                 found.append(

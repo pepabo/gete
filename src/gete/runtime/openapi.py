@@ -30,7 +30,7 @@ from gete.connection.registry import Connection, Registry
 from gete.connection.runtime import usable_token
 from gete.declaration import Agent
 from gete.errors import DeclarationError, GeteError
-from gete.openapi import declaration_problems, load_spec, read_operations
+from gete.openapi import Operation, declaration_problems, load_spec, read_operations
 
 
 @dataclass(frozen=True)
@@ -228,25 +228,31 @@ def openapi_toolset(
     )
 
 
-def _pruned(spec: Mapping[str, Any], selected: Iterable[Any]) -> dict[str, Any]:
+def _pruned(spec: Mapping[str, Any], selected: Iterable[Operation]) -> dict[str, Any]:
     """The description reduced to the selected operations.
 
-    The parser resolves references itself, so components ride along whole.
-    Security schemes are left out: authorization is the client's, never the
-    parser's.
+    Each operation rides with its parameters already resolved and merged -
+    path-level ones included - and its JSON body schema folded, with
+    ``type: object`` said out loud: the parser only expands a body's
+    properties into arguments when the type is spelled, and published
+    schemas often leave it implicit or compose it with allOf. Property-level
+    references stay, and components ride along whole for the parser to
+    resolve. Security schemes are left out of the requests: authorization is
+    the client's, never the parser's.
     """
     paths: dict[str, dict[str, Any]] = {}
     for operation in selected:
-        item = spec["paths"][operation.path]
-        entry = paths.setdefault(operation.path, {})
-        if operation.method in item:
-            if "parameters" in item:
-                entry["parameters"] = item["parameters"]
-            entry[operation.method] = item[operation.method]
-        else:
-            # The path item hides behind a reference; take it whole and let
-            # the selection below pick the operations out of the parse.
-            paths[operation.path] = dict(item)
+        entry = dict(operation.document)
+        entry["parameters"] = [dict(parameter) for parameter in operation.parameters]
+        if operation.body is not None:
+            entry["requestBody"] = {
+                "content": {
+                    operation.body_media: {
+                        "schema": {**operation.body, "type": "object"}
+                    }
+                }
+            }
+        paths.setdefault(operation.path, {})[operation.method] = entry
     return {
         "openapi": str(spec.get("openapi", "3.0.0")),
         "info": dict(spec.get("info") or {"title": "", "version": ""}),

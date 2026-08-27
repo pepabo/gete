@@ -1,5 +1,6 @@
 """OpenAPI tools: operations become tools, and requests go through gete's client."""
 
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -107,14 +108,17 @@ def teardown_function() -> None:
     clear_tool_call()
 
 
-def agent_with_spec(tmp_path: Path) -> Agent:
-    (tmp_path / "spec.yaml").write_text(yaml.safe_dump(SPEC, sort_keys=False))
+def agent_with_spec(tmp_path: Path, document: dict[str, Any] | None = None) -> Agent:
+    (tmp_path / "spec.yaml").write_text(
+        yaml.safe_dump(document or SPEC, sort_keys=False)
+    )
     return Agent(directory=tmp_path, data={"name": "mail-triage"})
 
 
 def toolset(
     tmp_path: Path,
     *,
+    document: dict[str, Any] | None = None,
     operations: list[str] | None = None,
     effect: str = "read",
     params: dict[str, Any] | None = None,
@@ -138,7 +142,7 @@ def toolset(
         spec["does_not"] = does_not
     return openapi_toolset(
         spec,
-        agent=agent_with_spec(tmp_path),
+        agent=agent_with_spec(tmp_path, document),
         authorizations={"rooted-api": "mail-triage-rooted-api"},
         registry=REGISTRY,
         confirm=confirm,
@@ -345,6 +349,55 @@ async def test_a_put_operation_sends_the_json_body_with_the_put_verb(
     assert call["method"] == "PUT"
     assert call["url"] == "https://acme.example.com/tickets/7"
     assert call["body"] == {"ticket": {"status": "solved"}}
+
+
+def update_body(schema: dict[str, Any], **components: Any) -> dict[str, Any]:
+    """SPEC with UpdateTicket's body schema replaced, plus extra components."""
+    spec = copy.deepcopy(SPEC)
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"] = schema
+    if components:
+        spec["components"] = {"schemas": components}
+    return spec
+
+
+async def test_a_body_whose_type_is_left_implicit_sends_its_properties(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    """Published schemas often leave type: object implicit; the payload must
+    not end up wrapped under a body argument the service never declared."""
+    spec = update_body({"properties": {"ticket": {"type": "object"}}})
+    built = toolset(
+        tmp_path, document=spec, operations=["UpdateTicket"], effect="write"
+    )
+    update = (await built.get_tools(context()))[0]
+    declared = update._get_declaration().model_dump_json(exclude_none=True)
+    assert '"ticket"' in declared
+    assert '"body"' not in declared
+    await run(built, "UpdateTicket", {"ticket_id": "7", "ticket": {"status": "solved"}})
+    assert client.calls[0]["body"] == {"ticket": {"status": "solved"}}
+
+
+async def test_an_allof_body_sends_its_properties_at_the_top_level(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    spec = update_body(
+        {
+            "allOf": [
+                {"$ref": "#/components/schemas/TicketCore"},
+                {"properties": {"comment": {"type": "string"}}},
+            ]
+        },
+        TicketCore={"type": "object", "properties": {"status": {"type": "string"}}},
+    )
+    built = toolset(
+        tmp_path, document=spec, operations=["UpdateTicket"], effect="write"
+    )
+    await run(
+        built, "UpdateTicket", {"ticket_id": "7", "status": "open", "comment": "hi"}
+    )
+    assert client.calls[0]["body"] == {"status": "open", "comment": "hi"}
 
 
 async def test_a_delete_operation_uses_the_delete_verb(

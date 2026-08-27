@@ -161,6 +161,42 @@ def test_read_operations_resolves_the_request_body_schema() -> None:
     assert "ticket" in update.body["properties"]
 
 
+def with_update_body(schema: dict[str, Any], **components: Any) -> dict[str, Any]:
+    """SPEC with UpdateTicket's body schema replaced, plus extra components."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["components"]["schemas"] = {
+        **spec["components"]["schemas"],
+        **components,
+        "TicketUpdate": schema,
+    }
+    return spec
+
+
+def test_read_operations_folds_an_allof_body_one_level() -> None:
+    """Published bodies are often a shared core plus the operation's own
+    fields; the properties have to show for the rules and the model alike."""
+    spec = with_update_body(
+        {
+            "allOf": [
+                {"$ref": "#/components/schemas/TicketCore"},
+                {"properties": {"comment": {"type": "string"}}},
+            ]
+        },
+        TicketCore={
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+        },
+    )
+    operations, _ = read_operations(spec)
+    update = operations["UpdateTicket"]
+    assert update.body is not None
+    assert set(update.body["properties"]) == {"status", "comment"}
+    assert update.body["required"] == ["status"]
+    assert update.body["type"] == "object"
+    assert "allOf" not in update.body
+
+
 def test_read_operations_reports_a_duplicated_operation_id() -> None:
     doubled = json.loads(json.dumps(SPEC))
     doubled["paths"]["/search"]["post"] = {
@@ -316,6 +352,70 @@ def test_a_body_that_is_not_json_is_refused() -> None:
     )
     assert len(found) == 1
     assert "JSON" in found[0]
+
+
+def test_a_body_whose_type_is_left_implicit_still_counts_as_an_object() -> None:
+    """Published schemas often write properties without spelling type: object."""
+    spec = with_update_body({"properties": {"ticket": {"type": "object"}}})
+    sound = block(operations=["UpdateTicket"], effect="write")
+    assert declaration_problems(sound, spec) == []
+
+
+def test_a_fix_missing_from_an_allof_body_is_reported() -> None:
+    """Folding makes the composed properties enumerable, so a miss is certain."""
+    spec = with_update_body(
+        {"allOf": [{"type": "object", "properties": {"status": {"type": "string"}}}]}
+    )
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            params={"UpdateTicket": {"nope": {"value": 1}}},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "nope" in found[0]
+
+
+def test_a_body_that_declares_no_properties_is_refused() -> None:
+    """The parser would offer the model a single opaque body argument, and the
+    request would carry the payload wrapped under a key the service never
+    declared."""
+    spec = with_update_body({"type": "object"})
+    found = declaration_problems(
+        block(operations=["UpdateTicket"], effect="write"), spec
+    )
+    assert len(found) == 1
+    assert "properties" in found[0]
+
+
+def test_a_body_declared_only_as_alternatives_is_refused() -> None:
+    """oneOf without properties leaves nothing the rules or the model can hold."""
+    spec = with_update_body({"oneOf": [{"type": "object"}, {"type": "string"}]})
+    found = declaration_problems(
+        block(operations=["UpdateTicket"], effect="write"), spec
+    )
+    assert len(found) == 1
+    assert "properties" in found[0]
+
+
+def test_a_fix_matching_a_parameter_and_a_body_property_is_refused() -> None:
+    """The runtime applies fixes by name; one name in two places would fix both."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/tickets/{ticket_id}"]["put"]["parameters"] = [
+        {"name": "ticket", "in": "query", "schema": {"type": "string"}}
+    ]
+    found = declaration_problems(
+        block(
+            operations=["UpdateTicket"],
+            effect="write",
+            params={"UpdateTicket": {"ticket": {"value": "x"}}},
+        ),
+        spec,
+    )
+    assert len(found) == 1
+    assert "both" in found[0]
 
 
 def test_a_get_with_a_request_body_is_refused() -> None:
