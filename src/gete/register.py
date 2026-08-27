@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from gete.connection import Connection, Registry, authorization_id
+from gete.connection.registry import missing_base_url
 from gete.declaration import Agent, Project
 from gete.errors import DeclarationError, GeteError
 from gete.gcp import GcpApi, GcpError
@@ -78,11 +79,7 @@ def authorization_body(
     if connection.needs_base_url:
         # validate refuses this, but register can be run without it, and what
         # would be stored here is the link every user of the agent is sent to.
-        raise DeclarationError(
-            f"connection {connection.id} has no base_url; its URLs are written "
-            "around the root of the service, which differs per installation. "
-            f"Set connections.{connection.id}.base_url in gete.yaml"
-        )
+        raise DeclarationError(f"connection {missing_base_url(connection.id)}")
     name = f"{parent}/authorizations/{authorization_id(agent_name, connection.id)}"
     return {
         "name": name,

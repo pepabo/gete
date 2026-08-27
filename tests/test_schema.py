@@ -377,6 +377,9 @@ def test_connection_urls_may_be_written_around_the_installation_root() -> None:
         "{base_url}oauth",
         "http://{base_url}/oauth",
         "{other}/oauth",
+        "https://api.example.com/?next={base_url}",
+        "https://api.example.com/x/{base_url}",
+        "{base_url}/a?next={base_url}",
     ],
 )
 def test_only_the_whole_root_may_be_left_open(url: str) -> None:

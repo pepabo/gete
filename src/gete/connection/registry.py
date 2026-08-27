@@ -39,7 +39,22 @@ def _rooted(url: str | None, base_url: str | None) -> str | None:
     """The URL with the installation's root put in, or left open without one."""
     if url is None or base_url is None:
         return url
+    if BASE_URL in base_url:
+        # It would survive the substitution, and the connection would keep
+        # asking for a root that is already set.
+        raise DeclarationError(
+            f"base_url must not contain {BASE_URL}: it is the value that fills it"
+        )
     return url.replace(BASE_URL, base_url.rstrip("/"))
+
+
+def missing_base_url(connection_id: str) -> str:
+    """Why an open root is refused, worded once for everywhere it is refused."""
+    return (
+        f"{connection_id} has no base_url; its URLs are written around the "
+        "root of the service, which differs per installation. Set "
+        f"connections.{connection_id}.base_url in gete.yaml"
+    )
 
 
 def looks_like_jwt(token: str) -> bool:

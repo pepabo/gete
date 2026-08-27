@@ -317,3 +317,11 @@ def test_without_the_root_no_stand_in_host_is_admitted() -> None:
 
 def test_a_connection_that_names_its_hosts_never_needs_a_root() -> None:
     assert not connection().needs_base_url
+
+
+def test_the_root_itself_may_not_contain_the_placeholder() -> None:
+    """It would survive substitution and the connection would ask for a root forever."""
+    with pytest.raises(DeclarationError, match="base_url"):
+        Connection.from_mapping(
+            {**ROOTED, "base_url": "https://acme.example.com/{base_url}"}
+        )

@@ -7,6 +7,7 @@ from typing import Any
 from gete._yaml import read_yaml
 from gete.connection import Registry
 from gete.connection.checks import connection_problems, elimination_problems
+from gete.connection.registry import missing_base_url
 from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
 from gete.policies import duplicate_policy_names
@@ -108,12 +109,7 @@ def _agent_problems(
             # The definition left the root open because it moves with the
             # installation. Nothing it declares is an address until then: not
             # the hosts a token may go to, and not the URL users consent at.
-            found.append(
-                f"connections: {connection_id} has no base_url; its URLs are "
-                "written around the root of the service, which differs per "
-                f"installation. Set connections.{connection_id}.base_url in "
-                "gete.yaml"
-            )
+            found.append(f"connections: {missing_base_url(connection_id)}")
         authorization_id = f"{agent.name}-{connection_id}"
         if len(authorization_id) > MAX_AUTHORIZATION_ID_LENGTH:
             found.append(
