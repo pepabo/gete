@@ -146,6 +146,17 @@ def test_the_same_connection_in_both_forms_is_reported(
     assert any("twice" in p for p in problems(project))
 
 
+def test_a_duplicate_is_reported_even_when_the_connection_is_unknown(
+    project: ProjectBuilder,
+) -> None:
+    """A typo repeated in both forms is one mistake, not two unknown connections."""
+    project.write_agent(
+        "mail-triage",
+        {"connections": ["salesforce", {"id": "salesforce", "scopes": ["write"]}]},
+    )
+    assert any("twice" in p for p in problems(project))
+
+
 def test_authorization_id_longer_than_63_is_reported(project: ProjectBuilder) -> None:
     """<name>-<connection> becomes an authorization id, which is a DNS-style label."""
     name = "a" * 58

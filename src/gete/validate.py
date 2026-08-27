@@ -98,13 +98,18 @@ def _agent_problems(
             f"{MIN_SERVICE_ACCOUNT_ID_LENGTH} and {MAX_SERVICE_ACCOUNT_ID_LENGTH} "
             "characters; Terraform would be refused at apply time"
         )
+    # known holds only the ids the registry resolved; the rules below look
+    # them up again. Duplicates are tracked apart so an unknown connection
+    # declared twice is still one duplicate, not two unknowns.
     known: set[str] = set()
+    declared: set[str] = set()
     for connection_id in agent.connections:
-        if connection_id in known:
+        if connection_id in declared:
             # uniqueItems cannot see that a string entry and a mapping entry
             # name the same connection.
             found.append(f"connections: {connection_id} is declared twice")
             continue
+        declared.add(connection_id)
         try:
             connection = registry.get(connection_id)
         except GeteError as error:

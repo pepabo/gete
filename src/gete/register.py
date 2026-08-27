@@ -259,6 +259,19 @@ class Registrar:
         return f"projects/{self._number}/locations/{self._ge_location}"
 
     def _register(self, agent: Agent, engine: str, summary: Summary) -> None:
+        seen: set[str] = set()
+        for connection_id in agent.connections:
+            if connection_id in seen:
+                # The schema cannot see that a string entry and a mapping
+                # entry name the same connection, and scope selections are
+                # keyed by id, so one entry's selection would stand for every
+                # duplicate silently.
+                raise DeclarationError(
+                    f"connections: {connection_id} is declared twice; "
+                    "only one entry's scope selection could reach the "
+                    "consent screen"
+                )
+            seen.add(connection_id)
         engines_url = (
             f"https://{self._location}-aiplatform.googleapis.com/v1/projects/"
             f"{self._gcp_project}/locations/{self._location}/reasoningEngines"

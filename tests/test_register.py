@@ -365,6 +365,36 @@ def test_the_registrar_builds_each_authorization_from_that_agents_selection(
     assert params["scope"] == ["read write"]
 
 
+def test_the_registrar_refuses_a_connection_declared_in_both_forms(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The schema cannot see the two forms are one connection, register can run
+    without validate, and one entry's selection would stand for both silently."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"project_number": NUMBER},
+            "connections": {"example": {k: v for k, v in MENU.items() if k != "id"}},
+        }
+    )
+    project.write_agent(
+        "finance",
+        {
+            **FINANCE,
+            "connections": ["example", {"id": "example", "scopes": ["write"]}],
+        },
+    )
+    summary = register_project(
+        load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
+    )
+    assert summary.failed == ["finance"]
+    assert any("twice" in message for message in summary.messages)
+    assert gcp.writes("POST") == []
+    assert gcp.writes("PATCH") == []
+
+
 def test_existing_authorization_is_updated_not_recreated(
     project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
 ) -> None:
