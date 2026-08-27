@@ -5,11 +5,12 @@ import sys
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from gete.connection.registry import Registry
+from gete.connection.registry import Connection, Registry
 from gete.declaration import Agent
 from gete.errors import DeclarationError
 from gete.policies import Policy, tool_effect
 from gete.runtime.mcp import mcp_toolset
+from gete.runtime.reauthorization import reauthorization_toolset
 from gete.shared_credentials import SHARED_CREDENTIALS
 
 
@@ -56,6 +57,10 @@ def build_tools(
     denied = {name for policy in policies for name in policy.deny_tools}
     confirm = Confirmation(policies, confirmation)
     tools: list[Any] = []
+    # Connections whose tools come from an MCP server. Without a token there is
+    # nothing to offer from the server, so the agent offers the way back to
+    # authorizing instead.
+    authorized: list[Connection] = []
     for tool in agent.tools:
         effect = tool_effect(tool)
         if "builtin" in tool:
@@ -69,16 +74,20 @@ def build_tools(
                 else:
                     tools.append(function)
         elif "mcp" in tool:
-            tools.append(
-                mcp_toolset(
-                    tool["mcp"],
-                    authorizations=authorizations,
-                    registry=registry,
-                    confirm=confirm.for_effect(effect),
-                    confirm_names=confirm.names,
-                    denied=denied,
-                )
+            toolset = mcp_toolset(
+                tool["mcp"],
+                authorizations=authorizations,
+                registry=registry,
+                confirm=confirm.for_effect(effect),
+                confirm_names=confirm.names,
+                denied=denied,
             )
+            tools.append(toolset)
+            if toolset.connection is not None:
+                # Collected here, not offered by the toolset: one connection
+                # may back several toolsets, and each would offer the same
+                # function under the same name.
+                authorized.append(toolset.connection)
     # Shared credential tools carry their effects with them; the write among
     # them is confirmed and denied like any declared write tool.
     for name in agent.shared_credentials:
@@ -87,7 +96,11 @@ def build_tools(
                 tools.append(FunctionTool(function, require_confirmation=True))
             else:
                 tools.append(function)
-    return [tool for tool in tools if tool_name(tool) not in denied]
+    kept = [tool for tool in tools if tool_name(tool) not in denied]
+    asking = reauthorization_toolset(authorized, authorizations)
+    if asking is not None:
+        kept.append(asking)
+    return kept
 
 
 def tool_name(tool: Any) -> str | None:
