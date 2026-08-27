@@ -81,15 +81,18 @@ def authorization_body(
         # would be stored here is the link every user of the agent is sent to.
         raise DeclarationError(f"connection {missing_base_url(connection.id)}")
     name = f"{parent}/authorizations/{authorization_id(agent_name, connection.id)}"
-    return {
-        "name": name,
-        "serverSideOauth2": {
-            "clientId": client_id,
-            "clientSecret": client_secret,
-            "authorizationUri": authorization_uri(connection, client_id),
-            "tokenUri": connection.oauth.token_url,
-        },
+    oauth2: dict[str, Any] = {
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "authorizationUri": authorization_uri(connection, client_id),
+        "tokenUri": connection.oauth.token_url,
     }
+    if connection.oauth.pkce:
+        # Left out when off rather than sent as false: an update replaces
+        # serverSideOauth2 whole, so absent already means off, and every
+        # connection that has never heard of PKCE stays as it reads.
+        oauth2["pkceVerificationEnabled"] = True
+    return {"name": name, "serverSideOauth2": oauth2}
 
 
 def agent_body(

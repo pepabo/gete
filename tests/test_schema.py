@@ -390,3 +390,17 @@ def test_only_the_whole_root_may_be_left_open(url: str) -> None:
             {**ROOTED, "oauth": {**ROOTED["oauth"], "token_url": url}},
             source="c.yaml",
         )
+
+
+def test_connection_may_ask_for_pkce() -> None:
+    validate_document(
+        "connection",
+        {**CONNECTION, "oauth": {**CONNECTION["oauth"], "pkce": True}},
+        source="c.yaml",
+    )
+    with pytest.raises(DeclarationError, match="pkce"):
+        validate_document(
+            "connection",
+            {**CONNECTION, "oauth": {**CONNECTION["oauth"], "pkce": "yes"}},
+            source="c.yaml",
+        )
