@@ -91,8 +91,7 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
             )
         else:
             problems.append(
-                f"hosts: {entry} never applies; the bare {host} entry admits "
-                "every path"
+                f"hosts: {entry} never applies; the bare {host} entry admits every path"
             )
     for other in registry.all(include_retired=True):
         if other.id == connection.id:
