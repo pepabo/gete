@@ -76,6 +76,24 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
             problems.append(
                 f"hosts: {host} is a whole platform domain, list the API host"
             )
+    for entry in sorted(connection.hosts):
+        # A bare entry admits every path on its host, so a scoped entry for
+        # the same host never applies - it reads as a restriction it does not
+        # make. base_url puts its host on the list bare, so setting one on a
+        # scoped host silently widens the ceiling the same way.
+        host, slash, _ = entry.partition("/")
+        if not slash or host not in connection.hosts:
+            continue
+        if connection.base_url and urlsplit(connection.base_url).hostname == host:
+            problems.append(
+                f"hosts: {entry} never applies; base_url puts {host} on the "
+                "list bare, and a bare entry admits every path"
+            )
+        else:
+            problems.append(
+                f"hosts: {entry} never applies; the bare {host} entry admits "
+                "every path"
+            )
     for other in registry.all(include_retired=True):
         if other.id == connection.id:
             continue
@@ -111,8 +129,12 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
     )
     if not claims_google and connection.accepts_token(_GOOGLE_ACCESS_TOKEN_EXAMPLE):
         problems.append("a Google access token is accepted")
-    if connection.mcp_url is not None and not connection.needs_base_url:
-        mcp_host = urlsplit(connection.mcp_url).hostname
-        if mcp_host not in connection.hosts:
-            problems.append(f"mcp.url: host {mcp_host} is not in hosts")
+    # The MCP server is spoken to with the user's token, so its URL must sit
+    # where hosts lets the token go - path scoping included.
+    if (
+        connection.mcp_url is not None
+        and not connection.needs_base_url
+        and not connection.allows(connection.mcp_url)
+    ):
+        problems.append(f"mcp.url: {connection.mcp_url} is not covered by hosts")
     return problems

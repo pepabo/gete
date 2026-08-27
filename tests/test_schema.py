@@ -198,9 +198,34 @@ def test_a_host_may_be_scoped_to_a_path_prefix() -> None:
     """One host can serve unrelated APIs; the entry admits one API's paths."""
     validate_document(
         "connection",
-        {**CONNECTION, "hosts": ["www.example.com/api/", "www.example.com/up/api/"]},
+        {
+            **CONNECTION,
+            "hosts": [
+                "www.example.com/api/",
+                "www.example.com/up/api/",
+                "www.example.com/api.v3/",
+            ],
+        },
         source="connection.yaml",
     )
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "www.example.com/../",
+        "www.example.com/./",
+        "www.example.com/api/../",
+        "www.example.com/./api/",
+    ],
+)
+def test_a_path_scoped_host_may_not_contain_dot_segments(host: str) -> None:
+    """allows() refuses every request that carries a dot segment, so such an
+    entry could never match; refusing it here says so at declaration time."""
+    with pytest.raises(DeclarationError, match="hosts"):
+        validate_document(
+            "connection", {**CONNECTION, "hosts": [host]}, source="connection.yaml"
+        )
 
 
 @pytest.mark.parametrize(

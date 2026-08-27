@@ -256,6 +256,32 @@ def test_connection_without_hosts_is_reported() -> None:
     )
 
 
+def test_a_path_scoped_entry_next_to_the_bare_host_is_reported() -> None:
+    """The bare entry admits every path, so the scoped one reads as a
+    restriction it does not make."""
+    entry = connection(hosts=["shared.example.com", "shared.example.com/api/"])
+    assert any(
+        "shared.example.com/api/" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
+
+
+def test_a_base_url_on_the_scoped_host_is_reported_as_the_source() -> None:
+    """base_url puts its host on the list bare; a scoped entry cannot narrow it."""
+    entry = connection(
+        hosts=["shared.example.com/api/"], base_url="https://shared.example.com"
+    )
+    assert any(
+        "base_url" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
+
+
+def test_a_path_scoped_entry_without_the_bare_host_is_not_reported() -> None:
+    entry = connection(hosts=["api.example.com", "shared.example.com/api/"])
+    assert connection_problems(entry, Registry([entry])) == []
+
+
 def test_mcp_host_must_be_a_declared_host() -> None:
     entry = connection(mcp={"url": "https://mcp.example.com/mcp"})
     assert any(
@@ -267,6 +293,26 @@ def test_mcp_host_must_be_a_declared_host() -> None:
         mcp={"url": "https://mcp.example.com/mcp"},
     )
     assert connection_problems(good, Registry([good])) == []
+
+
+def test_mcp_url_below_a_path_scoped_host_is_a_declared_host() -> None:
+    entry = connection(
+        hosts=["shared.example.com/api/"],
+        mcp={"url": "https://shared.example.com/api/mcp"},
+    )
+    assert connection_problems(entry, Registry([entry])) == []
+
+
+def test_mcp_url_beside_the_scoped_path_is_reported() -> None:
+    """The MCP server is spoken to with the token; beside the path is off-limits."""
+    entry = connection(
+        hosts=["shared.example.com/api/"],
+        mcp={"url": "https://shared.example.com/mcp"},
+    )
+    assert any(
+        "mcp.url" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
 
 
 def test_examples_are_checked_against_accepts_token() -> None:
