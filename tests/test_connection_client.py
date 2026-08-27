@@ -568,11 +568,11 @@ async def test_put_and_patch_send_the_body_with_the_users_token() -> None:
     )
 
 
-@pytest.mark.parametrize("verb", ["put_json", "patch_json"])
-async def test_put_and_patch_stay_inside_the_declared_hosts(verb: str) -> None:
+@pytest.mark.parametrize("verb", ["put_json", "patch_json", "delete_json"])
+async def test_changing_verbs_stay_inside_the_declared_hosts(verb: str) -> None:
     bind()
     with pytest.raises(ExternalServiceError):
-        await getattr(client(ok({})), verb)("https://api.example.com/x", {})
+        await getattr(client(ok({})), verb)("https://api.example.com/x")
 
 
 @pytest.mark.parametrize("verb", ["put_json", "patch_json"])
@@ -600,8 +600,8 @@ async def test_a_rate_limited_put_is_retried() -> None:
     assert attempts == 2
 
 
-@pytest.mark.parametrize("verb", ["put_json", "patch_json"])
-async def test_an_update_that_may_have_been_applied_is_not_sent_again(
+@pytest.mark.parametrize("verb", ["put_json", "patch_json", "delete_json"])
+async def test_a_change_that_may_have_been_applied_is_not_sent_again(
     verb: str,
 ) -> None:
     """Neither a 5xx nor a dropped connection says the service did nothing."""
@@ -614,7 +614,7 @@ async def test_an_update_that_may_have_been_applied_is_not_sent_again(
         return httpx.Response(503)
 
     with pytest.raises(ExternalServiceError, match="503"):
-        await getattr(client(handler), verb)(URL, {})
+        await getattr(client(handler), verb)(URL)
     assert attempts == 1
 
     dropped = 0
@@ -625,8 +625,25 @@ async def test_an_update_that_may_have_been_applied_is_not_sent_again(
         raise httpx.ConnectError("no route")
 
     with pytest.raises(ExternalServiceError):
-        await getattr(client(refuse), verb)(URL, {})
+        await getattr(client(refuse), verb)(URL)
     assert dropped == 1
+
+
+async def test_delete_sends_the_users_token_and_takes_204_as_done() -> None:
+    """Bulk endpoints read what to delete from the query; nothing rides in a body."""
+    bind()
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(204)
+
+    result = await client(handler).delete_json(URL, params={"ids": "1,2"})
+    assert result is None
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.params["ids"] == "1,2"
+    assert seen[0].headers["Authorization"] == f"Bearer {TOKEN}"
+    assert not seen[0].content
 
 
 async def test_an_empty_answer_is_returned_as_none() -> None:
