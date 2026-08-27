@@ -111,3 +111,25 @@ def test_shared_credential_tools_appear(project: ProjectBuilder) -> None:
     text = graph(project)
     assert "slack_post" in text
     assert "bot" in text
+
+
+def test_openapi_tools_appear_with_their_connection(project: ProjectBuilder) -> None:
+    project.write_agent(
+        "desk",
+        {
+            "connections": ["freee"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": "./specs/service.yaml",
+                        "connection": "freee",
+                        "operations": ["ListThings", "ShowThing"],
+                        "effect": "read",
+                    }
+                }
+            ],
+        },
+    )
+    text = graph(project)
+    assert 'desk --> desk_tool_0[("openapi<br/>2 operations")]' in text
+    assert "desk -. freee .-> desk_tool_0" in text

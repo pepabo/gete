@@ -42,7 +42,8 @@ connections          requirements.txt                        registration → en
   whoever calls it. The tools and their guardrails ship with gete; a
   declaration can only switch them on.
 - **Runtime** — builds the ADK agent from `agent.resolved.yaml`, carries the
-  user's token to the tools (builtin, MCP, python), redacts what comes back.
+  user's token to the tools (builtin, MCP, OpenAPI, python), redacts what
+  comes back.
 - **Delivery** — a deterministic archive, a Terraform module, and `register`
   for the parts Terraform has no resources for.
 
@@ -142,6 +143,54 @@ Tools that do not say `effect: read` count as writes, which is what the
 writes are split by naming it twice — the same `url` and `connection`, two
 lists of tool names, two effects. Where a server hands out one grant for both,
 that is the only place an agent can say it means to read.
+
+### Tools from an OpenAPI description
+
+A service that publishes an OpenAPI description but runs no MCP server can be
+declared without writing Python:
+
+```yaml
+tools:
+  - openapi:
+      spec: ./specs/helpdesk.yaml         # read at packing time, travels in the archive
+      connection: helpdesk
+      operations: [ListSearchResults, ShowTicket, ListTicketComments]
+      effect: read
+      does_not: Results are the caller's own view; not found is not proof of absence.
+      params:
+        ListSearchResults:
+          query: {prefix: "type:ticket "}
+          per_page: {value: 25}
+      describe:
+        ListSearchResults: Search tickets. The kind is fixed to tickets.
+```
+
+- **`operations` is required, never defaulted.** A published description
+  holds far more than an agent means to expose — hundreds of operations is
+  normal — and forgetting to choose must not mean offering everything.
+  Operations are picked by `operationId`, which also becomes the tool's name.
+- **Request URLs are built from the connection's `base_url`.** The
+  description's own `servers` are never read: a published root may carry
+  variables, a stale default, or another tenant. The client's destination
+  check and token rules hold exactly as for every other request.
+- **`params` keeps what the code it replaces used to enforce.** `value`
+  fixes a parameter and takes it out of what the model sees — its value is
+  declared, so there is nothing left for the model to say. `prefix` and
+  `suffix` wrap what the model writes; the declared text comes first, so
+  nothing the model writes can displace it.
+- **`describe` replaces the vendor's text.** Vendor descriptions are written
+  for developers sitting next to the docs and often cite links a model
+  cannot follow; `does_not` is appended to every tool, as with `mcp:`.
+- **The description is fixed at packing time.** `gete archive` takes the
+  file into the archive and the runtime reads it from there, so a vendor
+  editing their published description changes nothing until someone
+  re-archives deliberately.
+- **Writes ride the same rails.** PUT, PATCH, and DELETE operations must
+  sit in a block declared `effect: write`, which the confirmation policies
+  key on, and results pass the same redaction as every other tool. A change
+  that may already have been applied is never resent — for a DELETE, what
+  it removed usually cannot be brought back, so a confirmation policy on
+  write tools is worth having before declaring one.
 
 ### Connections
 

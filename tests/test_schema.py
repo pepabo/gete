@@ -40,6 +40,14 @@ POLICY: list[dict[str, Any]] = [
 
 MCP_TOOL: dict[str, Any] = {"mcp": {"url": "https://mcp.example.com/mcp"}}
 
+OPENAPI_TOOL: dict[str, Any] = {
+    "openapi": {
+        "spec": "./specs/example.yaml",
+        "connection": "example",
+        "operations": ["ListThings"],
+    }
+}
+
 
 @pytest.mark.parametrize(
     ("kind", "document"),
@@ -160,11 +168,31 @@ def test_connections_must_be_unique() -> None:
         {"mcp": {"url": "https://mcp.example.com/mcp", "allow": []}},
         {"python": {"effect": "read"}},
         {"python": "no_colon_here"},
+        # openapi needs the spec, the connection, and a choice of operations.
         {"openapi": {"spec": "./spec.yaml"}},
+        {"openapi": {**OPENAPI_TOOL["openapi"], "operations": []}},
+        {"openapi": {**OPENAPI_TOOL["openapi"], "params": {"ListThings": {}}}},
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                # A fixed parameter is taken away from the model, so there is
+                # no value of the model's left to put a prefix in front of.
+                "params": {"ListThings": {"q": {"value": "x", "prefix": "y"}}},
+            }
+        },
+        {"openapi": {**OPENAPI_TOOL["openapi"], "params": {"ListThings": {"q": {}}}}},
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                # The client drops absent values, so a fixed null would
+                # silently send nothing at all.
+                "params": {"ListThings": {"q": {"value": None}}},
+            }
+        },
     ],
 )
 def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
-    """One key per tool, https for MCP, effect read or write; openapi is not in."""
+    """One key per tool, https for MCP, effect read or write, whole openapi blocks."""
     with pytest.raises(DeclarationError, match="tools"):
         validate_document("agent", {**AGENT, "tools": [tool]}, source="agent.yaml")
 
@@ -187,6 +215,21 @@ def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
         },
         {"python": "my_agent.agent:TOOLS"},
         {"python": {"ref": "my_agent.agent:TOOLS", "effect": "read"}},
+        {**OPENAPI_TOOL},
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                "effect": "read",
+                "does_not": "Does not write anything.",
+                "params": {
+                    "ListThings": {
+                        "query": {"prefix": "type:thing ", "suffix": " sorted"},
+                        "per_page": {"value": 25},
+                    }
+                },
+                "describe": {"ListThings": "List the things."},
+            }
+        },
     ],
 )
 def test_supported_tool_shapes_pass(tool: dict[str, Any]) -> None:

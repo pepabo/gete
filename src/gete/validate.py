@@ -10,6 +10,7 @@ from gete.connection.checks import connection_problems, elimination_problems
 from gete.connection.registry import missing_base_url
 from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
+from gete.openapi import declaration_problems, load_spec
 from gete.policies import duplicate_policy_names
 from gete.schema import problems as schema_problems
 from gete.shared_credentials import SHARED_CREDENTIALS
@@ -192,6 +193,8 @@ def _tool_problems(
         return _python_ref_problems(project, agent, ref)
     if "mcp" in tool:
         return _mcp_problems(tool["mcp"], registry, known)
+    if "openapi" in tool:
+        return _openapi_problems(project, agent, tool["openapi"], registry, known)
     return []
 
 
@@ -223,6 +226,43 @@ def _python_ref_problems(project: Project, agent: Agent, ref: str) -> list[str]:
     if not any(candidate.is_file() for candidate in candidates):
         return [f"python: module {module!r} not found below {project.display(source)}"]
     return []
+
+
+def _openapi_problems(
+    project: Project,
+    agent: Agent,
+    spec: Mapping[str, Any],
+    registry: Registry,
+    known: set[str],
+) -> list[str]:
+    """The openapi rules: the connection gives a root, and the description
+    must actually hold what the declaration selects from it."""
+    connection_id: str = spec["connection"]
+    if connection_id not in known:
+        return [
+            f"openapi: connection {connection_id!r} is not in this agent's "
+            "connections, so no token would be available for it"
+        ]
+    connection = registry.get(connection_id)
+    found: list[str] = []
+    if connection.base_url is None and not connection.needs_base_url:
+        # An open root is already refused at the agent level; this catches a
+        # rooted connection that never declared one, such as a catalog entry
+        # whose host list was written directly.
+        found.append(
+            f"openapi: connection {connection_id!r} declares no base_url, and "
+            "request URLs are built from it. Set "
+            f"connections.{connection_id}.base_url in gete.yaml"
+        )
+    spec_path = agent.directory / str(spec["spec"])
+    try:
+        document = load_spec(spec_path)
+    except DeclarationError as error:
+        return [*found, f"openapi: {error}"]
+    found.extend(
+        f"openapi: {message}" for message in declaration_problems(spec, document)
+    )
+    return found
 
 
 def _mcp_problems(

@@ -103,10 +103,13 @@ def load_policies(paths: Iterable[Path]) -> list[Policy]:
 
 
 def tool_effect(tool: Mapping[str, Any]) -> str:
-    """read or write. Only mcp and python tools can declare read; builtin is write."""
+    """read or write. mcp, openapi, and python can declare read; builtin is write."""
     if "mcp" in tool:
         effect: str = tool["mcp"].get("effect", DEFAULT_EFFECT)
         return effect
+    if "openapi" in tool:
+        openapi_effect: str = tool["openapi"].get("effect", DEFAULT_EFFECT)
+        return openapi_effect
     if "python" in tool:
         spec = tool["python"]
         if isinstance(spec, Mapping):

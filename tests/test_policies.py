@@ -66,6 +66,23 @@ def test_policy_without_prefix_leaves_the_instruction_alone() -> None:
             [{"python": {"ref": "pkg.a:R", "effect": "read"}}, {"python": "pkg.b:W"}],
             True,
         ),
+        (
+            [{"openapi": {"spec": "./s.yaml", "connection": "c", "operations": ["A"]}}],
+            True,
+        ),
+        (
+            [
+                {
+                    "openapi": {
+                        "spec": "./s.yaml",
+                        "connection": "c",
+                        "operations": ["A"],
+                        "effect": "read",
+                    }
+                }
+            ],
+            False,
+        ),
     ],
 )
 def test_has_write_tools_treats_undeclared_effect_as_write(

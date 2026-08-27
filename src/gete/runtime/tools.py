@@ -10,6 +10,7 @@ from gete.declaration import Agent
 from gete.errors import DeclarationError
 from gete.policies import Policy, tool_effect
 from gete.runtime.mcp import mcp_toolset
+from gete.runtime.openapi import openapi_toolset
 from gete.runtime.reauthorization import reauthorization_toolset
 from gete.shared_credentials import SHARED_CREDENTIALS
 
@@ -88,6 +89,18 @@ def build_tools(
                 # may back several toolsets, and each would offer the same
                 # function under the same name.
                 authorized.append(toolset.connection)
+        elif "openapi" in tool:
+            openapi = openapi_toolset(
+                tool["openapi"],
+                agent=agent,
+                authorizations=authorizations,
+                registry=registry,
+                confirm=confirm.for_effect(effect),
+                confirm_names=confirm.names,
+                denied=denied,
+            )
+            tools.append(openapi)
+            authorized.append(openapi.connection)
     # Shared credential tools carry their effects with them; the write among
     # them is confirmed and denied like any declared write tool.
     for name in agent.shared_credentials:
