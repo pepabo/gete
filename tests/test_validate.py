@@ -76,6 +76,76 @@ def test_duplicate_connection_is_reported(project: ProjectBuilder) -> None:
     assert any("connections" in p for p in problems(project))
 
 
+# INTERNAL_API with a menu an agent may select write access from.
+MENU_API: dict[str, Any] = {
+    **INTERNAL_API,
+    "oauth": {
+        **INTERNAL_API["oauth"],
+        "optional_scopes": {"write": "Change internal data"},
+    },
+}
+
+
+def write_menu_api(project: ProjectBuilder) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"internal-api": MENU_API},
+        }
+    )
+
+
+def test_a_selection_from_the_menu_passes(project: ProjectBuilder) -> None:
+    write_menu_api(project)
+    project.write_agent(
+        "mail-triage",
+        {"connections": [{"id": "internal-api", "scopes": ["write"]}]},
+    )
+    assert problems(project) == []
+
+
+def test_a_scope_outside_the_menu_is_reported_with_the_menu(
+    project: ProjectBuilder,
+) -> None:
+    write_menu_api(project)
+    project.write_agent(
+        "mail-triage",
+        {"connections": [{"id": "internal-api", "scopes": ["admin"]}]},
+    )
+    found = problems(project)
+    assert any("admin" in p and "write" in p for p in found)
+
+
+def test_a_selection_on_a_connection_without_a_menu_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    write_internal_api(project)
+    project.write_agent(
+        "mail-triage",
+        {"connections": [{"id": "internal-api", "scopes": ["write"]}]},
+    )
+    assert any("optional_scopes" in p for p in problems(project))
+
+
+def test_the_same_connection_in_both_forms_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    """uniqueItems cannot see that the string and the mapping name one connection."""
+    write_menu_api(project)
+    project.write_agent(
+        "mail-triage",
+        {
+            "connections": [
+                "internal-api",
+                {"id": "internal-api", "scopes": ["write"]},
+            ]
+        },
+    )
+    assert any("twice" in p for p in problems(project))
+
+
 def test_authorization_id_longer_than_63_is_reported(project: ProjectBuilder) -> None:
     """<name>-<connection> becomes an authorization id, which is a DNS-style label."""
     name = "a" * 58

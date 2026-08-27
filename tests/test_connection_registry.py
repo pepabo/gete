@@ -96,6 +96,42 @@ def test_oauth_client_defaults_to_ge_oauth_id() -> None:
     )
 
 
+def test_optional_scopes_are_a_menu_next_to_the_defaults() -> None:
+    entry = connection(
+        oauth={**EXAMPLE["oauth"], "optional_scopes": {"write": "Change data"}}
+    )
+    assert entry.oauth.scopes == {"read": "Read data"}
+    assert entry.oauth.optional_scopes == {"write": "Change data"}
+
+
+def test_a_connection_without_a_menu_offers_nothing() -> None:
+    assert connection().oauth.optional_scopes == {}
+
+
+def test_an_optional_scope_repeated_in_the_defaults_is_reported() -> None:
+    entry = connection(
+        oauth={**EXAMPLE["oauth"], "optional_scopes": {"read": "Read data"}}
+    )
+    assert any(
+        "read" in problem for problem in connection_problems(entry, Registry([entry]))
+    )
+
+
+def test_a_menu_next_to_a_verbatim_authorization_query_is_reported() -> None:
+    """The query is used verbatim; no selection could ever reach the consent screen."""
+    entry = connection(
+        oauth={
+            **EXAMPLE["oauth"],
+            "authorization_query": {"response_type": "code"},
+            "optional_scopes": {"write": "Change data"},
+        }
+    )
+    assert any(
+        "authorization_query" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
+
+
 def test_catalog_entry_can_be_overridden_partially() -> None:
     registry = Registry.from_catalog(
         {"github": {"base_url": "https://api.github.example.com"}}

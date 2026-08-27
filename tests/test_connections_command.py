@@ -6,8 +6,8 @@ from click.testing import CliRunner
 from conftest import ProjectBuilder
 
 from gete.cli import main
-from gete.connection import Registry
-from gete.connections_listing import connections_table
+from gete.connection import Connection, Registry
+from gete.connections_listing import connections_table, format_connection
 
 
 def test_table_lists_every_connection_with_hosts_and_verification() -> None:
@@ -38,6 +38,27 @@ def test_table_includes_private_connections_and_marks_their_source() -> None:
     rows = {row["id"]: row for row in connections_table(registry)}
     assert rows["internal"]["source"] == "gete.yaml"
     assert rows["freee"]["source"] == "catalog"
+
+
+def test_the_description_shows_the_menu_next_to_the_default_scopes() -> None:
+    """Preparing the OAuth client takes everything an agent may select, too."""
+    entry = Connection.from_mapping(
+        {
+            "id": "example",
+            "display_name": "Example",
+            "hosts": ["api.example.com"],
+            "oauth": {
+                "authorization_url": "https://auth.example.com/authorize",
+                "token_url": "https://auth.example.com/token",
+                "scopes": {"read": "Read data"},
+                "optional_scopes": {"write": "Change data"},
+            },
+        }
+    )
+    output = format_connection(entry)
+    assert "read: Read data" in output
+    assert "write: Change data" in output
+    assert "optional scopes" in output
 
 
 def test_cli_prints_one_line_per_connection(project: ProjectBuilder) -> None:

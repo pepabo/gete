@@ -66,7 +66,10 @@ def looks_like_jwt(token: str) -> bool:
 class OAuth:
     """How users authorize the connection.
 
-    scopes maps a scope to the explanation shown on the consent screen.
+    scopes maps a scope to the explanation shown on the consent screen; every
+    agent that declares the connection gets them. optional_scopes is the menu
+    an agent may select from on top of that, in the same shape; none of them
+    reach a token unless the agent declares them.
     scope_parameter is the query parameter that carries the user scopes; Slack
     uses user_scope because scope means the app's own permissions there.
     authorization_query, when set, is used verbatim as the authorization URL's
@@ -80,6 +83,7 @@ class OAuth:
     authorization_url: str
     token_url: str
     scopes: Mapping[str, str]
+    optional_scopes: Mapping[str, str] = field(default_factory=dict)
     scope_parameter: str = "scope"
     authorization_query: Mapping[str, str] | None = None
     pkce: bool = False
@@ -92,6 +96,7 @@ class OAuth:
             authorization_url=str(_rooted(data["authorization_url"], base_url)),
             token_url=str(_rooted(data["token_url"], base_url)),
             scopes=dict(data["scopes"]),
+            optional_scopes=dict(data.get("optional_scopes", {})),
             scope_parameter=data.get("scope_parameter", "scope"),
             pkce=bool(data.get("pkce", False)),
             authorization_query=(

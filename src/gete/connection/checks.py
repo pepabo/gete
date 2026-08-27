@@ -85,6 +85,18 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
                     problems.append(
                         f"token_prefixes: {prefix!r} overlaps {theirs!r} ({other.id})"
                     )
+    for scope in sorted(connection.oauth.optional_scopes):
+        if scope in connection.oauth.scopes:
+            problems.append(
+                f"oauth.optional_scopes: {scope} is already a default scope"
+            )
+    if connection.oauth.optional_scopes and connection.oauth.authorization_query:
+        # The verbatim query is the whole authorization URL; a selection
+        # would be accepted and then never reach the consent screen.
+        problems.append(
+            "oauth.optional_scopes: the menu cannot be offered next to a "
+            "verbatim authorization_query, which fixes the scopes"
+        )
     for token in connection.examples.accepts:
         if not connection.accepts_token(token):
             problems.append(f"examples.accepts: {token!r} is not accepted")

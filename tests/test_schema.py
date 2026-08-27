@@ -157,6 +157,59 @@ def test_connections_must_be_unique() -> None:
         )
 
 
+def test_a_connection_entry_may_select_scopes() -> None:
+    validate_document(
+        "agent",
+        {
+            **AGENT,
+            "connections": [
+                "freee",
+                {
+                    "id": "google",
+                    "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
+                },
+            ],
+        },
+        source="agent.yaml",
+    )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"scopes": ["https://www.googleapis.com/auth/spreadsheets"]},
+        {"id": "google", "scope": ["https://www.googleapis.com/auth/spreadsheets"]},
+        {"id": "google", "scopes": []},
+        {"id": "google", "scopes": ["a", "a"]},
+        {"id": "Google", "scopes": ["a"]},
+    ],
+)
+def test_a_connection_entry_needs_an_id_and_a_real_selection(
+    entry: dict[str, Any],
+) -> None:
+    """An entry that selects nothing is written as the plain string instead."""
+    with pytest.raises(DeclarationError, match="connections"):
+        validate_document(
+            "agent", {**AGENT, "connections": [entry]}, source="agent.yaml"
+        )
+
+
+def test_optional_scopes_map_a_scope_to_its_explanation() -> None:
+    oauth = {**CONNECTION["oauth"], "optional_scopes": {"write": "Change data"}}
+    validate_document(
+        "connection", {**CONNECTION, "oauth": oauth}, source="connection.yaml"
+    )
+
+
+def test_an_optional_scope_needs_a_non_empty_explanation() -> None:
+    """The explanation is what the consent screen shows; a blank one hides the grant."""
+    oauth = {**CONNECTION["oauth"], "optional_scopes": {"write": ""}}
+    with pytest.raises(DeclarationError, match="optional_scopes"):
+        validate_document(
+            "connection", {**CONNECTION, "oauth": oauth}, source="connection.yaml"
+        )
+
+
 @pytest.mark.parametrize(
     "tool",
     [

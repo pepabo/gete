@@ -88,6 +88,62 @@ def test_authorization_uri_copies_a_verbatim_query_when_declared() -> None:
     )
 
 
+MENU: dict[str, Any] = {
+    "id": "example",
+    "display_name": "Example",
+    "hosts": ["api.example.com"],
+    "token_prefixes": ["ex_"],
+    "oauth": {
+        "authorization_url": "https://auth.example.com/authorize",
+        "token_url": "https://auth.example.com/token",
+        "scopes": {"read": "Read data"},
+        "optional_scopes": {"write": "Change data", "admin": "Administer data"},
+    },
+}
+
+
+def test_authorization_uri_appends_the_selection_after_the_defaults() -> None:
+    entry = Connection.from_mapping(MENU)
+    params = query(authorization_uri(entry, "c", ["write"]))
+    assert params["scope"] == ["read write"]
+
+
+def test_without_a_selection_the_defaults_stand_alone() -> None:
+    entry = Connection.from_mapping(MENU)
+    params = query(authorization_uri(entry, "c"))
+    assert params["scope"] == ["read"]
+
+
+def test_a_selection_outside_the_menu_is_refused() -> None:
+    """register may run without validate; the menu is the reviewed ceiling."""
+    entry = Connection.from_mapping(MENU)
+    with pytest.raises(DeclarationError, match="optional_scopes"):
+        authorization_uri(entry, "c", ["repo"])
+
+
+def test_a_selection_next_to_a_verbatim_query_is_refused() -> None:
+    """The query is used as written, so the selection would silently go missing."""
+    entry = Connection.from_mapping(
+        {
+            **MENU,
+            "oauth": {
+                **MENU["oauth"],
+                "authorization_query": {"response_type": "code"},
+            },
+        }
+    )
+    with pytest.raises(DeclarationError, match="authorization_query"):
+        authorization_uri(entry, "c", ["write"])
+
+
+def test_authorization_body_carries_the_selection_into_the_uri() -> None:
+    body = authorization_body(
+        GE, "finance-agent", Connection.from_mapping(MENU), "id-1", "s", ["write"]
+    )
+    params = query(body["serverSideOauth2"]["authorizationUri"])
+    assert params["scope"] == ["read write"]
+
+
 def test_authorization_body_is_named_per_agent_and_carries_the_client() -> None:
     body = authorization_body(
         GE, "finance-agent", CATALOG.get("freee"), "id-1", "secret-1"
@@ -272,6 +328,41 @@ def test_authorization_is_created_when_absent_and_a_notice_is_written(
     assert "`finance`" in text
     assert "Skip" in text
     assert "<details>" in text
+
+
+def test_the_registrar_builds_each_authorization_from_that_agents_selection(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"project_number": NUMBER},
+            "connections": {"example": {k: v for k, v in MENU.items() if k != "id"}},
+        }
+    )
+    project.write_agent(
+        "finance",
+        {
+            **FINANCE,
+            "connections": [{"id": "example", "scopes": ["write"]}],
+        },
+    )
+    for suffix, value in (("client-id", "id-1"), ("client-secret", "secret-1")):
+        gcp.route(
+            "GET",
+            f"{SECRETS}/ge-oauth-example-{suffix}/versions/latest:access",
+            secret(value),
+        )
+    summary = register_project(
+        load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
+    )
+    assert summary.failed == []
+    posts = gcp.writes("POST")
+    assert posts[0][1] == {"authorizationId": "finance-example"}
+    params = query(posts[0][2]["serverSideOauth2"]["authorizationUri"])
+    assert params["scope"] == ["read write"]
 
 
 def test_existing_authorization_is_updated_not_recreated(
