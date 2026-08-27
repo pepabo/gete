@@ -439,3 +439,113 @@ def test_an_mcp_url_under_the_root_is_checked_against_the_filled_in_hosts(
         },
     )
     assert problems(project) == []
+
+
+# One operation is enough for the rules; gete.openapi's own tests cover the rest.
+OPENAPI_SPEC = """
+openapi: 3.0.0
+info: {title: Example, version: "1.0"}
+paths:
+  /things:
+    get:
+      operationId: ListThings
+      parameters:
+        - {name: query, in: query, schema: {type: string}}
+      responses: {"200": {description: ok}}
+"""
+
+
+def write_openapi_agent(
+    project: ProjectBuilder,
+    tool: dict[str, Any],
+    *,
+    connections: list[str] | None = None,
+    spec_text: str | None = OPENAPI_SPEC,
+) -> None:
+    agent_dir = project.write_agent(
+        "mail-triage",
+        {
+            **({"connections": connections} if connections is not None else {}),
+            "tools": [{"openapi": tool}],
+        },
+    )
+    if spec_text is not None:
+        (agent_dir / "spec.yaml").write_text(spec_text)
+
+
+def test_a_sound_openapi_declaration_passes(project: ProjectBuilder) -> None:
+    write_rooted_api(project, "https://acme.example.com")
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "rooted-api",
+            "operations": ["ListThings"],
+            "effect": "read",
+            "params": {"ListThings": {"query": {"prefix": "type:thing "}}},
+        },
+        connections=["rooted-api"],
+    )
+    assert problems(project) == []
+
+
+def test_openapi_connection_must_be_declared_by_the_agent(
+    project: ProjectBuilder,
+) -> None:
+    """Without the connection there is no token, and no root to send requests to."""
+    write_rooted_api(project, "https://acme.example.com")
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "rooted-api",
+            "operations": ["ListThings"],
+        },
+    )
+    found = problems(project)
+    assert any("rooted-api" in p and "connections" in p for p in found), found
+
+
+def test_openapi_connection_must_have_a_base_url(project: ProjectBuilder) -> None:
+    """internal-api names hosts but no root; there is nothing to build URLs from."""
+    write_internal_api(project)
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "internal-api",
+            "operations": ["ListThings"],
+        },
+        connections=["internal-api"],
+    )
+    found = problems(project)
+    assert any("base_url" in p for p in found), found
+
+
+def test_openapi_missing_spec_file_is_reported(project: ProjectBuilder) -> None:
+    write_rooted_api(project, "https://acme.example.com")
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "rooted-api",
+            "operations": ["ListThings"],
+        },
+        connections=["rooted-api"],
+        spec_text=None,
+    )
+    found = problems(project)
+    assert any("spec.yaml" in p for p in found), found
+
+
+def test_openapi_operations_are_held_against_the_description(
+    project: ProjectBuilder,
+) -> None:
+    write_rooted_api(project, "https://acme.example.com")
+    write_openapi_agent(
+        project,
+        {"spec": "./spec.yaml", "connection": "rooted-api", "operations": ["Nope"]},
+        connections=["rooted-api"],
+    )
+    found = problems(project)
+    assert any("Nope" in p for p in found), found

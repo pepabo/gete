@@ -109,6 +109,16 @@ def build_archive(directory: Path, *, project: Project | None = None) -> Archive
     if instruction is not None:
         name = _archive_input(agent, instruction, "instruction", kind="file")
         entries[name] = instruction.read_bytes()
+    # OpenAPI descriptions are read from the archive, never the network: a
+    # vendor changing a published description must not change a deployed
+    # agent's tools.
+    for index, tool in enumerate(agent.tools):
+        if "openapi" in tool:
+            spec_path = agent.directory / str(tool["openapi"]["spec"])
+            name = _archive_input(
+                agent, spec_path, f"tools[{index}].openapi.spec", kind="file"
+            )
+            entries[name] = spec_path.read_bytes()
     if agent.source is not None:
         # Agent Engine imports from the archive root, so the source directory's
         # contents go there and the resolved declaration points at ".".

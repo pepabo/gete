@@ -221,6 +221,72 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
+            "openapi"
+          ],
+          "properties": {
+            "openapi": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "spec",
+                "connection",
+                "operations"
+              ],
+              "properties": {
+                "spec": {
+                  "description": "Path to the OpenAPI description, relative to agent.yaml. It is read where the agent is packed and travels inside the archive; nothing is fetched at run time.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "connection": {
+                  "description": "Request URLs are built from this connection's base_url, and the caller's token rides along.",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "operations": {
+                  "description": "operationIds to offer, out of everything the description holds. Required, never defaulted: a published description holds far more than an agent means to expose, and forgetting to choose must not mean offering everything.",
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "effect": {
+                  "$ref": "#/$defs/effect"
+                },
+                "does_not": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "description": "Constraints on the operations' parameters, by operationId, then by parameter or body property name. What was pinned in code must not be lost by moving to a declaration.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "$ref": "#/$defs/openapi_param"
+                    }
+                  }
+                },
+                "describe": {
+                  "description": "Replaces an operation's description. The vendor's text is written for developers next to the docs, not for a model; it may cite links and syntax the model cannot follow.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
             "python"
           ],
           "properties": {
@@ -253,6 +319,36 @@
     "https_url": {
       "type": "string",
       "pattern": "^https://[^/?#\\s]+(?:[/?#]\\S*)?$"
+    },
+    "openapi_param": {
+      "description": "One parameter's constraint: a fixed value the model never sees, or text put around what the model writes. A fixed parameter is taken out of the declaration shown to the model - its value is declared, so there is nothing left for the model to say, and prefix or suffix would have nothing to wrap.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "prefix": {
+              "type": "string",
+              "minLength": 1
+            },
+            "suffix": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
     }
   }
 }

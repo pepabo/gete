@@ -59,6 +59,15 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
                 if connection:
                     connected.add(connection)
                     lines.append(f"  {node} -. {connection} .-> {tool_node}")
+            elif "openapi" in tool:
+                count = len(tool["openapi"]["operations"])
+                noun = "operation" if count == 1 else "operations"
+                lines.append(
+                    f'  {node} --> {tool_node}[("openapi<br/>{count} {noun}")]'
+                )
+                connection = tool["openapi"]["connection"]
+                connected.add(connection)
+                lines.append(f"  {node} -. {connection} .-> {tool_node}")
         for name in agent.shared_credentials:
             # Marked as the bot it is: the diagram must not read as if these
             # tools acted with the caller's authorization.

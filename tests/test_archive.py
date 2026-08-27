@@ -334,3 +334,76 @@ def test_this_agents_own_problem_still_blocks_it(project: ProjectBuilder) -> Non
     prepare(project, name="mail", connections=["salesforce"])
     with pytest.raises(DeclarationError, match="salesforce"):
         build_archive(project.root / "agents" / "mail")
+
+
+OPENAPI_SPEC = """
+openapi: 3.0.0
+info: {title: Example, version: "1.0"}
+paths:
+  /things:
+    get:
+      operationId: ListThings
+      responses: {"200": {description: ok}}
+"""
+
+ROOTED_API = {
+    "display_name": "Rooted API",
+    "hosts": [],
+    "token_prefixes": ["rt_"],
+    "base_url": "https://acme.example.com",
+    "oauth": {
+        "authorization_url": "https://acme.example.com/oauth/authorize",
+        "token_url": "https://acme.example.com/oauth/token",
+        "scopes": {"read": "Read data"},
+    },
+}
+
+
+def prepare_openapi(project: ProjectBuilder, spec: str) -> Path:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"rooted-api": ROOTED_API},
+        }
+    )
+    directory = project.write_agent(
+        "mail-triage",
+        {
+            "connections": ["rooted-api"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": spec,
+                        "connection": "rooted-api",
+                        "operations": ["ListThings"],
+                        "effect": "read",
+                    }
+                }
+            ],
+        },
+    )
+    return directory
+
+
+def test_an_openapi_description_travels_in_the_archive(
+    project: ProjectBuilder,
+) -> None:
+    """The runtime reads the description from the archive, never the network."""
+    directory = prepare_openapi(project, "./specs/service.yaml")
+    (directory / "specs").mkdir()
+    (directory / "specs" / "service.yaml").write_text(OPENAPI_SPEC)
+    files = members(build_archive(directory))
+    assert files["specs/service.yaml"] == OPENAPI_SPEC.encode()
+    resolved = yaml.safe_load(files[RESOLVED_FILE])
+    assert resolved["tools"][0]["openapi"]["spec"] == "./specs/service.yaml"
+
+
+def test_an_openapi_description_outside_the_agent_directory_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    directory = prepare_openapi(project, "../shared.yaml")
+    (project.agents_dir / "shared.yaml").write_text(OPENAPI_SPEC)
+    with pytest.raises(DeclarationError, match="outside"):
+        build_archive(directory)
