@@ -498,3 +498,67 @@ def test_a_pruned_description_archives_the_same_bytes_every_time(
     (directory / "specs").mkdir()
     (directory / "specs" / "service.yaml").write_text(WIDE_OPENAPI_SPEC)
     assert build_archive(directory).archive == build_archive(directory).archive
+
+
+POINTED_OPENAPI_SPEC = """
+openapi: 3.0.0
+info: {title: Example, version: "1.0"}
+paths:
+  /things:
+    post:
+      operationId: CreateThing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {name: {type: string}}
+      responses: {"201": {description: made}}
+  /things/{thing_id}:
+    parameters:
+      - {name: thing_id, in: path, required: true, schema: {type: string}}
+    put:
+      operationId: UpdateThing
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/paths/~1things/post/requestBody/content/application~1json/schema"
+      responses: {"200": {description: ok}}
+"""
+
+
+def test_an_archive_refuses_a_declaration_pruning_cannot_keep(
+    project: ProjectBuilder,
+) -> None:
+    """A reference into another path's subtree resolves in the repo's file
+    and dangles once that path is pruned away. The packing must say so; a
+    miss the archive carries would surface at the deployed agent's cold
+    start."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"rooted-api": ROOTED_API},
+        }
+    )
+    directory = project.write_agent(
+        "mail-triage",
+        {
+            "connections": ["rooted-api"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": "./specs/service.yaml",
+                        "connection": "rooted-api",
+                        "operations": ["UpdateThing"],
+                    }
+                }
+            ],
+        },
+    )
+    (directory / "specs").mkdir()
+    (directory / "specs" / "service.yaml").write_text(POINTED_OPENAPI_SPEC)
+    with pytest.raises(DeclarationError, match="pruned"):
+        build_archive(directory)

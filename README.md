@@ -193,7 +193,9 @@ tools:
   with it, and `validate` cannot tell such a description from one that
   never declared them — so the cutting is gete's job, and `validate` now
   also reports a `{placeholder}` in a path that no path parameter
-  declares.
+  declares. The packing then holds the declaration against the pruned
+  description, so a reference pruning cannot keep is refused before
+  anything deploys.
 - **Writes ride the same rails.** PUT, PATCH, and DELETE operations must
   sit in a block declared `effect: write`, which the confirmation policies
   key on, and results pass the same redaction as every other tool. A change
