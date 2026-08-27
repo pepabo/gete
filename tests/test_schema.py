@@ -194,6 +194,33 @@ def test_a_connection_entry_needs_an_id_and_a_real_selection(
         )
 
 
+def test_a_host_may_be_scoped_to_a_path_prefix() -> None:
+    """One host can serve unrelated APIs; the entry admits one API's paths."""
+    validate_document(
+        "connection",
+        {**CONNECTION, "hosts": ["www.example.com/api/", "www.example.com/up/api/"]},
+        source="connection.yaml",
+    )
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "www.example.com/api",
+        "www.example.com/API/",
+        "www.example.com//",
+        "www.example.com/",
+        "Www.example.com/api/",
+    ],
+)
+def test_a_path_scoped_host_ends_in_a_slash_and_stays_lowercase(host: str) -> None:
+    """Without the trailing slash /api would also admit /api-and-more."""
+    with pytest.raises(DeclarationError, match="hosts"):
+        validate_document(
+            "connection", {**CONNECTION, "hosts": [host]}, source="connection.yaml"
+        )
+
+
 def test_optional_scopes_map_a_scope_to_its_explanation() -> None:
     oauth = {**CONNECTION["oauth"], "optional_scopes": {"write": "Change data"}}
     validate_document(

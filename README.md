@@ -212,6 +212,11 @@ connections:
       scopes: {read: Read internal data}
 ```
 
+A `hosts` entry is an exact host name; nothing is matched by suffix. When one
+host serves unrelated APIs side by side — `www.googleapis.com` carries Drive
+and Calendar next to GCP's storage and compute — the entry can be scoped to a
+path prefix, written `host/path/`, and requests must stay below that path.
+
 A connection's `oauth.scopes` go to every agent that declares it, so they stay
 a read-only minimum. Scopes under `oauth.optional_scopes` are a menu: an agent
 gets one only by selecting it in its own declaration, and the selection lands

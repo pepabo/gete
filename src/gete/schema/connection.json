@@ -23,11 +23,18 @@
       "$ref": "#/$defs/https_url"
     },
     "hosts": {
-      "description": "Host names the user token may be sent to, matched exactly.",
+      "description": "Host names the user token may be sent to, matched exactly. An entry written as host/path/ admits only requests below that path, for hosts that serve unrelated APIs side by side.",
       "type": "array",
       "uniqueItems": true,
       "items": {
-        "$ref": "#/$defs/hostname"
+        "oneOf": [
+          {
+            "$ref": "#/$defs/hostname"
+          },
+          {
+            "$ref": "#/$defs/host_path_prefix"
+          }
+        ]
       }
     },
     "base_url": {
@@ -183,6 +190,10 @@
     "hostname": {
       "type": "string",
       "pattern": "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
+    },
+    "host_path_prefix": {
+      "type": "string",
+      "pattern": "^(?=[^/]{1,253}/)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}(/[a-z0-9._~-]+)+/$"
     }
   }
 }

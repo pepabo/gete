@@ -10,7 +10,7 @@ is refused rather than sent to a host it was never meant for.
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from gete.catalog import catalog_connections
 from gete.errors import DeclarationError, RetiredConnection, UnknownConnection
@@ -105,6 +105,26 @@ class OAuth:
                 else None
             ),
         )
+
+
+def _stays_below(path: str, prefix: str) -> bool:
+    """Whether the request path stays below the prefix however a server reads it.
+
+    A dot segment or an encoded separator - percent-encoded any number of
+    times - is refused rather than resolved: resolving would have to guess
+    how many times the server decodes.
+    """
+    for segment in path.split("/"):
+        decoded = unquote(segment)
+        while decoded != segment:
+            segment, decoded = decoded, unquote(decoded)
+        if segment in (".", "..") or "/" in segment or "\\" in segment:
+            return False
+    if not prefix.endswith("/"):
+        # The schema requires the trailing slash; a definition that dodged it
+        # must not widen the ceiling to /prefix-and-more.
+        prefix += "/"
+    return path.startswith("/" + prefix)
 
 
 @dataclass(frozen=True)
@@ -230,21 +250,31 @@ class Connection:
         """Whether a token may be attached to a request for this URL.
 
         Only https, and only an exact host match. Prefix or suffix matching
-        would accept names such as slack.com.example.com.
+        would accept names such as slack.com.example.com. An entry written as
+        host/path/ admits only requests below that path: some platforms serve
+        unrelated APIs from one host, and the path is where they part.
         """
         parsed = urlsplit(url)
-        return parsed.scheme == "https" and parsed.hostname in self.hosts
+        if parsed.scheme != "https" or parsed.hostname is None:
+            return False
+        for entry in self.hosts:
+            host, slash, prefix = entry.partition("/")
+            if parsed.hostname != host:
+                continue
+            if not slash or _stays_below(parsed.path, prefix):
+                return True
+        return False
 
     def allows_redirect(self, url: str) -> bool:
         """Whether a download may follow a redirect here; the token may not.
 
-        Exact hostname matching against the declared lists only: a named
-        host is no safer than an address literal, so nothing is accepted
-        for merely looking like a public name.
+        Exact matching against the declared lists only: a named host is no
+        safer than an address literal, so nothing is accepted for merely
+        looking like a public name.
         """
         parsed = urlsplit(url)
-        return parsed.scheme == "https" and (
-            parsed.hostname in self.hosts or parsed.hostname in self.redirect_hosts
+        return self.allows(url) or (
+            parsed.scheme == "https" and parsed.hostname in self.redirect_hosts
         )
 
     def reauthorization_message(self) -> str:

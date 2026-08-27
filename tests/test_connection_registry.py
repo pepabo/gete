@@ -85,6 +85,49 @@ def test_base_url_host_is_allowed_too() -> None:
     assert entry.allows("https://api.example.com/v1")
 
 
+@pytest.mark.parametrize(
+    ("url", "allowed"),
+    [
+        ("https://shared.example.com/api/v1/things", True),
+        ("https://shared.example.com/api/", True),
+        ("https://shared.example.com/api", False),
+        ("https://shared.example.com/apix/v1", False),
+        ("https://shared.example.com/other/v1", False),
+        ("https://shared.example.com/", False),
+        ("https://shared.example.com/api/../other/v1", False),
+        ("https://shared.example.com/api/%2e%2e/other/v1", False),
+        ("https://shared.example.com/api/%252e%252e/other/v1", False),
+        ("https://shared.example.com/api/..%2fother/v1", False),
+        ("https://shared.example.com/api/x%5c../other", False),
+        ("http://shared.example.com/api/v1", False),
+    ],
+)
+def test_a_path_scoped_host_allows_only_requests_below_the_path(
+    url: str, allowed: bool
+) -> None:
+    """Some platforms serve unrelated APIs from one host; a host/path/ entry
+    admits one API without admitting the platform. A dot segment or an encoded
+    separator is refused rather than resolved, because resolving would have to
+    guess how many times the server decodes."""
+    entry = connection(hosts=["shared.example.com/api/"])
+    assert entry.allows(url) is allowed
+
+
+def test_a_plain_hostname_entry_keeps_admitting_every_path() -> None:
+    entry = connection(hosts=["api.example.com", "shared.example.com/api/"])
+    assert entry.allows("https://api.example.com/anything/at/all")
+    assert not entry.allows("https://shared.example.com/anything/at/all")
+
+
+def test_a_redirect_may_go_below_a_path_scoped_host_but_not_beside_it() -> None:
+    entry = connection(
+        hosts=["shared.example.com/api/"], redirect_hosts=["cdn.example.com"]
+    )
+    assert entry.allows_redirect("https://shared.example.com/api/download")
+    assert not entry.allows_redirect("https://shared.example.com/other/download")
+    assert entry.allows_redirect("https://cdn.example.com/download")
+
+
 def test_oauth_client_defaults_to_ge_oauth_id() -> None:
     entry = connection()
     assert entry.secret_prefix == "ge-oauth-example"
