@@ -1,0 +1,47 @@
+id: zendesk
+display_name: Zendesk
+docs: https://developer.zendesk.com/api-reference/
+
+# The tenant is a subdomain, so the root differs per installation and the
+# authorization and token endpoints move with it. Nothing here is an address
+# until the installation sets connections.zendesk.base_url in its gete.yaml;
+# hosts stays empty because the only host comes from that root.
+# Zendesk tokens are opaque and the service announces no prefix. Accepted by
+# elimination, so an agent may hold only one connection of this kind.
+token_prefixes: []
+
+oauth:
+  authorization_url: "{base_url}/oauth/authorizations/new"
+  # The token endpoint reads credentials from the body, so it does not matter
+  # which of the two Gemini Enterprise sends. A connection cannot say; the
+  # Authorization resource has no field for it.
+  token_url: "{base_url}/oauth/tokens"
+  scopes:
+    read: Read tickets, users, and help center articles
+    # write covers users, organizations, and settings as well. A connection
+    # that only writes to tickets asks for the narrower one.
+    tickets:write: Comment on tickets and change their status
+
+setup: |
+  Create the OAuth client yourself, in the admin console: Apps and
+  integrations -> APIs -> Zendesk API -> OAuth Clients.
+
+  Register exactly one redirect URI: the one named above. The unique
+  identifier becomes the client id; the secret is shown once, at creation.
+
+  A client local to the subdomain is enough. A global client is only needed
+  to reach more than one subdomain.
+
+  The permissions granted to the client must cover the scopes asked for
+  here. When they do not, the consent screen still appears and the exchange
+  fails afterwards.
+
+# No accepted shape is declared: the tokens are opaque and the service
+# promises nothing about them, so any example would be a claim this cannot
+# keep. verified is absent for the same reason - no authorization has been
+# taken through Gemini Enterprise yet.
+examples:
+  rejects:
+    - "ya29.a0AfH6SMB" # Google access token
+    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT, such as an ID token
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub
