@@ -27,6 +27,20 @@ _JWT_HEADER_PREFIX = "eyJ"
 # otherwise a prefixless service accepts Google tokens by elimination.
 GOOGLE_ACCESS_TOKEN_PREFIX = "ya29."
 
+# Stands for the root of a service that differs per installation, wherever the
+# connection's URLs are written around it. A definition meant to be shared
+# cannot spell a tenant's host, and a stand-in host would be a name a stranger
+# could register - and then a user's token would be sent there - so the root is
+# left open until the installation names it.
+BASE_URL = "{base_url}"
+
+
+def _rooted(url: str | None, base_url: str | None) -> str | None:
+    """The URL with the installation's root put in, or left open without one."""
+    if url is None or base_url is None:
+        return url
+    return url.replace(BASE_URL, base_url.rstrip("/"))
+
 
 def looks_like_jwt(token: str) -> bool:
     """True for anything shaped like a JWT; none belongs at an external service."""
@@ -42,6 +56,8 @@ class OAuth:
     uses user_scope because scope means the app's own permissions there.
     authorization_query, when set, is used verbatim as the authorization URL's
     query string, and Gemini Enterprise appends client_id and redirect_uri.
+    Both URLs may be written around {base_url} for a service whose root moves
+    with the installation; they are not addresses until it is set.
     """
 
     authorization_url: str
@@ -51,10 +67,12 @@ class OAuth:
     authorization_query: Mapping[str, str] | None = None
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, Any]) -> "OAuth":
+    def from_mapping(
+        cls, data: Mapping[str, Any], base_url: str | None = None
+    ) -> "OAuth":
         return cls(
-            authorization_url=data["authorization_url"],
-            token_url=data["token_url"],
+            authorization_url=str(_rooted(data["authorization_url"], base_url)),
+            token_url=str(_rooted(data["token_url"], base_url)),
             scopes=dict(data["scopes"]),
             scope_parameter=data.get("scope_parameter", "scope"),
             authorization_query=(
@@ -113,14 +131,14 @@ class Connection:
         return cls(
             id=data["id"],
             display_name=data["display_name"],
-            oauth=OAuth.from_mapping(data["oauth"]),
+            oauth=OAuth.from_mapping(data["oauth"], base_url),
             hosts=frozenset(hosts),
             redirect_hosts=frozenset(data.get("redirect_hosts", ())),
             token_prefixes=tuple(data.get("token_prefixes", ())),
             base_url=base_url,
             docs=data.get("docs"),
             oauth_client=data.get("oauth_client"),
-            mcp_url=data.get("mcp", {}).get("url"),
+            mcp_url=_rooted(data.get("mcp", {}).get("url"), base_url),
             retired=data.get("retired"),
             reauthorization=data.get("messages", {}).get("reauthorization"),
             verified=dict(data.get("verified", {})),
@@ -128,6 +146,24 @@ class Connection:
                 accepts=tuple(examples.get("accepts", ())),
                 rejects=tuple(examples.get("rejects", ())),
             ),
+        )
+
+    @property
+    def needs_base_url(self) -> bool:
+        """True while a URL still holds {base_url}: the root is not set.
+
+        Read off the URLs rather than declared, so a definition cannot claim to
+        need a root it never uses, or use one without saying so. Until the
+        installation sets base_url, none of these are addresses and hosts is
+        whatever the definition could name without knowing the root.
+        """
+        return any(
+            url is not None and BASE_URL in url
+            for url in (
+                self.oauth.authorization_url,
+                self.oauth.token_url,
+                self.mcp_url,
+            )
         )
 
     @property

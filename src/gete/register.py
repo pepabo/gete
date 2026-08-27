@@ -75,6 +75,14 @@ def authorization_body(
     client_secret: str,
 ) -> dict[str, Any]:
     """The Authorization resource, named per agent so two agents never share one."""
+    if connection.needs_base_url:
+        # validate refuses this, but register can be run without it, and what
+        # would be stored here is the link every user of the agent is sent to.
+        raise DeclarationError(
+            f"connection {connection.id} has no base_url; its URLs are written "
+            "around the root of the service, which differs per installation. "
+            f"Set connections.{connection.id}.base_url in gete.yaml"
+        )
     name = f"{parent}/authorizations/{authorization_id(agent_name, connection.id)}"
     return {
         "name": name,

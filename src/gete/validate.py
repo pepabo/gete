@@ -99,11 +99,21 @@ def _agent_problems(
     known: set[str] = set()
     for connection_id in agent.connections:
         try:
-            registry.get(connection_id)
+            connection = registry.get(connection_id)
         except GeteError as error:
             found.append(f"connections: {error}")
             continue
         known.add(connection_id)
+        if connection.needs_base_url:
+            # The definition left the root open because it moves with the
+            # installation. Nothing it declares is an address until then: not
+            # the hosts a token may go to, and not the URL users consent at.
+            found.append(
+                f"connections: {connection_id} has no base_url; its URLs are "
+                "written around the root of the service, which differs per "
+                f"installation. Set connections.{connection_id}.base_url in "
+                "gete.yaml"
+            )
         authorization_id = f"{agent.name}-{connection_id}"
         if len(authorization_id) > MAX_AUTHORIZATION_ID_LENGTH:
             found.append(

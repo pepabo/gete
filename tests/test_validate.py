@@ -370,3 +370,72 @@ def test_the_agent_cannot_claim_the_credentials_variable_itself(
         },
     )
     assert any("SLACK_BOT_TOKEN" in message for message in problems(project))
+
+
+# A service whose root moves with the installation: the tenant sits in the
+# subdomain, so the API, the authorization URL, and the token URL move together.
+ROOTED_API: dict[str, Any] = {
+    "display_name": "Rooted API",
+    "hosts": [],
+    "token_prefixes": ["rt_"],
+    "oauth": {
+        "authorization_url": "{base_url}/oauth/authorizations/new",
+        "token_url": "{base_url}/oauth/tokens",
+        "scopes": {"read": "Read data"},
+    },
+}
+
+
+def write_rooted_api(project: ProjectBuilder, base_url: str | None = None) -> None:
+    entry = {**ROOTED_API, **({"base_url": base_url} if base_url else {})}
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"rooted-api": entry},
+        }
+    )
+
+
+def test_a_connection_without_its_root_is_refused_where_an_agent_uses_it(
+    project: ProjectBuilder,
+) -> None:
+    write_rooted_api(project)
+    project.write_agent("mail-triage", {"connections": ["rooted-api"]})
+    found = problems(project)
+    assert any("base_url" in p for p in found), found
+
+
+def test_the_root_is_only_missing_where_it_is_needed(project: ProjectBuilder) -> None:
+    """A definition nobody uses is not yet a problem; hosts is empty by design."""
+    write_rooted_api(project)
+    project.write_agent("mail-triage")
+    assert problems(project) == []
+
+
+def test_a_connection_with_its_root_set_passes(project: ProjectBuilder) -> None:
+    write_rooted_api(project, "https://acme.example.com")
+    project.write_agent("mail-triage", {"connections": ["rooted-api"]})
+    assert problems(project) == []
+
+
+def test_an_mcp_url_under_the_root_is_checked_against_the_filled_in_hosts(
+    project: ProjectBuilder,
+) -> None:
+    write_rooted_api(project, "https://acme.example.com")
+    project.write_agent(
+        "mail-triage",
+        {
+            "connections": ["rooted-api"],
+            "tools": [
+                {
+                    "mcp": {
+                        "url": "https://acme.example.com/mcp",
+                        "connection": "rooted-api",
+                    }
+                }
+            ],
+        },
+    )
+    assert problems(project) == []

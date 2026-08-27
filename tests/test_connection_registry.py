@@ -274,3 +274,46 @@ def test_reauthorization_message_can_be_declared_per_connection() -> None:
 def test_reauthorization_message_defaults_to_english() -> None:
     message = connection().reauthorization_message()
     assert "Example" in message and "Gemini Enterprise" in message
+
+
+ROOTED: dict[str, Any] = {
+    "id": "rooted",
+    "display_name": "Rooted",
+    "hosts": [],
+    "token_prefixes": [],
+    "oauth": {
+        "authorization_url": "{base_url}/oauth/authorizations/new",
+        "token_url": "{base_url}/oauth/tokens",
+        "scopes": {},
+    },
+    "mcp": {"url": "{base_url}/mcp"},
+}
+
+
+def test_the_installation_root_fills_every_url_written_around_it() -> None:
+    entry = Connection.from_mapping({**ROOTED, "base_url": "https://acme.example.com"})
+    assert entry.oauth.authorization_url == (
+        "https://acme.example.com/oauth/authorizations/new"
+    )
+    assert entry.oauth.token_url == "https://acme.example.com/oauth/tokens"
+    assert entry.mcp_url == "https://acme.example.com/mcp"
+    assert entry.hosts == frozenset({"acme.example.com"})
+    assert not entry.needs_base_url
+
+
+def test_a_trailing_slash_on_the_root_does_not_double_up() -> None:
+    entry = Connection.from_mapping({**ROOTED, "base_url": "https://acme.example.com/"})
+    assert entry.oauth.token_url == "https://acme.example.com/oauth/tokens"
+
+
+def test_without_the_root_no_stand_in_host_is_admitted() -> None:
+    """A stand-in is a name someone can register, and tokens would be sent there."""
+    entry = Connection.from_mapping(ROOTED)
+    assert entry.needs_base_url
+    assert entry.hosts == frozenset()
+    assert not entry.allows("https://base_url/mcp")
+    assert not entry.allows("https://acme.example.com/mcp")
+
+
+def test_a_connection_that_names_its_hosts_never_needs_a_root() -> None:
+    assert not connection().needs_base_url
