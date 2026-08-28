@@ -80,6 +80,24 @@ def test_describe_token_names_the_prefix_not_the_value() -> None:
     assert GITHUB_TOKEN not in describe_token(GITHUB, GITHUB_TOKEN)
 
 
+def test_describe_token_says_why_a_jwt_was_refused_without_repeating_it() -> None:
+    """A prefixless connection declares no shapes, so the shape message would
+    leave an issuer refusal looking like a mystery."""
+    assert (
+        describe_token(FREEE, GOOGLE_ISSUED_JWT)
+        == "a JWT whose issuer does not name this service"
+    )
+    assert (
+        describe_token(FREEE, "eyJhbGciOiJSUzI1NiJ9.x.sig")
+        == "a JWT whose claims cannot be read"
+    )
+    # A declared prefix is the whole judgment; the JWT is described no further.
+    assert (
+        describe_token(GITHUB, GOOGLE_ISSUED_JWT)
+        == "matches none of the declared shapes"
+    )
+
+
 def test_caller_token_takes_the_state_from_the_current_call() -> None:
     context = SimpleNamespace(state={"mail-triage-github": GITHUB_TOKEN})
     set_tool_call(ToolCall(context, {"github": "mail-triage-github"}, registry=CATALOG))
