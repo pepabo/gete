@@ -6,7 +6,7 @@ import pytest
 
 from gete.catalog import catalog_connections
 from gete.connection import Registry
-from gete.connection.checks import connection_problems
+from gete.connection.checks import connection_problems, elimination_problems
 from gete.declaration import load_yaml_text
 from gete.schema import validate_document
 
@@ -162,6 +162,41 @@ def test_notion_mcp_says_what_a_person_has_to_do_before_authorizing() -> None:
 def test_a_connection_fronting_another_grant_carries_no_scopes() -> None:
     """Nothing here chooses the permissions; the provider's consent screen does."""
     assert CATALOG["notion-mcp"]["oauth"]["scopes"] == {}
+
+
+def test_freee_mcp_does_not_reach_the_freee_api() -> None:
+    """The MCP endpoint is a different issuer; its token is not a freee API token."""
+    hosts = CATALOG["freee-mcp"]["hosts"]
+    assert hosts == ["mcp.freee.co.jp"]
+    assert "api.freee.co.jp" not in hosts
+
+
+def test_freee_mcp_defaults_stay_read_only_with_write_on_the_menu() -> None:
+    """A bare `connections: [freee-mcp]` reads; writing has to be selected."""
+    oauth = CATALOG["freee-mcp"]["oauth"]
+    assert set(oauth["scopes"]) == {"mcp:read"}
+    assert set(oauth["optional_scopes"]) == {"mcp:write"}
+
+
+def test_freee_mcp_asks_for_a_code_challenge() -> None:
+    """The server refuses an authorization request without one."""
+    assert CATALOG["freee-mcp"]["oauth"]["pkce"] is True
+
+
+def test_freee_mcp_says_what_a_person_has_to_do_before_authorizing() -> None:
+    """Its client cannot be deleted once registered, and the grant it fronts
+    is freee's own, wider than the scopes chosen here."""
+    setup = CATALOG["freee-mcp"]["setup"]
+    assert "redirect URI" in setup
+    assert "cannot be deleted" in setup
+    assert "effect: read" in setup
+
+
+def test_freee_and_freee_mcp_cannot_be_held_by_one_agent() -> None:
+    """Both accept tokens by elimination; side by side, a token from either
+    authorization would pass as the other's."""
+    registry = Registry.from_catalog()
+    assert elimination_problems(["freee", "freee-mcp"], registry)
 
 
 def test_zendesk_leaves_its_root_open_until_an_installation_names_it() -> None:
