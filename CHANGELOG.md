@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.11](https://github.com/pepabo/gete/compare/v0.2.10...v0.2.11) - 2026-08-28
+
+- Judge a JWT by its issuer, not its shape by @haruotsu in https://github.com/pepabo/gete/pull/41
+
 ## [v0.2.10](https://github.com/pepabo/gete/compare/v0.2.9...v0.2.10) - 2026-08-27
 
 - Let an agent select scopes from a connection's menu by @haruotsu in https://github.com/pepabo/gete/pull/37
