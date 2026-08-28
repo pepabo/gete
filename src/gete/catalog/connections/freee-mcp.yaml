@@ -1,0 +1,69 @@
+id: freee-mcp
+display_name: freee MCP
+docs: https://github.com/freee/freee-mcp
+
+# The MCP endpoint is a different issuer from the freee API: it advertises its
+# own authorization server, and a token from here is not a freee API token.
+# api.freee.co.jp therefore does not belong on this list. Naming both would say
+# that either service's token may be sent to the other.
+hosts:
+  - mcp.freee.co.jp
+# Opaque, and the server announces no prefix. Accepted by elimination, so an
+# agent may hold only one connection of this kind - and freee is another, so
+# no agent can hold the two side by side.
+token_prefixes: []
+
+oauth:
+  authorization_url: https://mcp.freee.co.jp/authorize
+  # The endpoint accepts client_secret_post as well as client_secret_basic, so
+  # it does not matter which of the two Gemini Enterprise sends. A connection
+  # cannot say; the Authorization resource has no field for it.
+  token_url: https://mcp.freee.co.jp/token
+  # Not a choice: the endpoint refuses an authorization request that carries
+  # no S256 code challenge.
+  pkce: true
+  # What the server will do with the grant, not what the grant covers: the
+  # authorization this fronts is freee's own and is taken with reading and
+  # writing both, whichever scopes are chosen here. The floor stays read so a
+  # bare `connections: [freee-mcp]` never writes through the server.
+  scopes:
+    mcp:read: Read freee data through the MCP server's tools
+  optional_scopes:
+    mcp:write: Create and change freee data through the MCP server's tools
+
+mcp:
+  url: https://mcp.freee.co.jp/mcp
+
+setup: |
+  Register the OAuth client yourself, once. The endpoint offers dynamic client
+  registration (RFC 7591), but Gemini Enterprise is given a client id and
+  secret, so register a client and put the two in the secrets named above. An
+  application from the freee developer console will not do: it belongs to the
+  freee API's own authorization server, and this one keeps a register of its
+  own, where that client id is unknown.
+
+  Register exactly one redirect URI: the one named above. The endpoint
+  implements registration without the client management half of it (RFC 7592)
+  - no registration access token comes back and the registration URI answers
+  405 - so a client registered with the wrong redirect URI cannot be deleted.
+  Every wrong attempt leaves one behind for good.
+
+  This endpoint fronts freee's own application rather than standing on its
+  own. The consent screen is freee's, for that application, and it grants
+  reading and writing together whatever scopes are selected here: the mcp
+  scopes narrow what the server will do, not what the grant covers. Its tools
+  are a thin pass-through - one tool reaches every freee API the grant covers
+  - so an agent that means to only read keeps mcp:write unselected and says
+  so on its mcp: block with allow and effect: read as well.
+
+# verified is absent because no authorization has been taken through Gemini
+# Enterprise yet.
+
+# No accepted shape is declared: the tokens are opaque and the server promises
+# nothing about them, so any example would be a claim this cannot keep.
+examples:
+  rejects:
+    - "ya29.a0AfH6SMB" # Google access token
+    # Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
+    - "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub
