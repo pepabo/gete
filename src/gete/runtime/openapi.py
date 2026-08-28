@@ -3,8 +3,9 @@
 The description travelled inside the archive; nothing is fetched when the
 agent starts. The published ``servers`` are never read - a definition's own
 root may hold variables, a stale default, or another tenant - so request
-URLs are built from the connection's ``base_url``, and the client's
-destination check and token rules hold exactly as for every other request.
+URLs are built from the block's own ``base_url`` where the declaration
+names one, and from the connection's otherwise; the client's destination
+check and token rules hold exactly as for every other request.
 
 ADK's spec parser turns the pruned description into declarations the model
 can call. Execution stays here: ADK's own OpenAPI tools carry requests and
@@ -141,6 +142,7 @@ class OpenApiTool(BaseTool):
         nested_fixes: Iterable[NestedFix] = (),
         declaration: Any,
         require_confirmation: bool,
+        base_url: str | None = None,
     ) -> None:
         super().__init__(name=name, description=description)
         self._method = method
@@ -150,6 +152,7 @@ class OpenApiTool(BaseTool):
         self._nested_fixes = tuple(nested_fixes)
         self._declaration = declaration
         self._require_confirmation = require_confirmation
+        self._base_url = base_url
 
     def _get_declaration(self) -> Any:
         return self._declaration
@@ -160,7 +163,9 @@ class OpenApiTool(BaseTool):
         return self._require_confirmation
 
     async def run_async(self, *, args: dict[str, Any], tool_context: Any) -> Any:
-        root = self._connection.base_url
+        # A root the block declared for itself wins; validate held it against
+        # the connection's hosts, and the client checks every URL again anyway.
+        root = self._base_url or self._connection.base_url
         if root is None:
             # validate refuses this; guarded again because the archive that
             # reached the runtime is whatever was packed.
@@ -281,6 +286,7 @@ def openapi_toolset(
     excluded = frozenset(denied)
     describe: Mapping[str, str] = spec.get("describe", {})
     does_not: str | None = spec.get("does_not")
+    base_url: str | None = spec.get("base_url")
     tools: list[OpenApiTool] = []
     for name in spec["operations"]:
         if name in excluded:
@@ -303,6 +309,7 @@ def openapi_toolset(
                 does_not=does_not,
                 connection=connection,
                 require_confirmation=confirm or name in confirmed,
+                base_url=base_url,
             )
         )
     return OpenApiToolset(
@@ -355,6 +362,7 @@ def _tool(
     does_not: str | None,
     connection: Connection,
     require_confirmation: bool,
+    base_url: str | None = None,
 ) -> OpenApiTool:
     """One tool: the declaration without the fixed parameters, and the
     arguments that rebuild the request from what the model writes."""
@@ -435,6 +443,7 @@ def _tool(
         nested_fixes=nested,
         declaration=declaration,
         require_confirmation=require_confirmation,
+        base_url=base_url,
     )
 
 

@@ -183,6 +183,14 @@ tools:
   description's own `servers` are never read: a published root may carry
   variables, a stale default, or another tenant. The client's destination
   check and token rules hold exactly as for every other request.
+- **A block may name its own root with `base_url`.** A connection that
+  spans several APIs — `google` lists one host per API and deliberately
+  declares no root — leaves nothing to build URLs from, and rooting the
+  whole installation in `gete.yaml` would point every block of that
+  connection at one API. `base_url` on the block picks the API that block
+  speaks to; `validate` holds it against the connection's `hosts` (below
+  the path for a `host/path/` entry), so the ceiling does not move. Where
+  both roots are declared, the block's wins.
 - **`params` keeps what the code it replaces used to enforce.** `value`
   fixes a parameter and takes it out of what the model sees — its value is
   declared, so there is nothing left for the model to say. `prefix` and
