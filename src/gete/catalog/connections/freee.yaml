@@ -2,9 +2,10 @@ id: freee
 display_name: freee
 docs: https://developer.freee.co.jp/
 
-# The only host a user token may be sent to.
-hosts:
-  - api.freee.co.jp
+# The root is the same for every installation - the tenant is chosen by the
+# token, not the URL - so the catalog names it. Its host is the only one a
+# user token may be sent to, and openapi toolsets build their URLs from it.
+base_url: https://api.freee.co.jp
 # freee tokens carry no prefix; they are accepted by elimination.
 token_prefixes: []
 
