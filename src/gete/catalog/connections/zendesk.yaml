@@ -6,8 +6,10 @@ docs: https://developer.zendesk.com/api-reference/
 # authorization and token endpoints move with it. Nothing here is an address
 # until the installation sets connections.zendesk.base_url in its gete.yaml;
 # hosts stays empty because the only host comes from that root.
-# Zendesk tokens are opaque and the service announces no prefix. Accepted by
-# elimination, so an agent may hold only one connection of this kind.
+# Zendesk issues JWT-shaped access tokens whose claims name no issuer, and
+# the service announces no prefix. A JWT like that says as little about its
+# origin as an opaque token, so it is accepted by elimination, and an agent
+# may hold only one connection of this kind.
 token_prefixes: []
 
 oauth:
@@ -38,12 +40,15 @@ setup: |
   here. When they do not, the consent screen still appears and the exchange
   fails afterwards.
 
-# No accepted shape is declared: the tokens are opaque and the service
-# promises nothing about them, so any example would be a claim this cannot
-# keep. verified is absent for the same reason - no authorization has been
-# taken through Gemini Enterprise yet.
+# The accepted example records the observed shape - a JWT whose claims name
+# no issuer - not a contract: the service promises nothing about its tokens.
+# verified is absent because no authorization has been taken through Gemini
+# Enterprise yet.
 examples:
+  accepts:
+    - "eyJhbGciOiJFZERTQSJ9.eyJleHAiOjB9.sig" # claims: {"exp": 0}, no issuer
   rejects:
     - "ya29.a0AfH6SMB" # Google access token
-    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT, such as an ID token
+    # Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
+    - "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
     - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub

@@ -20,7 +20,10 @@ GITHUB = CATALOG.get("github")
 FREEE = CATALOG.get("freee")
 GITHUB_TOKEN = "gho_16C7e42F292c6912E7710c838347Ae178B4a"
 FREEE_TOKEN = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
-JWT = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
+# Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
+GOOGLE_ISSUED_JWT = (
+    "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
+)
 
 
 def teardown_function() -> None:
@@ -97,12 +100,12 @@ def test_caller_token_refuses_the_wrong_shape_and_does_not_fall_back(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The authorization arrived; what is wrong is its configuration, not the user."""
-    state = {"github": "ya29.not-github", "freee": JWT}
+    state = {"github": "ya29.not-github", "freee": GOOGLE_ISSUED_JWT}
     with caplog.at_level(logging.WARNING):
         assert caller_token(GITHUB, state) is None
         assert caller_token(FREEE, state) is None
     assert "ya29.not-github" not in caplog.text
-    assert JWT not in caplog.text
+    assert GOOGLE_ISSUED_JWT not in caplog.text
 
 
 def test_caller_token_warns_with_the_state_shape_when_nothing_arrived(

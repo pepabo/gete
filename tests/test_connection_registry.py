@@ -1,5 +1,7 @@
 """Connections: which tokens a connection accepts and where it lets them go."""
 
+import base64
+import json
 from typing import Any
 
 import pytest
@@ -7,6 +9,17 @@ import pytest
 from gete.connection import Connection, Registry
 from gete.connection.checks import connection_problems, elimination_problems
 from gete.errors import DeclarationError, RetiredConnection, UnknownConnection
+
+
+def jwt_with(claims: Any) -> str:
+    """A JWT-shaped token carrying these claims. The signature is never checked."""
+
+    def encode(part: Any) -> str:
+        raw = json.dumps(part, separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    return f"{encode({'alg': 'RS256'})}.{encode(claims)}.sig"
+
 
 EXAMPLE: dict[str, Any] = {
     "id": "example",
@@ -45,20 +58,80 @@ def test_prefixless_connection_accepts_by_elimination(catalog: Registry) -> None
 
 
 @pytest.mark.parametrize(
-    "token", ["", "eyJhbGciOiJSUzI1NiJ9.e30.sig", "a.b.c", "eyJ-only"]
+    "token",
+    [
+        "",
+        "a.b.c",
+        "eyJ-only",
+        "eyJhbGciOiJSUzI1NiJ9.x.sig",  # claims are not base64url JSON
+        "eyJhbGciOiJSUzI1NiJ9.Ingi.sig",  # claims decode to "x", not a mapping
+        "eyJhbGciOiJSUzI1NiJ9.e30.sig.extra",  # four segments are no JWT
+    ],
 )
-def test_jwt_shaped_and_empty_tokens_are_never_accepted(
+def test_unreadable_jwt_shapes_and_empty_tokens_are_never_accepted(
     catalog: Registry, token: str
 ) -> None:
-    """JWTs are ID or service account tokens; none may go to an external service."""
+    """A JWT whose claims cannot be read is refused rather than guessed about."""
     for entry in catalog.all(include_retired=True):
         assert not entry.accepts_token(token), entry.id
+
+
+def test_google_issued_jwts_are_never_accepted(catalog: Registry) -> None:
+    """ID tokens and service account tokens always name a Google issuer, and
+    none of them may be sent to an external service."""
+    for entry in catalog.all(include_retired=True):
+        for issuer in (
+            "https://accounts.google.com",
+            "accounts.google.com",
+            "agent@project.iam.gserviceaccount.com",
+        ):
+            assert not entry.accepts_token(jwt_with({"iss": issuer})), entry.id
+
+
+def test_a_jwt_naming_no_issuer_is_accepted_by_elimination() -> None:
+    """Zendesk issues JWTs whose claims name no issuer. They say as little
+    about their origin as an opaque token, so they are judged like one."""
+    alone = Registry([connection()]).get("example")
+    assert alone.accepts_token(jwt_with({"exp": 0}))
+
+
+def test_a_jwt_naming_the_connections_own_service_is_accepted() -> None:
+    """The issuer of a service's tokens is its authorization server, which
+    may live beside the API rather than on it; both count as the service."""
+    alone = Registry([connection()]).get("example")
+    assert alone.accepts_token(jwt_with({"iss": "https://api.example.com"}))
+    assert alone.accepts_token(jwt_with({"iss": "api.example.com"}))
+    assert alone.accepts_token(jwt_with({"iss": "https://auth.example.com"}))
+
+
+def test_a_jwt_naming_the_installation_root_is_accepted() -> None:
+    entry = Connection.from_mapping({**ROOTED, "base_url": "https://acme.example.com"})
+    assert entry.accepts_token(jwt_with({"iss": "https://acme.example.com"}))
+
+
+@pytest.mark.parametrize(
+    "issuer",
+    [
+        "https://accounts.google.com",  # Google ID token
+        "agent@project.iam.gserviceaccount.com",  # service account token
+        "https://idp.example.org",  # some other service's authorization server
+        "https://api.example.com.evil.example",  # suffix must not pass as a match
+        5,  # RFC 7519 wants a string; anything else names nothing
+        "https://[",  # names no host; must be refused, not raise
+    ],
+)
+def test_a_jwt_naming_any_other_issuer_is_refused(issuer: Any) -> None:
+    alone = Registry([connection()]).get("example")
+    assert not alone.accepts_token(jwt_with({"iss": issuer}))
 
 
 def test_prefixless_connection_alone_still_refuses_google_access_tokens() -> None:
     """Elimination must not depend on google being present in the registry."""
     alone = Registry([connection()]).get("example")
     assert not alone.accepts_token("ya29.a0AfH6SMB")
+    # ya29.c.<payload> carries two dots but is no JWT; the prefix refuses it
+    # before any claims are looked for.
+    assert not alone.accepts_token("ya29.c.Ko8BuAT7abcdef")
     assert alone.accepts_token("a1b2c3d4e5f60718293a4b5c6d7e8f90")
 
 
@@ -361,6 +434,16 @@ def test_a_prefixless_connection_is_no_problem_on_its_own() -> None:
 def test_connections_that_announce_themselves_never_collide(catalog: Registry) -> None:
     """Prefixes are checked against each other; only the prefixless are counted."""
     assert elimination_problems(["freee", "github", "google"], catalog) == []
+
+
+def test_a_connection_that_accepts_google_issued_jwts_is_reported() -> None:
+    """Naming Google's authorization server as one's own host would let ID
+    tokens through the issuer match; the checks must catch the declaration."""
+    entry = connection(hosts=["accounts.google.com"])
+    assert any(
+        "Google-issued" in problem
+        for problem in connection_problems(entry, Registry([entry]))
+    )
 
 
 def test_www_googleapis_is_too_broad() -> None:
