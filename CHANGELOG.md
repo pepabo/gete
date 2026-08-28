@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.12](https://github.com/pepabo/gete/compare/v0.2.11...v0.2.12) - 2026-08-28
+
+- Name freee's API root in the catalog by @haruotsu in https://github.com/pepabo/gete/pull/43
+- Add freee-mcp, the hosted MCP server, to the catalog by @haruotsu in https://github.com/pepabo/gete/pull/44
+
 ## [v0.2.11](https://github.com/pepabo/gete/compare/v0.2.10...v0.2.11) - 2026-08-28
 
 - Judge a JWT by its issuer, not its shape by @haruotsu in https://github.com/pepabo/gete/pull/41
