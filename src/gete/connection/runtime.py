@@ -10,7 +10,7 @@ import re
 from functools import cache
 from typing import Any
 
-from gete.connection.registry import Connection, Registry
+from gete.connection.registry import Connection, Registry, jwt_claims, looks_like_jwt
 from gete.request_context import current_tool_call
 
 logger = logging.getLogger(__name__)
@@ -75,10 +75,22 @@ def describe_state(state: Any) -> list[dict[str, Any]]:
 
 
 def describe_token(connection: Connection, token: str) -> str:
-    """Which declared shape the token has, without repeating any of it."""
+    """Which declared shape the token has, without repeating any of it.
+
+    A connection without prefixes declares no shapes, so a refused JWT is
+    described by what refused it - claims that cannot be read, or an issuer
+    that does not name this service - or the shape message would leave the
+    refusal looking like a mystery.
+    """
     for prefix in connection.token_prefixes:
         if token.startswith(prefix):
             return f"starts with {prefix}"
+    if not connection.token_prefixes and looks_like_jwt(token):
+        claims = jwt_claims(token)
+        if claims is None:
+            return "a JWT whose claims cannot be read"
+        if "iss" in claims:
+            return "a JWT whose issuer does not name this service"
     return "matches none of the declared shapes"
 
 

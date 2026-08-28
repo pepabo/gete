@@ -25,5 +25,6 @@ examples:
     - "a1b2c3d4e5f60718293a4b5c6d7e8f90"
   rejects:
     - "ya29.a0AfH6SMB" # Google access token
-    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT, such as an ID token
+    # Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
+    - "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
     - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub

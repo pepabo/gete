@@ -20,7 +20,10 @@ GITHUB = CATALOG.get("github")
 FREEE = CATALOG.get("freee")
 GITHUB_TOKEN = "gho_16C7e42F292c6912E7710c838347Ae178B4a"
 FREEE_TOKEN = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
-JWT = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
+# Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
+GOOGLE_ISSUED_JWT = (
+    "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
+)
 
 
 def teardown_function() -> None:
@@ -77,6 +80,24 @@ def test_describe_token_names_the_prefix_not_the_value() -> None:
     assert GITHUB_TOKEN not in describe_token(GITHUB, GITHUB_TOKEN)
 
 
+def test_describe_token_says_why_a_jwt_was_refused_without_repeating_it() -> None:
+    """A prefixless connection declares no shapes, so the shape message would
+    leave an issuer refusal looking like a mystery."""
+    assert (
+        describe_token(FREEE, GOOGLE_ISSUED_JWT)
+        == "a JWT whose issuer does not name this service"
+    )
+    assert (
+        describe_token(FREEE, "eyJhbGciOiJSUzI1NiJ9.x.sig")
+        == "a JWT whose claims cannot be read"
+    )
+    # A declared prefix is the whole judgment; the JWT is described no further.
+    assert (
+        describe_token(GITHUB, GOOGLE_ISSUED_JWT)
+        == "matches none of the declared shapes"
+    )
+
+
 def test_caller_token_takes_the_state_from_the_current_call() -> None:
     context = SimpleNamespace(state={"mail-triage-github": GITHUB_TOKEN})
     set_tool_call(ToolCall(context, {"github": "mail-triage-github"}, registry=CATALOG))
@@ -97,12 +118,12 @@ def test_caller_token_refuses_the_wrong_shape_and_does_not_fall_back(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The authorization arrived; what is wrong is its configuration, not the user."""
-    state = {"github": "ya29.not-github", "freee": JWT}
+    state = {"github": "ya29.not-github", "freee": GOOGLE_ISSUED_JWT}
     with caplog.at_level(logging.WARNING):
         assert caller_token(GITHUB, state) is None
         assert caller_token(FREEE, state) is None
     assert "ya29.not-github" not in caplog.text
-    assert JWT not in caplog.text
+    assert GOOGLE_ISSUED_JWT not in caplog.text
 
 
 def test_caller_token_warns_with_the_state_shape_when_nothing_arrived(

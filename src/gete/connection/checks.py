@@ -26,8 +26,16 @@ TOO_BROAD_HOSTS = frozenset(
     }
 )
 
-# Shapes every connection must refuse, whatever it declares.
-_JWT_EXAMPLE = "eyJhbGciOiJSUzI1NiJ9.e30.sig"
+# Tokens every connection must refuse, whatever it declares: these are the
+# shapes of the Google credentials that must never reach an external service.
+# Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
+_GOOGLE_ISSUED_JWT_EXAMPLES = (
+    "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig",
+    # Claims: {"iss": "agent@project.iam.gserviceaccount.com"}, as in a
+    # service account token.
+    "eyJhbGciOiJSUzI1NiJ9."
+    "eyJpc3MiOiJhZ2VudEBwcm9qZWN0LmlhbS5nc2VydmljZWFjY291bnQuY29tIn0.sig",
+)
 _GOOGLE_ACCESS_TOKEN_EXAMPLE = GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB"
 
 
@@ -120,8 +128,9 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
     for token in connection.examples.rejects:
         if connection.accepts_token(token):
             problems.append(f"examples.rejects: {token!r} is accepted")
-    if connection.accepts_token(_JWT_EXAMPLE):
-        problems.append("a JWT-shaped token is accepted")
+    for example in _GOOGLE_ISSUED_JWT_EXAMPLES:
+        if connection.accepts_token(example):
+            problems.append("a Google-issued JWT is accepted")
     claims_google = any(
         prefix.startswith(GOOGLE_ACCESS_TOKEN_PREFIX)
         for prefix in connection.token_prefixes

@@ -7,6 +7,8 @@ Only tokens that look like the declared service's are accepted. Anything else
 is refused rather than sent to a host it was never meant for.
 """
 
+import base64
+import json
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -17,8 +19,9 @@ from gete.errors import DeclarationError, RetiredConnection, UnknownConnection
 from gete.schema import validate_document
 
 # A JWT has three dot-separated segments (two dots) and its base64url header
-# starts with "eyJ". Google ID tokens and service account tokens are JWTs;
-# none of them may be sent to an external service.
+# starts with "eyJ". Google ID tokens and service account tokens are JWTs,
+# but so are other services' access tokens, so the shape convicts nothing
+# on its own: what a JWT names as its issuer is what is judged.
 _JWT_DOTS = 2
 _JWT_HEADER_PREFIX = "eyJ"
 
@@ -58,8 +61,33 @@ def missing_base_url(connection_id: str) -> str:
 
 
 def looks_like_jwt(token: str) -> bool:
-    """True for anything shaped like a JWT; none belongs at an external service."""
+    """True for anything shaped like a JWT. Shape alone convicts nothing:
+    what the claims name as their issuer is what accepts_token judges."""
     return token.count(".") >= _JWT_DOTS or token.startswith(_JWT_HEADER_PREFIX)
+
+
+def jwt_claims(token: str) -> Mapping[str, Any] | None:
+    """The claims of a JWT-shaped token, or None when they cannot be read.
+
+    The signature is deliberately not checked: nothing here authenticates
+    anyone. The claims are read the way a token prefix is, to tell whose
+    token this is before it travels; a forged issuer gains nothing but a
+    request its token cannot answer.
+    """
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    payload = parts[1]
+    try:
+        raw = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+        claims = json.loads(raw)
+    except RecursionError:
+        # json.loads recurses per nesting level, and the payload is unvetted:
+        # a run of brackets must be refused like any other unreadable claims.
+        return None
+    except ValueError:
+        return None
+    return claims if isinstance(claims, Mapping) else None
 
 
 @dataclass(frozen=True)
@@ -231,20 +259,54 @@ class Connection:
     def accepts_token(self, token: str) -> bool:
         """Whether the token may be treated as this connection's.
 
-        A declared prefix decides on its own. The JWT heuristic is a guess
-        about shape, and Google issues ya29.c.<payload> access tokens that
-        carry two dots; the guess must not overrule a prefix the catalog
-        vouches for. Without prefixes, the shape is all there is to go on.
+        A declared prefix decides on its own: Google issues ya29.c.<payload>
+        access tokens that carry two dots, and a shape heuristic must not
+        overrule a prefix the catalog vouches for. Without prefixes, a JWT
+        is judged by the issuer its claims name - Google ID tokens and
+        service account tokens always name Google's - and a JWT that names
+        none says as little as an opaque token, so it is judged like one.
+        One that cannot be read is refused rather than guessed about.
         """
         if not token:
             return False
         if self.token_prefixes:
             return token.startswith(self.token_prefixes)
-        if looks_like_jwt(token) or token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
+        if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
             return False
-        # The service does not announce itself. All that can be said is that
-        # the token is not some other service's.
+        if looks_like_jwt(token):
+            claims = jwt_claims(token)
+            if claims is None:
+                return False
+            if "iss" in claims:
+                issuer = claims["iss"]
+                return isinstance(issuer, str) and self.issued_here(issuer)
+        # The token does not announce itself. All that can be said is that
+        # it is not some other service's.
         return not any(token.startswith(prefix) for prefix in self.foreign_prefixes)
+
+    def issued_here(self, issuer: str) -> bool:
+        """Whether the issuer names this connection's own service.
+
+        The hosts the token may travel to and the OAuth endpoints all count
+        as its service: the issuer of a service's tokens is its authorization
+        server, which may live beside the API rather than on it. Matched by
+        host, exactly, whether the issuer is written as a URL or bare.
+        """
+        try:
+            # The issuer arrives inside an unvetted token; one that urlsplit
+            # cannot read names no host.
+            named = urlsplit(issuer if "://" in issuer else f"//{issuer}").hostname
+        except ValueError:
+            return False
+        if named is None:
+            return False
+        own = {entry.partition("/")[0] for entry in self.hosts}
+        own.update(
+            host
+            for url in (self.oauth.authorization_url, self.oauth.token_url)
+            if (host := urlsplit(url).hostname) is not None
+        )
+        return named in own
 
     def allows(self, url: str) -> bool:
         """Whether a token may be attached to a request for this URL.
