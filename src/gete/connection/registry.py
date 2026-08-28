@@ -81,6 +81,10 @@ def jwt_claims(token: str) -> Mapping[str, Any] | None:
     try:
         raw = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
         claims = json.loads(raw)
+    except RecursionError:
+        # json.loads recurses per nesting level, and the payload is unvetted:
+        # a run of brackets must be refused like any other unreadable claims.
+        return None
     except ValueError:
         return None
     return claims if isinstance(claims, Mapping) else None
@@ -273,7 +277,8 @@ class Connection:
             claims = jwt_claims(token)
             if claims is None:
                 return False
-            if (issuer := claims.get("iss")) is not None:
+            if "iss" in claims:
+                issuer = claims["iss"]
                 return isinstance(issuer, str) and self.issued_here(issuer)
         # The token does not announce itself. All that can be said is that
         # it is not some other service's.

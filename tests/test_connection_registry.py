@@ -76,6 +76,17 @@ def test_unreadable_jwt_shapes_and_empty_tokens_are_never_accepted(
         assert not entry.accepts_token(token), entry.id
 
 
+def test_claims_nested_too_deep_to_read_are_refused_rather_than_raising(
+    catalog: Registry,
+) -> None:
+    """A payload of nothing but brackets must not blow up the judgment."""
+    brackets = b"[" * 100_000 + b"]" * 100_000
+    deep = base64.urlsafe_b64encode(brackets).rstrip(b"=").decode()
+    token = f"eyJhbGciOiJSUzI1NiJ9.{deep}.sig"
+    for entry in catalog.all(include_retired=True):
+        assert not entry.accepts_token(token), entry.id
+
+
 def test_google_issued_jwts_are_never_accepted(catalog: Registry) -> None:
     """ID tokens and service account tokens always name a Google issuer, and
     none of them may be sent to an external service."""
@@ -117,6 +128,7 @@ def test_a_jwt_naming_the_installation_root_is_accepted() -> None:
         "https://idp.example.org",  # some other service's authorization server
         "https://api.example.com.evil.example",  # suffix must not pass as a match
         5,  # RFC 7519 wants a string; anything else names nothing
+        None,  # present but null is just as far from a string
         "https://[",  # names no host; must be refused, not raise
     ],
 )
