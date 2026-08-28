@@ -603,6 +603,24 @@ def test_openapi_connection_must_have_a_base_url(project: ProjectBuilder) -> Non
     assert any("base_url" in p for p in found), found
 
 
+def test_freee_openapi_toolset_needs_nothing_in_gete_yaml(
+    project: ProjectBuilder,
+) -> None:
+    """The catalog names freee's root, so an installation using an openapi
+    toolset has nothing to restate under connections."""
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "freee",
+            "operations": ["ListThings"],
+            "effect": "read",
+        },
+        connections=["freee"],
+    )
+    assert problems(project) == []
+
+
 def test_openapi_missing_spec_file_is_reported(project: ProjectBuilder) -> None:
     write_rooted_api(project, "https://acme.example.com")
     write_openapi_agent(

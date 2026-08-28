@@ -145,6 +145,16 @@ def test_catalog_files_are_read_with_dates_as_strings() -> None:
     assert isinstance(load_yaml_text(text)["verified"]["gemini_enterprise"], str)
 
 
+def test_freee_names_its_root_in_the_catalog() -> None:
+    """The root is the same for every installation - the tenant is chosen by
+    the token, not the URL - so nothing is left for gete.yaml to add: base_url
+    supplies the only host and gives openapi toolsets their root."""
+    freee = Registry.from_catalog().get("freee")
+    assert freee.base_url == "https://api.freee.co.jp"
+    assert not freee.needs_base_url
+    assert freee.hosts == frozenset({"api.freee.co.jp"})
+
+
 def test_notion_mcp_does_not_reach_the_notion_api() -> None:
     """The MCP endpoint is a different issuer; its token is not an API token."""
     hosts = CATALOG["notion-mcp"]["hosts"]
