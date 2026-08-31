@@ -129,6 +129,7 @@ def toolset(
     confirm: bool = False,
     confirm_names: list[str] | None = None,
     denied: list[str] | None = None,
+    base_url: str | None = None,
 ) -> OpenApiToolset:
     spec: dict[str, Any] = {
         "spec": "./spec.yaml",
@@ -136,6 +137,8 @@ def toolset(
         "operations": operations or ["ListSearchResults", "ShowTicket"],
         "effect": effect,
     }
+    if base_url:
+        spec["base_url"] = base_url
     if params:
         spec["params"] = params
     if only:
@@ -350,6 +353,26 @@ async def test_requests_go_under_the_connections_base_url_never_the_specs(
     assert call["method"] == "GET"
     assert call["url"] == "https://acme.example.com/search"
     assert call["params"] == {"query": "invoice"}
+
+
+async def test_a_blocks_own_base_url_roots_its_requests(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    """A connection spanning several APIs has no single root; the block names
+    the one it speaks to, and the connection's root is not consulted."""
+    built = toolset(tmp_path, base_url="https://acme.example.com/things")
+    await run(built, "ListSearchResults", {"query": "invoice"})
+    assert client.calls[0]["url"] == "https://acme.example.com/things/search"
+
+
+async def test_a_trailing_slash_on_the_blocks_root_does_not_double_the_separator(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    """A scoped hosts entry demands the trailing slash, so the natural way to
+    write the block's root carries one; each path starts with its own."""
+    built = toolset(tmp_path, base_url="https://acme.example.com/things/")
+    await run(built, "ListSearchResults", {"query": "invoice"})
+    assert client.calls[0]["url"] == "https://acme.example.com/things/search"
 
 
 async def test_a_prefix_is_put_in_front_of_what_the_model_wrote(

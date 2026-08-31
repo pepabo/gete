@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from gete._yaml import read_yaml
 from gete.connection import Registry
@@ -267,14 +268,33 @@ def _openapi_problems(
         ]
     connection = registry.get(connection_id)
     found: list[str] = []
-    if connection.base_url is None and not connection.needs_base_url:
+    base_url: str | None = spec.get("base_url")
+    if base_url is not None:
+        parts = urlsplit(base_url)
+        if parts.query or parts.fragment:
+            # Request URLs are the root with a path appended; anything after
+            # the path would end up in the middle of every URL.
+            found.append(
+                f"openapi: base_url {base_url} carries a query or fragment, "
+                "and request URLs are built by appending each operation's path"
+            )
+        elif not connection.allows(base_url):
+            hosts = ", ".join(sorted(connection.hosts)) or "nothing"
+            found.append(
+                f"openapi: base_url {base_url} is not a host of connection "
+                f"{connection_id!r} ({hosts}); the token would leave the service"
+            )
+    rootless = connection.base_url is None and not connection.needs_base_url
+    if base_url is None and rootless:
         # An open root is already refused at the agent level; this catches a
         # rooted connection that never declared one, such as a catalog entry
         # whose host list was written directly.
         found.append(
             f"openapi: connection {connection_id!r} declares no base_url, and "
-            "request URLs are built from it. Set "
-            f"connections.{connection_id}.base_url in gete.yaml"
+            "request URLs are built from it. Set base_url on this openapi "
+            "block to name one of the connection's hosts, or "
+            f"connections.{connection_id}.base_url in gete.yaml to root the "
+            "whole installation"
         )
     spec_path = agent.directory / str(spec["spec"])
     try:

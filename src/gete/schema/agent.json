@@ -267,9 +267,13 @@
                   "minLength": 1
                 },
                 "connection": {
-                  "description": "Request URLs are built from this connection's base_url, and the caller's token rides along.",
+                  "description": "Request URLs are built from this connection's base_url unless the block names its own, and the caller's token rides along.",
                   "type": "string",
                   "pattern": "^[a-z][a-z0-9-]*$"
+                },
+                "base_url": {
+                  "description": "Root the request URLs are built from, in place of the connection's base_url. For a connection that spans several APIs and so declares no root of its own, this names the one this block speaks to. Must stay inside the connection's hosts; validate holds it against them.",
+                  "$ref": "#/$defs/https_url"
                 },
                 "operations": {
                   "description": "operationIds to offer, out of everything the description holds. Required, never defaulted: a published description holds far more than an agent means to expose, and forgetting to choose must not mean offering everything.",

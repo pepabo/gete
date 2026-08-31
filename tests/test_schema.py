@@ -298,6 +298,13 @@ def test_an_optional_scope_needs_a_non_empty_explanation() -> None:
                 "params": {"ListThings": {"q": {"value": None}}},
             }
         },
+        # A token travels to the block's root; plain http would show it around.
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                "base_url": "http://things.example.com",
+            }
+        },
     ],
 )
 def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
@@ -344,6 +351,13 @@ def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
                 **OPENAPI_TOOL["openapi"],
                 # A dotted name reaches into the JSON body.
                 "only": {"ListThings": ["query", "thing.note.kind"]},
+            }
+        },
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                # A multi-API connection has no single root; the block names its own.
+                "base_url": "https://things.example.com",
             }
         },
     ],

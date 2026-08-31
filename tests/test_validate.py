@@ -588,7 +588,8 @@ def test_openapi_connection_must_be_declared_by_the_agent(
 
 
 def test_openapi_connection_must_have_a_base_url(project: ProjectBuilder) -> None:
-    """internal-api names hosts but no root; there is nothing to build URLs from."""
+    """internal-api names hosts but no root; there is nothing to build URLs
+    from, and the message offers both places a root may be declared."""
     write_internal_api(project)
     write_openapi_agent(
         project,
@@ -600,7 +601,123 @@ def test_openapi_connection_must_have_a_base_url(project: ProjectBuilder) -> Non
         connections=["internal-api"],
     )
     found = problems(project)
-    assert any("base_url" in p for p in found), found
+    assert any(
+        "base_url on this openapi block" in p and "gete.yaml" in p for p in found
+    ), found
+
+
+def test_an_openapi_block_may_root_itself_on_one_of_the_connections_hosts(
+    project: ProjectBuilder,
+) -> None:
+    """internal-api names hosts but no root, like a connection spanning several
+    APIs; the block picks the one it speaks to, and nothing in gete.yaml moves."""
+    write_internal_api(project)
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "internal-api",
+            "base_url": "https://api.internal.example.com",
+            "operations": ["ListThings"],
+            "effect": "read",
+        },
+        connections=["internal-api"],
+    )
+    assert problems(project) == []
+
+
+def test_an_openapi_base_url_off_the_connections_hosts_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """The hosts are the ceiling for where a token may travel; a block cannot
+    root itself outside them."""
+    write_internal_api(project)
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "internal-api",
+            "base_url": "https://elsewhere.example.com",
+            "operations": ["ListThings"],
+            "effect": "read",
+        },
+        connections=["internal-api"],
+    )
+    found = problems(project)
+    assert any(
+        "elsewhere.example.com" in p and "api.internal.example.com" in p for p in found
+    ), found
+
+
+@pytest.mark.parametrize(
+    ("base_url", "sound"),
+    [
+        # One host serving unrelated APIs side by side: the entry is scoped to
+        # a path, and a block's root must stay below it like any request.
+        ("https://api.internal.example.com/things/v3", True),
+        ("https://api.internal.example.com/other/v3", False),
+    ],
+)
+def test_an_openapi_base_url_is_held_below_a_scoped_hosts_entry(
+    project: ProjectBuilder, base_url: str, sound: bool
+) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": {
+                    **INTERNAL_API,
+                    "hosts": ["api.internal.example.com/things/"],
+                }
+            },
+        }
+    )
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "internal-api",
+            "base_url": base_url,
+            "operations": ["ListThings"],
+            "effect": "read",
+        },
+        connections=["internal-api"],
+    )
+    found = problems(project)
+    if sound:
+        assert found == []
+    else:
+        assert any(base_url in p for p in found), found
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://api.internal.example.com/v1?tenant=acme",
+        "https://api.internal.example.com/v1#fragment",
+    ],
+)
+def test_an_openapi_base_url_carrying_a_query_or_fragment_is_refused(
+    project: ProjectBuilder, base_url: str
+) -> None:
+    """Request URLs are the root with a path appended; anything after the path
+    would end up in the middle of every URL."""
+    write_internal_api(project)
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "internal-api",
+            "base_url": base_url,
+            "operations": ["ListThings"],
+            "effect": "read",
+        },
+        connections=["internal-api"],
+    )
+    found = problems(project)
+    assert any(base_url in p for p in found), found
 
 
 def test_freee_openapi_toolset_needs_nothing_in_gete_yaml(
