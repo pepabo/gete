@@ -12,6 +12,7 @@ from gete.connection.runtime import (
     describe_state,
     describe_token,
     token_for,
+    usable_token,
 )
 from gete.request_context import ToolCall, clear_tool_call, set_tool_call
 
@@ -65,6 +66,28 @@ def test_token_for_ignores_empty_and_non_string_values() -> None:
     assert token_for(FakeState({"k": "v"}), "k") == "v"
 
 
+def test_token_for_looks_under_the_temp_prefix_when_the_bare_key_is_empty() -> None:
+    """Agent Engine may forward the token as ephemeral state, under temp:."""
+    assert (
+        token_for({"temp:agent-github": GITHUB_TOKEN}, "agent-github") == GITHUB_TOKEN
+    )
+    assert token_for(FakeState({"temp:k": "v"}), "k") == "v"
+
+
+def test_token_for_prefers_the_bare_key_over_its_temp_twin() -> None:
+    state = {"agent-github": "bare", "temp:agent-github": "ephemeral"}
+    assert token_for(state, "agent-github") == "bare"
+
+
+def test_token_for_holds_the_temp_twin_to_the_same_rules() -> None:
+    """An empty bare key falls through; an empty or non-string twin is still nothing."""
+    assert token_for({"k": "", "temp:k": "v"}, "k") == "v"
+    assert token_for({"temp:k": ""}, "k") is None
+    assert token_for({"temp:k": 123}, "k") is None
+    # Only the whole key is matched under the prefix as well.
+    assert token_for({"temp:agent-google-calendar": "ya29.y"}, "agent-google") is None
+
+
 def test_describe_state_shows_keys_types_and_lengths_but_never_values() -> None:
     described = describe_state(FakeState({"agent-freee": FREEE_TOKEN, "turn": 3}))
     assert described == [
@@ -108,6 +131,35 @@ def test_caller_token_uses_the_agent_specific_key_not_the_connection_name() -> N
     context = SimpleNamespace(state={"github": GITHUB_TOKEN})
     set_tool_call(ToolCall(context, {"github": "mail-triage-github"}, registry=CATALOG))
     assert caller_token("github") is None
+
+
+def test_caller_token_finds_the_agent_specific_key_under_the_temp_prefix() -> None:
+    context = SimpleNamespace(state={"temp:mail-triage-github": GITHUB_TOKEN})
+    set_tool_call(ToolCall(context, {"github": "mail-triage-github"}, registry=CATALOG))
+    assert caller_token("github") == GITHUB_TOKEN
+
+
+def test_usable_token_finds_the_key_under_the_temp_prefix() -> None:
+    """The toolsets decide what to offer through this path."""
+    state = FakeState({"temp:mail-triage-github": GITHUB_TOKEN})
+    assert usable_token(GITHUB, "mail-triage-github", state) == GITHUB_TOKEN
+    assert usable_token(GITHUB, "mail-triage-github", {"temp:other": "x"}) is None
+
+
+def test_a_wrong_shape_under_the_temp_prefix_is_refused_all_the_same(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The authorization arrived, only as ephemeral state; the check is the same."""
+    with caplog.at_level(logging.WARNING):
+        assert (
+            usable_token(
+                GITHUB, "agent-github", {"temp:agent-github": "ya29.not-github"}
+            )
+            is None
+        )
+        assert caller_token(GITHUB, {"temp:github": "ya29.not-github"}) is None
+    assert caplog.text.count("wrong shape") == 2
+    assert "ya29.not-github" not in caplog.text
 
 
 def test_caller_token_outside_a_call_uses_the_connection_name() -> None:

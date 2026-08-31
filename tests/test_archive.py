@@ -274,7 +274,7 @@ def test_requirements_carry_getes_dependencies_not_a_pin(
     lines = requirements_text(
         load_project(project.root / "gete.yaml").agents[0]
     ).splitlines()
-    assert lines[0] == "google-cloud-aiplatform[adk,agent_engines]>=1.140"
+    assert lines[0] == "google-cloud-aiplatform[adk,agent_engines]>=1.140,<2"
     assert not any(line.startswith("gete") for line in lines)
     body = "\n".join(lines)
     for needed in ("google-adk[mcp]", "httpx", "jsonschema", "pyyaml"):
@@ -290,7 +290,7 @@ def test_requirements_without_an_agent_file_are_just_the_base(
     lines = requirements_text(
         load_project(project.root / "gete.yaml").agents[0]
     ).splitlines()
-    assert lines[0] == "google-cloud-aiplatform[adk,agent_engines]>=1.140"
+    assert lines[0] == "google-cloud-aiplatform[adk,agent_engines]>=1.140,<2"
     assert all("pandas" not in line for line in lines)
 
 

@@ -177,6 +177,16 @@ async def test_nothing_is_offered_without_a_usable_token(tmp_path: Path) -> None
     assert await built.get_tools(None) == []
 
 
+async def test_tools_are_offered_when_the_token_arrives_as_ephemeral_state(
+    tmp_path: Path,
+) -> None:
+    """Agent Engine forwards the token under ADK's temp: prefix."""
+    tools = await toolset(tmp_path).get_tools(
+        Context({"temp:mail-triage-rooted-api": TOKEN})
+    )
+    assert [tool.name for tool in tools] == ["ListSearchResults", "ShowTicket"]
+
+
 async def test_denied_tools_are_not_offered(tmp_path: Path) -> None:
     built = toolset(tmp_path, denied=["ShowTicket"])
     tools = await built.get_tools(context())
