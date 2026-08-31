@@ -40,7 +40,11 @@ REQUIREMENTS_FILE = "requirements.txt"
 
 # Agent Engine's own runtime needs google-cloud-aiplatform; its adk extra
 # brings ADK. gete pins ADK to the range it was verified with.
-BASE_REQUIREMENTS = ("google-cloud-aiplatform[adk,agent_engines]>=1.140",)
+# The upper bound is closed rather than open: this package is what hands the
+# engine's state to the agent, and a new major may change how it does so or
+# move the extras and templates gete depends on. Left open, a rebuild would
+# pick such a major up before gete has been verified against it.
+BASE_REQUIREMENTS = ("google-cloud-aiplatform[adk,agent_engines]>=1.140,<2",)
 
 # The name gete's own files travel under inside the archive.
 GETE_PACKAGE_DIR = "gete"

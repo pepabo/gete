@@ -1,8 +1,9 @@
 """Getting the user's token out of the state Gemini Enterprise hands over.
 
 The key in tool_context.state is the authorization name itself, as created in
-Gemini Enterprise. Nothing is logged about the values: a token is the user's
-credential, and the shape of the state is enough to tell what went wrong.
+Gemini Enterprise, bare or under ADK's temp: prefix. Nothing is logged about
+the values: a token is the user's credential, and the shape of the state is
+enough to tell what went wrong.
 """
 
 import logging
@@ -52,14 +53,27 @@ def _as_dict(state: Any) -> dict[str, Any]:
     return dict(state)
 
 
+# ADK's marker for state that lives for the turn and is not persisted with
+# the session. Agent Engine forwards the token from a Gemini Enterprise
+# authorization as such state, so the key arrives wearing this prefix.
+EPHEMERAL_PREFIX = "temp:"
+
+
 def token_for(state: Any, key: str) -> str | None:
-    """The non-empty string stored under exactly this key, or None.
+    """The non-empty string stored under this key, or its ephemeral twin, or None.
 
     Conversation state shares the same place. A prefix match would hand out
-    google_calendar when google was asked for.
+    google_calendar when google was asked for, so the key is matched whole;
+    the one spelling accepted besides the bare key is the same key under
+    EPHEMERAL_PREFIX, which is where Agent Engine puts a token it forwards
+    rather than persists. The bare key wins when both are present.
     """
-    value = _as_dict(state).get(key)
-    return value if isinstance(value, str) and value else None
+    values = _as_dict(state)
+    for candidate in (key, f"{EPHEMERAL_PREFIX}{key}"):
+        value = values.get(candidate)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def describe_state(state: Any) -> list[dict[str, Any]]:
