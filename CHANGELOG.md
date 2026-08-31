@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.13](https://github.com/pepabo/gete/compare/v0.2.12...v0.2.13) - 2026-08-31
+
+- Let an openapi block name its own request root by @haruotsu in https://github.com/pepabo/gete/pull/46
+
 ## [v0.2.12](https://github.com/pepabo/gete/compare/v0.2.11...v0.2.12) - 2026-08-28
 
 - Name freee's API root in the catalog by @haruotsu in https://github.com/pepabo/gete/pull/43
