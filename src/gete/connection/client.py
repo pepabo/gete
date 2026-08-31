@@ -60,10 +60,22 @@ class ExternalServiceError(GeteError):
 
 
 class ReauthorizationRequired(ExternalServiceError, UserFacingError):
-    """No usable token; the user has to authorize again in Gemini Enterprise.
+    """No token arrived; the user has to approve the connection in Gemini Enterprise.
 
     UserFacingError because its message is the connection's declared
     reauthorization prompt: configuration written to be shown, never data.
+    """
+
+
+class AuthorizationRefused(ExternalServiceError, UserFacingError):
+    """A token arrived and the service refused it.
+
+    Not a ReauthorizationRequired: Gemini Enterprise shows its consent screen
+    only while it holds no credential for the user, and it never asks the
+    provider whether the one it holds is still good. Told to approve again,
+    the user finds nothing to approve; an operator has to reset the
+    authorization. UserFacingError for the same reason as above - the message
+    is the connection's declared text.
     """
 
 
@@ -449,10 +461,10 @@ class ConnectionClient:
                 logger.warning(
                     "token for %s was rejected url=%s", connection.id, _loggable(url)
                 )
-                # The distinction between "never authorized" and "expired"
-                # lives in the logs; users get one prompt either way, in the
-                # language the connection declares.
-                raise ReauthorizationRequired(connection.reauthorization_message())
+                # Not the reauthorization prompt. A token was forwarded, so
+                # Gemini Enterprise holds a credential and shows no consent
+                # screen; the user would be sent to approve and find nothing.
+                raise AuthorizationRefused(connection.rejected_message())
             if response.status_code == 429:
                 await response.aclose()
                 if attempt == MAX_ATTEMPTS - 1:

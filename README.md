@@ -341,6 +341,25 @@ Before anyone can authorize:
   ...
 ```
 
+Two texts reach end users, and an installation writes them in its own
+language. `messages.reauthorization` is shown when no token for the connection
+arrived: Gemini Enterprise holds no credential for the user yet, so approving
+the connection there is what helps. `messages.rejected` is shown when a token
+arrived and the service refused it. Approving again does not help then —
+Gemini Enterprise shows its consent screen only while it holds no credential,
+and it never asks the provider whether the one it holds is still good — so the
+text sends the user to an operator, who resets the authorization: unlink it
+from the registration that holds it, delete it, and run `gete register`, which
+recreates and binds it.
+
+```yaml
+connections:
+  internal-api:
+    messages:
+      reauthorization: Approve Internal API in Gemini Enterprise and try again.
+      rejected: Internal API refused the authorization; ask the operator to reset it.
+```
+
 Adding a connection to the catalog is one YAML file under
 `src/gete/catalog/connections/`; the conformance tests check it.
 

@@ -3,6 +3,7 @@
 from gete.connection.client import (
     DEFAULT_BACKOFF_SECONDS,
     MAX_FILE_BYTES,
+    AuthorizationRefused,
     ConnectionClient,
     ExternalServiceError,
     ReauthorizationRequired,
@@ -26,6 +27,7 @@ from gete.connection.runtime import (
 __all__ = [
     "DEFAULT_BACKOFF_SECONDS",
     "MAX_FILE_BYTES",
+    "AuthorizationRefused",
     "Connection",
     "ConnectionClient",
     "Examples",

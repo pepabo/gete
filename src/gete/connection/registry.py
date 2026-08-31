@@ -189,8 +189,10 @@ class Connection:
     # parts that matter - what the consent screen grants, what cannot be
     # undone - are not steps and no check can see them.
     setup: str | None = None
-    # Text shown to users asked to authorize again; None means the default.
+    # Texts shown to users, None meaning the default: reauthorization when
+    # no token arrived, rejected when one did and the service refused it.
     reauthorization: str | None = None
+    rejected: str | None = None
     verified: Mapping[str, str] = field(default_factory=dict)
     examples: Examples = Examples()
 
@@ -218,6 +220,7 @@ class Connection:
             retired=data.get("retired"),
             setup=data.get("setup"),
             reauthorization=data.get("messages", {}).get("reauthorization"),
+            rejected=data.get("messages", {}).get("rejected"),
             verified=dict(data.get("verified", {})),
             examples=Examples(
                 accepts=tuple(examples.get("accepts", ())),
@@ -340,16 +343,35 @@ class Connection:
         )
 
     def reauthorization_message(self) -> str:
-        """Text for the user when the token is missing or unusable.
+        """Text for the user when no token for the connection arrived.
 
-        It reaches end users, so an installation declares it in their
-        language under messages.reauthorization.
+        Approving is something the user can do: Gemini Enterprise shows its
+        consent screen while it holds no credential for them. It reaches end
+        users, so an installation declares it in their language under
+        messages.reauthorization.
         """
         if self.reauthorization is not None:
             return self.reauthorization
         return (
             f"The {self.display_name} authorization could not be confirmed. "
             f"Approve {self.display_name} in Gemini Enterprise and try again."
+        )
+
+    def rejected_message(self) -> str:
+        """Text for the user when a token arrived and the service refused it.
+
+        Not the reauthorization prompt: once Gemini Enterprise holds a
+        credential it forwards it on every call and never asks the provider
+        whether it is still good, so there is nothing for the user to approve.
+        Only an operator resetting the authorization brings the consent screen
+        back. Declared under messages.rejected.
+        """
+        if self.rejected is not None:
+            return self.rejected
+        return (
+            f"{self.display_name} refused the authorization. Approving again in "
+            "Gemini Enterprise will not help; ask the operator to reset the "
+            f"{self.display_name} authorization."
         )
 
 

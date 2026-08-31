@@ -438,6 +438,21 @@ def test_connection_messages_declare_the_reauthorization_text() -> None:
         )
 
 
+def test_connection_messages_declare_the_rejected_text() -> None:
+    """A refused token has its own text; empty would show the user nothing."""
+    validate_document(
+        "connection",
+        {**CONNECTION, "messages": {"rejected": "管理者に連絡してください"}},
+        source="c.yaml",
+    )
+    with pytest.raises(DeclarationError, match="rejected"):
+        validate_document(
+            "connection",
+            {**CONNECTION, "messages": {"rejected": ""}},
+            source="c.yaml",
+        )
+
+
 def test_yaml_dates_stay_strings(tmp_path: Path) -> None:
     """PyYAML would make 2026-08-20 a date object; the schema expects a string."""
     path = tmp_path / "c.yaml"

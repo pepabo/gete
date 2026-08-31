@@ -413,16 +413,11 @@ class Registrar:
     ) -> None:
         """Append the steps a person has to take; one release may add several agents."""
         display_name = str(agent.data["display_name"])
-        ids = ", ".join(f"`{a.rsplit('/', 1)[-1]}`" for a in authorizations)
+        identifiers = [a.rsplit("/", 1)[-1] for a in authorizations]
+        ids = ", ".join(f"`{identifier}`" for identifier in identifiers)
         if case == "in_use":
             title = f"🔗 The authorizations of {display_name} are held elsewhere"
-            lead = (
-                f"Binding {ids} was refused because another agent uses them. "
-                "An authorization serves one agent, and **deleting an agent can "
-                "leave the binding behind.** Delete the authorization; the next "
-                "release recreates and binds it. CD does not delete it, because it "
-                "cannot tell this apart from an agent that really uses it."
-            )
+            lead = self._in_use_lead(ids, identifiers, engine)
         elif case == "duplicated":
             names = ", ".join(
                 f"`{a.get('displayName', '?')}`" for a in duplicated or []
@@ -470,6 +465,50 @@ class Registrar:
             text = self._notice.read_text(encoding="utf-8") + "\n---\n\n" + text
         self._notice.parent.mkdir(parents=True, exist_ok=True)
         self._notice.write_text(text, encoding="utf-8")
+
+    def _in_use_lead(self, ids: str, identifiers: list[str], engine: str) -> str:
+        """The steps out of a binding another registration holds.
+
+        Deleting is not the first step: Gemini Enterprise refuses to delete an
+        authorization while a registration links it (FAILED_PRECONDITION), so
+        the notice has to name the unlink first and show it, and which
+        registration holds it is something only the agent list can say.
+        """
+        agents_url = (
+            f"{DISCOVERY}/{self._parent}/collections/default_collection/engines/{engine}"
+            "/assistants/default_assistant/agents"
+        )
+        # The bash block is written without the markdown backticks around the
+        # ids: inside it they would read as command substitution.
+        plain_ids = ", ".join(identifiers)
+        empty_config = json.dumps({"authorizationConfig": {}})
+        return (
+            f"Binding {ids} was refused because another registration holds the "
+            "authorization. "
+            "An authorization serves one registration, and **deleting an agent "
+            "can leave the binding behind.** CD does not undo it, because it "
+            "cannot tell a leftover apart from an agent that really uses the "
+            "authorization.\n\n"
+            "A linked authorization cannot be deleted - Gemini Enterprise answers "
+            "`FAILED_PRECONDITION: Authorization is linked to a resource` - so "
+            "unlink it from the registration that holds it first, then delete "
+            "it; the next release (or `gete register`) recreates and binds it. "
+            f"The holder is listed at `{agents_url}`: the registration whose "
+            "`authorizationConfig.toolAuthorizations` names the authorization.\n\n"
+            "```bash\n"
+            "HOLDER=<resource name of the registration that holds it>\n"
+            f"HELD=<one of: {plain_ids}>\n"
+            'TOKEN="$(gcloud auth print-access-token)"\n'
+            'curl -sS -X PATCH -H "Authorization: Bearer $TOKEN" \\\n'
+            '  -H "Content-Type: application/json" '
+            f'-H "X-Goog-User-Project: {self._gcp_project}" \\\n'
+            f'  "{DISCOVERY}/${{HOLDER}}?updateMask=authorizationConfig" \\\n'
+            f"  -d '{empty_config}'\n"
+            'curl -sS -X DELETE -H "Authorization: Bearer $TOKEN" \\\n'
+            f'  -H "X-Goog-User-Project: {self._gcp_project}" \\\n'
+            f'  "{DISCOVERY}/{self._parent}/authorizations/${{HELD}}"\n'
+            "```"
+        )
 
     def _template(self) -> str:
         registration: Mapping[str, Any] = self._project.data.get("registration", {})

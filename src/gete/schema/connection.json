@@ -170,7 +170,12 @@
       "additionalProperties": false,
       "properties": {
         "reauthorization": {
-          "description": "Shown when the user's token is missing or unusable and they have to approve the connection again.",
+          "description": "Shown when no token for the connection arrived and the user has to approve it in Gemini Enterprise.",
+          "type": "string",
+          "minLength": 1
+        },
+        "rejected": {
+          "description": "Shown when a token arrived and the service refused it. Approving again does not help - Gemini Enterprise shows its consent screen only while it holds no credential - so the text has to send the user to an operator, who resets the authorization.",
           "type": "string",
           "minLength": 1
         }
