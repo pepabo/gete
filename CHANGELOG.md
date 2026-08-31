@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.14](https://github.com/pepabo/gete/compare/v0.2.13...v0.2.14) - 2026-08-31
+
+- Accept the token Agent Engine forwards as ephemeral state by @haruotsu in https://github.com/pepabo/gete/pull/48
+
 ## [v0.2.13](https://github.com/pepabo/gete/compare/v0.2.12...v0.2.13) - 2026-08-31
 
 - Let an openapi block name its own request root by @haruotsu in https://github.com/pepabo/gete/pull/46
