@@ -150,7 +150,7 @@ def terraform(out: Path | None, check: bool) -> None:
         "Unlink this authorization from the registration that holds it, delete "
         "it, and let the run recreate and bind it. Every user of the agent "
         "approves the connection again; for when a provider revokes its tokens, "
-        "which Gemini Enterprise cannot see. Repeatable."
+        "which Gemini Enterprise cannot see. By hand, not from CD. Repeatable."
     ),
 )
 def register(names: tuple[str, ...], notice: Path, reset: tuple[str, ...]) -> None:

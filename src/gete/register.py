@@ -262,17 +262,25 @@ class Registrar:
 
         Checked before any agent is touched: the reset deletes, so a name
         that matches no declared agent and connection is refused rather than
-        looked up, and one whose agent the names leave out is refused too -
-        deleted and then not recreated, it would leave that agent unusable.
+        looked up, and one the run would not recreate is refused too - left
+        deleted, it leaves that agent unusable. The names can leave the agent
+        out, and an agent without an engine is skipped whatever the names say.
         """
         if not reset:
             # A plain run never looks at the ids; keep it that way.
             return {}
-        declared = {
-            authorization_id(agent.name, connection_id): agent.name
-            for agent in self._project.agents
-            for connection_id in agent.connections
-        }
+        declared: dict[str, Agent] = {}
+        for agent in self._project.agents:
+            for connection_id in agent.connections:
+                try:
+                    declared[authorization_id(agent.name, connection_id)] = agent
+                except ValueError:
+                    # An id this shape cannot name an authorization, so no
+                    # reset can name it either; validate reports it, and the
+                    # agent's own turn in the run fails on it. Reading the
+                    # ids of every declared agent must not fail here for an
+                    # agent the run was not asked about.
+                    continue
         unknown = sorted(set(reset) - set(declared))
         if unknown:
             raise DeclarationError(
@@ -281,14 +289,27 @@ class Registrar:
             )
         if names:
             left_out = sorted(
-                identifier for identifier in reset if declared[identifier] not in names
+                identifier
+                for identifier in reset
+                if declared[identifier].name not in names
             )
             if left_out:
                 raise DeclarationError(
                     f"{', '.join(left_out)} would be deleted and not recreated: "
                     f"the agent is not among {', '.join(names)}"
                 )
-        return {identifier: declared[identifier] for identifier in reset}
+        unregistered = sorted(
+            identifier
+            for identifier in reset
+            if _engine_id(declared[identifier]) is None
+        )
+        if unregistered:
+            raise DeclarationError(
+                f"{', '.join(unregistered)} would be deleted and not recreated: "
+                "the agent declares no registration.gemini_enterprise.engine, "
+                "so the run skips it"
+            )
+        return {identifier: declared[identifier].name for identifier in reset}
 
     @property
     def _parent(self) -> str:
@@ -368,7 +389,11 @@ class Registrar:
             summary.needs_human.append(agent.name)
             return
         found = registered[0]
-        if registration_matches(found, authorizations):
+        if not reset and registration_matches(found, authorizations):
+            # A reset skips the comparison: the list is read right after
+            # the unlink, and one that still answers with the binding just
+            # removed would end the run with the agent short of its
+            # authorization. Binding again costs one call and is idempotent.
             summary.say(f"{agent.name}: registration is current")
             summary.registered.append(agent.name)
             return
@@ -409,10 +434,12 @@ class Registrar:
         """Unlink the authorizations from whatever holds them, then delete them.
 
         Unlinking comes first because Gemini Enterprise refuses to delete a
-        linked authorization, and because a run that fails between the two
-        then leaves everything as it was. Every registration under the engine
-        is checked, not only the agent's own: a registration left behind by a
-        deleted agent holds its authorization just as firmly.
+        linked authorization. A run that fails after the unlink leaves the
+        agent short of the binding until a run puts it back, so the delete
+        says that much rather than only passing the refusal on. Every
+        registration under the engine is checked, not only the agent's own: a
+        registration left behind by a deleted agent holds its authorization
+        just as firmly.
         """
         resources = {f"{self._parent}/authorizations/{i}": i for i in identifiers}
         for registration in self._gcp.list_all(self._agents_url(engine), "agents"):
@@ -441,12 +468,21 @@ class Registrar:
             try:
                 self._gcp.delete(f"{DISCOVERY}/{resource}")
             except GcpError as error:
-                # Deleted by hand and never recreated is the state the reset
-                # exists to get out of; stopping here would keep it there.
-                if error.status != 404:
-                    raise
-                summary.say(f"{agent.name}: authorization already gone: {identifier}")
-                continue
+                if error.status == 404:
+                    # Deleted by hand and never recreated is the state the
+                    # reset exists to get out of; stopping would keep it there.
+                    summary.say(
+                        f"{agent.name}: authorization already gone: {identifier}"
+                    )
+                    continue
+                raise GcpError(
+                    error.status,
+                    f"cannot delete authorization {identifier}: {error.message}; "
+                    "it is unlinked by now, so the agent is short of it until "
+                    "a run binds it again. A registration under another engine "
+                    "holding it is refused this way, and the unlink does not "
+                    "reach that far",
+                ) from error
             summary.say(
                 f"{agent.name}: authorization deleted: {identifier}; every user "
                 "of the agent has to approve the connection again"
@@ -518,7 +554,7 @@ class Registrar:
         ids = ", ".join(f"`{identifier}`" for identifier in identifiers)
         if case == "in_use":
             title = f"🔗 The authorizations of {display_name} are held elsewhere"
-            lead = self._in_use_lead(ids, identifiers, engine)
+            lead = self._in_use_lead(agent.name, ids, identifiers, engine)
         elif case == "duplicated":
             names = ", ".join(
                 f"`{a.get('displayName', '?')}`" for a in duplicated or []
@@ -567,7 +603,9 @@ class Registrar:
         self._notice.parent.mkdir(parents=True, exist_ok=True)
         self._notice.write_text(text, encoding="utf-8")
 
-    def _in_use_lead(self, ids: str, identifiers: list[str], engine: str) -> str:
+    def _in_use_lead(
+        self, name: str, ids: str, identifiers: list[str], engine: str
+    ) -> str:
         """The steps out of a binding another registration holds.
 
         Deleting is not the first step: Gemini Enterprise refuses to delete an
@@ -594,11 +632,12 @@ class Registrar:
             f"The holder is listed at `{agents_url}`: the registration whose "
             "`authorizationConfig.toolAuthorizations` names the authorization.\n\n"
             "When the holder is under that engine, one command does the whole "
-            "round trip - unlink, delete, recreate, bind - and every user of the "
-            "agent approves the connection again:\n\n"
+            "round trip - unlink, delete, recreate, bind. Run the line for the "
+            "authorization the holder names and no other: every user of the "
+            "agent approves that connection again.\n\n"
             "```bash\n"
             + "\n".join(
-                f"gete register --reset-authorization {identifier}"
+                f"gete register {name} --reset-authorization {identifier}"
                 for identifier in identifiers
             )
             + "\n```\n\nBy hand:\n\n"
