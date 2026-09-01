@@ -78,6 +78,7 @@ covers pointing it at a mirror.
 | `gete archive <dir> [--out file]` | The tar.gz Agent Engine receives; `--external` for Terraform | no |
 | `gete terraform [--out dir] [--check]` | Generate module calls; `--check` fails when stale | no |
 | `gete register [name...]` | Create/update authorizations, bring registrations in line | writes |
+| `gete register --reset-authorization <agent>-<connection>` | Unlink, delete, recreate and bind one authorization; everyone approves again | writes |
 
 Exit codes: 0 on success, 1 when a check fails. `register` exits 0 when steps
 remain for a person (they are written to `registration-notice.md`) and 1 only
@@ -348,9 +349,16 @@ the connection there is what helps. `messages.rejected` is shown when a token
 arrived and the service refused it. Approving again does not help then —
 Gemini Enterprise shows its consent screen only while it holds no credential,
 and it never asks the provider whether the one it holds is still good — so the
-text sends the user to an operator, who resets the authorization: unlink it
-from the registration that holds it, delete it, and run `gete register`, which
-recreates and binds it.
+text sends the user to an operator, who resets the authorization:
+
+```sh
+gete register --reset-authorization <agent>-<connection>
+```
+
+That unlinks the authorization from the registration that holds it, deletes
+it, and recreates and binds it in the same run; every user of that agent
+approves the connection again. The name has to match a declared agent and one
+of its connections, since the run deletes what it names.
 
 ```yaml
 connections:
