@@ -217,13 +217,13 @@ def test_after_tool_callback_rejects_what_it_cannot_walk(
             )
 
 
-def test_a_raising_tools_exception_text_never_reaches_the_model(
+async def test_a_raising_tools_exception_text_never_reaches_the_model(
     project: ProjectBuilder,
 ) -> None:
     """The text may hold anything the tool touched; the model gets a stand-in."""
     agent = build(resolved_path(project, "mail-triage", {}))
     assert agent.on_tool_error_callback is not None
-    result = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
         SimpleNamespace(), {}, SimpleNamespace(), ValueError("secret-token-xyz")
     )
     assert result is not None
@@ -231,7 +231,7 @@ def test_a_raising_tools_exception_text_never_reaches_the_model(
     assert "ValueError" in str(result)
 
 
-def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
+async def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
     project: ProjectBuilder, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The log gets the type alone: no message, and no frames either."""
@@ -248,7 +248,7 @@ def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
     agent = build(resolved_path(project, "mail-triage", {}))
     assert agent.on_tool_error_callback is not None
     with caplog.at_level(logging.WARNING):
-        agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
             SimpleNamespace(), {}, SimpleNamespace(), caught
         )
     assert "ValueError" in caplog.text
@@ -256,20 +256,143 @@ def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
     assert "boom" not in caplog.text
 
 
-def test_an_arbitrary_gete_error_is_generic_like_any_other(
+# ADK's stand-in for a function call that names no tool: the callbacks run
+# with it in place of a tool, and the error is ADK's own ValueError.
+def missing_tool(name: str) -> SimpleNamespace:
+    return SimpleNamespace(name=name, description="Tool not found")
+
+
+def within(agent: Any) -> SimpleNamespace:
+    """A tool context the way ADK builds one: the invocation names the agent."""
+    return SimpleNamespace(_invocation_context=SimpleNamespace(agent=agent), state={})
+
+
+ADK_NOT_FOUND = ValueError(
+    "Tool 'google_serach' not found.\nAvailable tools: google_search\n\n"
+    "Possible causes:\n  1. LLM hallucinated the function name"
+)
+
+
+async def test_a_made_up_tool_name_is_answered_with_the_declared_names(
+    project: ProjectBuilder,
+) -> None:
+    """A misspelling the model can correct, once it is told the names; the
+    generic answer left it with nothing to retry."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.on_tool_error_callback is not None
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        missing_tool("google_serach"), {}, within(agent), ADK_NOT_FOUND
+    )
+    assert result == {
+        "error": "no tool named google_serach; the tools are: google_search"
+    }
+
+
+async def test_nothing_of_adks_exception_reaches_the_model_but_the_name(
+    project: ProjectBuilder,
+) -> None:
+    """ADK's message carries advice for the developer, not for the model."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.on_tool_error_callback is not None
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        missing_tool("google_serach"), {}, within(agent), ADK_NOT_FOUND
+    )
+    assert "Possible causes" not in str(result)
+    assert "hallucinated" not in str(result)
+    assert "ValueError" not in str(result)
+
+
+async def test_a_made_up_tool_name_is_logged_with_the_declared_names(
+    project: ProjectBuilder, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The operator sees the same line: which name was called, which exist."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.on_tool_error_callback is not None
+    with caplog.at_level(logging.WARNING):
+        await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+            missing_tool("google_serach"), {}, within(agent), ADK_NOT_FOUND
+        )
+    [record] = [r for r in caplog.records if r.name == "gete.runtime.callbacks"]
+    assert record.levelno == logging.WARNING
+    assert "google_serach" in record.getMessage()
+    assert "google_search" in record.getMessage()
+    assert "Possible causes" not in caplog.text
+
+
+async def test_a_made_up_tool_name_is_still_named_when_the_tools_cannot_be_listed(
+    project: ProjectBuilder,
+) -> None:
+    """Without a tool list the model at least learns the name was wrong."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    assert agent.on_tool_error_callback is not None
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        missing_tool("google_serach"), {}, SimpleNamespace(), ADK_NOT_FOUND
+    )
+    assert result is not None
+    assert "no tool named google_serach" in result["error"]
+    assert "ValueError" not in result["error"]
+
+
+async def test_a_declared_tool_that_raises_still_gets_the_generic_answer(
+    project: ProjectBuilder,
+) -> None:
+    """A real tool's failure must not read as a wrong name: the name is
+    right, and its message stays out of the answer as before."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.on_tool_error_callback is not None
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(name="google_search", description="Searches"),
+        {},
+        within(agent),
+        ValueError("secret-token-xyz"),
+    )
+    assert result == {
+        "error": "the tool failed with ValueError; details are in the logs"
+    }
+
+
+async def test_a_call_to_a_tool_not_offered_this_turn_is_a_wrong_name_too(
+    project: ProjectBuilder,
+) -> None:
+    """A name the agent does not offer now is answered with what it offers,
+    whether or not ADK marked the stand-in."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.on_tool_error_callback is not None
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(name="reauthorize_example", description=""),
+        {},
+        within(agent),
+        ValueError("Tool 'reauthorize_example' not found."),
+    )
+    assert result == {
+        "error": "no tool named reauthorize_example; the tools are: google_search"
+    }
+
+
+async def test_an_arbitrary_gete_error_is_generic_like_any_other(
     project: ProjectBuilder,
 ) -> None:
     """Tool code can import and raise GeteError with any text it likes."""
     agent = build(resolved_path(project, "mail-triage", {}))
     assert agent.on_tool_error_callback is not None
-    result = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
         SimpleNamespace(), {}, SimpleNamespace(), GeteError("secret-in-gete-error")
     )
     assert result is not None
     assert "secret-in-gete-error" not in str(result)
 
 
-def test_only_the_dedicated_user_safe_error_keeps_its_message(
+async def test_only_the_dedicated_user_safe_error_keeps_its_message(
     project: ProjectBuilder,
 ) -> None:
     """Raising UserFacingError is the declaration that the text may be shown."""
@@ -278,11 +401,11 @@ def test_only_the_dedicated_user_safe_error_keeps_its_message(
 
     agent = build(resolved_path(project, "mail-triage", {}))
     assert agent.on_tool_error_callback is not None
-    told = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+    told = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
         SimpleNamespace(), {}, SimpleNamespace(), UserFacingError("shown as written")
     )
     assert told == {"error": "shown as written"}
-    prompted = agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+    prompted = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
         SimpleNamespace(),
         {},
         SimpleNamespace(),

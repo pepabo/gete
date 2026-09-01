@@ -54,6 +54,10 @@ def redact_results(rules: RedactRules) -> Callable[..., Any]:
     return after_tool
 
 
+# What ADK puts in place of a tool when the function call names none.
+MISSING_TOOL_DESCRIPTION = "Tool not found"
+
+
 def safe_tool_error(rules: RedactRules) -> Callable[..., Any]:
     """on_tool_error_callback that keeps exception text away from the model.
 
@@ -65,14 +69,25 @@ def safe_tool_error(rules: RedactRules) -> Callable[..., Any]:
     raising it is the raiser's own declaration that the text was made to be
     shown - and even that passes through the policies' patterns on the way
     out.
+
+    One error is not a tool's: the model calling a name no tool has. ADK
+    runs the callbacks with a stand-in tool then, and the generic answer
+    would leave the model with nothing to retry, so that one is answered
+    with the declared names - which are declarations, not data. Async so the
+    names can be listed; ADK awaits a callback that returns an awaitable.
     """
 
-    def on_tool_error(
+    async def on_tool_error(
         tool: Any, args: Mapping[str, Any], tool_context: Any, error: Exception
     ) -> Any:
         if isinstance(error, UserFacingError):
             return {"error": redact(str(error), rules)}
         name = getattr(tool, "name", None) or type(tool).__name__
+        declared = await _declared_tool_names(tool_context)
+        if _names_no_tool(tool, name, declared):
+            listed = ", ".join(declared) if declared else "none"
+            logger.warning("no tool named %s; the tools are: %s", name, listed)
+            return {"error": f"no tool named {name}; the tools are: {listed}"}
         logger.warning("tool %s failed with %s", name, type(error).__name__)
         return {
             "error": f"the tool failed with {type(error).__name__}; "
@@ -80,6 +95,47 @@ def safe_tool_error(rules: RedactRules) -> Callable[..., Any]:
         }
 
     return on_tool_error
+
+
+def _names_no_tool(tool: Any, name: str, declared: list[str] | None) -> bool:
+    """Whether the call named no tool: ADK's stand-in, or a name not declared.
+
+    The stand-in is recognised first, so a tool list that could not be read
+    still tells the model the name was wrong; the list decides only when it
+    was read.
+    """
+    if getattr(tool, "description", None) == MISSING_TOOL_DESCRIPTION:
+        return True
+    return declared is not None and name not in declared
+
+
+async def _declared_tool_names(tool_context: Any) -> list[str] | None:
+    """The names of the tools the agent offers this call, or None if unknown.
+
+    Read from the agent the way ADK reads them for the model - toolsets
+    decide per request what they offer - rather than kept from build time,
+    where an MCP server's tools and the reauthorization tools are not known
+    yet. Best effort: a failure to list must not turn an error callback into
+    a second error.
+    """
+    invocation = getattr(tool_context, "_invocation_context", None)
+    listing = getattr(getattr(invocation, "agent", None), "canonical_tools", None)
+    if listing is None:
+        return None
+    try:
+        tools = await listing(tool_context)
+    except Exception:
+        # Whatever the listing raised - an MCP server down, most likely - is
+        # its own problem to surface on the next turn; not here, not to the
+        # model, and not as text in the log either.
+        logger.warning("could not list the tools to name them")
+        return None
+    names: list[str] = []
+    for tool in tools:
+        tool_name = getattr(tool, "name", None)
+        if tool_name and tool_name not in names:
+            names.append(str(tool_name))
+    return names
 
 
 def _jsonable(value: Any) -> Any:

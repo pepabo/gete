@@ -171,6 +171,34 @@ async def test_other_4xx_is_not_retried() -> None:
     assert attempts == 1
 
 
+async def test_a_4xx_is_logged_with_its_status_and_without_the_body(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The status is the diagnosis an operator needs; the body is the
+    service's, and may say anything about the user's data."""
+    bind()
+    with caplog.at_level(logging.WARNING), pytest.raises(ExternalServiceError):
+        await client(lambda request: httpx.Response(403, text="secret-body")).get_json(
+            URL
+        )
+    ours = [r.getMessage() for r in caplog.records if r.name.startswith("gete")]
+    assert any("403" in line and "github" in line for line in ours)
+    assert "secret-body" not in caplog.text
+
+
+async def test_a_5xx_is_logged_with_its_status_once_it_is_given_up_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bind()
+    with caplog.at_level(logging.WARNING), pytest.raises(ExternalServiceError):
+        await client(lambda request: httpx.Response(503, text="secret-body")).get_json(
+            URL
+        )
+    ours = [r.getMessage() for r in caplog.records if r.name.startswith("gete")]
+    assert any("503" in line and "github" in line for line in ours)
+    assert "secret-body" not in caplog.text
+
+
 async def test_connection_failures_are_retried() -> None:
     bind()
     attempts = 0
