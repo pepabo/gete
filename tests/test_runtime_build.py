@@ -13,6 +13,7 @@ from gete.declaration import RESOLVED_FILE, load_project, resolve
 from gete.errors import GeteError
 from gete.request_context import clear_tool_call, current_tool_call
 from gete.runtime import build
+from gete.runtime.callbacks import MISSING_TOOL_DESCRIPTION
 
 POLICIES: list[dict[str, Any]] = [
     {"name": "finance", "when": "always", "instruction_prefix": "Never approve."},
@@ -259,12 +260,39 @@ async def test_a_raising_tools_exception_text_stays_out_of_the_logs_too(
 # ADK's stand-in for a function call that names no tool: the callbacks run
 # with it in place of a tool, and the error is ADK's own ValueError.
 def missing_tool(name: str) -> SimpleNamespace:
-    return SimpleNamespace(name=name, description="Tool not found")
+    return SimpleNamespace(name=name, description=MISSING_TOOL_DESCRIPTION)
 
 
 def within(agent: Any) -> SimpleNamespace:
     """A tool context the way ADK builds one: the invocation names the agent."""
     return SimpleNamespace(_invocation_context=SimpleNamespace(agent=agent), state={})
+
+
+def offered(agent: Any, *names: str) -> SimpleNamespace:
+    """A tool context whose invocation carries the step's resolved tools.
+
+    ADK fills this in before every model call and reads it back rather than
+    listing the toolsets twice.
+    """
+    return SimpleNamespace(
+        _invocation_context=SimpleNamespace(
+            agent=agent,
+            canonical_tools_cache=[SimpleNamespace(name=name) for name in names],
+        ),
+        state={},
+    )
+
+
+class Listing:
+    """An agent that counts how often its toolsets are asked for their tools."""
+
+    def __init__(self, *names: str) -> None:
+        self.names = names
+        self.listings = 0
+
+    async def canonical_tools(self, ctx: Any = None) -> list[Any]:
+        self.listings += 1
+        return [SimpleNamespace(name=name) for name in self.names]
 
 
 ADK_NOT_FOUND = ValueError(
@@ -376,6 +404,114 @@ async def test_a_call_to_a_tool_not_offered_this_turn_is_a_wrong_name_too(
     )
     assert result == {
         "error": "no tool named reauthorize_example; the tools are: google_search"
+    }
+
+
+async def test_the_names_are_the_ones_the_model_was_offered_this_turn(
+    project: ProjectBuilder,
+) -> None:
+    """Which tools a toolset offers is decided per turn and can have moved on
+    by the time the error comes back; the model is told what it was given."""
+    agent = build(
+        resolved_path(project, "mail-triage", {"tools": [{"builtin": "google_search"}]})
+    )
+    assert agent.on_tool_error_callback is not None
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        missing_tool("reauthorize_exampl"),
+        {},
+        offered(agent, "reauthorize_example"),
+        ADK_NOT_FOUND,
+    )
+    assert result == {
+        "error": "no tool named reauthorize_exampl; the tools are: reauthorize_example"
+    }
+
+
+async def test_naming_the_tools_does_not_list_the_toolsets_again(
+    project: ProjectBuilder,
+) -> None:
+    """Listing reaches every MCP server over the network; an error is the
+    worst moment to spend a round trip on what the turn already resolved."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    listing = Listing("google_search")
+    assert agent.on_tool_error_callback is not None
+    await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        SimpleNamespace(name="google_search", description="Searches"),
+        {},
+        offered(listing, "google_search"),
+        ValueError("boom"),
+    )
+    assert listing.listings == 0
+
+
+async def test_the_toolsets_are_listed_when_the_turn_resolved_nothing(
+    project: ProjectBuilder,
+) -> None:
+    """Without a resolved turn to read there is still the agent to ask."""
+    agent = build(resolved_path(project, "mail-triage", {}))
+    listing = Listing("google_search")
+    assert agent.on_tool_error_callback is not None
+    result = await agent.on_tool_error_callback(  # type: ignore[call-arg, operator]
+        missing_tool("google_serach"), {}, within(listing), ADK_NOT_FOUND
+    )
+    assert listing.listings == 1
+    assert result == {
+        "error": "no tool named google_serach; the tools are: google_search"
+    }
+
+
+async def dispatched(agent: Any, called: str) -> Any:
+    """What ADK answers a function call, run through its own flow.
+
+    The unit tests above stand in for ADK - the tool it substitutes, the
+    tools it resolved for the turn, the callback it awaits - so one test
+    drives the real thing and fails if any of that moves.
+    """
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.agents.run_config import RunConfig
+    from google.adk.flows.llm_flows.functions import handle_function_call_list_async
+    from google.adk.flows.llm_flows.single_flow import SingleFlow
+    from google.adk.models.llm_request import LlmRequest
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+
+    service = InMemorySessionService()
+    session = await service.create_session(app_name="t", user_id="u", state={})
+    invocation = InvocationContext(
+        session_service=service,
+        invocation_id="inv-1",
+        agent=agent,
+        session=session,
+        run_config=RunConfig(),
+    )
+    request = LlmRequest()
+    async for _ in SingleFlow()._preprocess_async(invocation, request):  # noqa: SLF001
+        pass
+    # The turn's resolved tools are what a wrong name is answered with, so
+    # the callback is only right while ADK still leaves them here.
+    assert invocation.canonical_tools_cache is not None
+    event = await handle_function_call_list_async(
+        invocation,
+        [types.FunctionCall(id="call-1", name=called, args={})],
+        request.tools_dict,
+    )
+    assert event is not None
+    return event.content.parts[0].function_response.response
+
+
+async def test_adk_answers_a_made_up_name_with_the_tools_it_resolved(
+    project: ProjectBuilder,
+) -> None:
+    """The whole path, through ADK: the model calls a name no tool has and
+    is told the names it can call instead."""
+    path = resolved_path(
+        project,
+        "mail-triage",
+        {"source": "./src", "tools": [{"python": "mail_triage.tools:TOOLS"}]},
+    )
+    write_tools_module(path.parent)
+    assert await dispatched(build(path), "lookupp") == {
+        "error": "no tool named lookupp; the tools are: lookup, transfer"
     }
 
 

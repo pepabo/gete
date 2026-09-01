@@ -498,9 +498,8 @@ class ConnectionClient:
             return response
         raise ExternalServiceError(f"{connection.display_name}: too many attempts")
 
-    @staticmethod
     def _log_refusal(
-        connection: Connection, response: httpx.Response, url: str
+        self, connection: Connection, response: httpx.Response, url: str
     ) -> None:
         """The status an answer was given up on, for the operator.
 
