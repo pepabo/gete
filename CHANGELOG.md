@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.15](https://github.com/pepabo/gete/compare/v0.2.14...v0.2.15) - 2026-09-01
+
+- Tell a refused token apart from a missing one by @haruotsu in https://github.com/pepabo/gete/pull/50
+
 ## [v0.2.14](https://github.com/pepabo/gete/compare/v0.2.13...v0.2.14) - 2026-08-31
 
 - Accept the token Agent Engine forwards as ephemeral state by @haruotsu in https://github.com/pepabo/gete/pull/48
