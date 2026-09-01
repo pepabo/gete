@@ -496,6 +496,21 @@ def test_reauthorization_message_defaults_to_english() -> None:
     assert "Example" in message and "Gemini Enterprise" in message
 
 
+def test_rejected_message_can_be_declared_per_connection() -> None:
+    """A refused token is a different situation, so it gets its own text."""
+    entry = connection(messages={"rejected": "LOCALIZED-REJECTED-PROMPT"})
+    assert entry.rejected_message() == "LOCALIZED-REJECTED-PROMPT"
+
+
+def test_rejected_message_defaults_to_telling_the_user_the_operator_resets() -> None:
+    """Approving again shows no consent screen while a credential is held."""
+    message = connection().rejected_message()
+    assert "Example" in message
+    assert "will not help" in message
+    assert "operator" in message
+    assert message != connection().reauthorization_message()
+
+
 ROOTED: dict[str, Any] = {
     "id": "rooted",
     "display_name": "Rooted",

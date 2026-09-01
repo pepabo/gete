@@ -520,6 +520,49 @@ def test_authorization_held_by_another_agent_is_explained_not_forced(
     assert "delete" in text.lower()
 
 
+def test_the_in_use_notice_names_the_unlink_step_before_the_delete(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """A linked authorization cannot be deleted: Gemini Enterprise answers
+    FAILED_PRECONDITION until the registration that holds it lets go."""
+    gcp.route(
+        "GET",
+        AGENTS_URL,
+        {
+            "agents": [
+                {
+                    "name": "agents/7",
+                    "adkAgentDefinition": {
+                        "provisionedReasoningEngine": {"reasoningEngine": ENGINE}
+                    },
+                }
+            ]
+        },
+    )
+    gcp.route(
+        "PATCH",
+        "https://discoveryengine.googleapis.com/v1alpha/agents/7",
+        GcpError(400, "authorization finance-freee is used by another agent"),
+    )
+    register_project(project_with(project, FINANCE), gcp, tmp_path / "n.md")
+    text = (tmp_path / "n.md").read_text()
+    unlink = text.index("?updateMask=authorizationConfig")
+    assert json.dumps({"authorizationConfig": {}}) in text
+    assert "unlink" in text.lower()
+    # The holder is another registration under the same engine; the notice
+    # says where to look it up rather than guessing which one.
+    assert AGENTS_URL in text
+    delete = text.index("-X DELETE")
+    assert unlink < delete
+    # Which of the agent's authorizations is held is not known here, so the
+    # delete targets the collection and the ids are offered as the choice.
+    assert f"{AUTHS_URL}/" in text[delete:]
+    assert "finance-freee" in text[text.index("```bash") : delete]
+    # The bind curl at the end is the generic template's; the unlink must
+    # come with its own PATCH before it, not borrow that one.
+    assert text.count("?updateMask=authorizationConfig") == 2
+
+
 def test_other_update_errors_fail_that_agent(
     project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
 ) -> None:

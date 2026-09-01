@@ -387,6 +387,10 @@ async def test_the_reauthorization_tool_names_the_connection_to_the_user(
     result = await tool.run_async(args={}, tool_context=Context({}))
     assert "freee" in str(result)
     assert "Gemini Enterprise" in str(result)
+    # The tool is offered when no token arrived, and that is the case the
+    # user can fix by approving; the refused-token text belongs elsewhere.
+    assert "Approve" in str(result)
+    assert "operator" not in str(result)
     # agent.canonical_tools() passes no context; the rule must hold there too.
     assert [offer.name for offer in await asking.get_tools()] == ["reauthorize_freee"]
 

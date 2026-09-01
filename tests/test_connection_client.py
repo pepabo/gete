@@ -11,6 +11,7 @@ import pytest
 
 from gete.connection import Connection, Registry
 from gete.connection.client import (
+    AuthorizationRefused,
     ConnectionClient,
     ExternalServiceError,
     ReauthorizationRequired,
@@ -79,7 +80,8 @@ async def test_results_go_through_the_policies_redaction() -> None:
     assert result == {"bank_name": "[redacted]", "x": 1}
 
 
-async def test_no_token_means_no_request_and_a_reauthorization_message() -> None:
+async def test_a_missing_token_means_no_request_and_tells_the_user_to_approve() -> None:
+    """Gemini Enterprise holds no credential, so its consent screen is shown."""
     bind(token=None)
     called = False
 
@@ -88,9 +90,10 @@ async def test_no_token_means_no_request_and_a_reauthorization_message() -> None
         called = True
         return httpx.Response(200, json={})
 
-    with pytest.raises(ReauthorizationRequired, match="GitHub"):
+    with pytest.raises(ReauthorizationRequired, match="Approve GitHub") as raised:
         await client(handler).get_json(URL)
     assert not called
+    assert not isinstance(raised.value, AuthorizationRefused)
 
 
 @pytest.mark.parametrize(
@@ -107,7 +110,8 @@ async def test_token_is_never_sent_outside_the_declared_hosts(url: str) -> None:
         await client(ok({})).get_json(url)
 
 
-async def test_401_is_not_retried_and_asks_for_reauthorization() -> None:
+async def test_a_refused_token_tells_the_user_the_operator_has_to_reset() -> None:
+    """Gemini Enterprise holds a credential, so there is nothing to approve again."""
     bind()
     attempts = 0
 
@@ -116,9 +120,12 @@ async def test_401_is_not_retried_and_asks_for_reauthorization() -> None:
         attempts += 1
         return httpx.Response(401)
 
-    with pytest.raises(ReauthorizationRequired):
+    with pytest.raises(AuthorizationRefused, match="operator") as raised:
         await client(handler).get_json(URL)
+    # There is no way to refresh; a second attempt would only be refused again.
     assert attempts == 1
+    assert "GitHub refused the authorization" in str(raised.value)
+    assert "try again" not in str(raised.value)
 
 
 async def test_5xx_is_retried_then_fails() -> None:
@@ -396,12 +403,12 @@ def test_parse_retry_after_never_returns_a_delay_that_cannot_be_waited() -> None
 
 def test_json_errors_are_reported_as_service_errors() -> None:
     assert issubclass(ReauthorizationRequired, ExternalServiceError)
+    assert issubclass(AuthorizationRefused, ExternalServiceError)
     assert json  # keep the import honest for the type of payloads above
 
 
-async def test_401_uses_the_connections_reauthorization_message() -> None:
-    """One prompt for every path that ends in 'authorize again'."""
-    declared = Registry(
+def declared_github() -> Connection:
+    return Registry(
         [
             Connection.from_mapping(
                 {
@@ -414,14 +421,29 @@ async def test_401_uses_the_connections_reauthorization_message() -> None:
                         "token_url": "https://github.com/login/oauth/access_token",
                         "scopes": {},
                     },
-                    "messages": {"reauthorization": "LOCALIZED-REAUTHORIZE-PROMPT"},
+                    "messages": {
+                        "reauthorization": "LOCALIZED-REAUTHORIZE-PROMPT",
+                        "rejected": "LOCALIZED-REJECTED-PROMPT",
+                    },
                 }
             )
         ]
     ).get("github")
+
+
+async def test_401_uses_the_connections_rejected_message() -> None:
+    """The reauthorization text would send the user to a consent screen that
+    is not shown while Gemini Enterprise holds a credential."""
     bind()
+    refusing = client(lambda request: httpx.Response(401), target=declared_github())
+    with pytest.raises(AuthorizationRefused, match="LOCALIZED-REJECTED-PROMPT"):
+        await refusing.get_json(URL)
+
+
+async def test_a_missing_token_uses_the_connections_reauthorization_message() -> None:
+    bind(token=None)
     with pytest.raises(ReauthorizationRequired, match="LOCALIZED-REAUTHORIZE-PROMPT"):
-        await client(lambda request: httpx.Response(401), target=declared).get_json(URL)
+        await client(ok({}), target=declared_github()).get_json(URL)
 
 
 async def test_post_json_sends_the_body_with_the_users_token() -> None:
