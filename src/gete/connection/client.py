@@ -468,6 +468,7 @@ class ConnectionClient:
             if response.status_code == 429:
                 await response.aclose()
                 if attempt == MAX_ATTEMPTS - 1:
+                    self._log_refusal(connection, response, url)
                     raise ExternalServiceError(
                         f"{connection.display_name} kept rate limiting the request"
                     )
@@ -480,6 +481,7 @@ class ConnectionClient:
             if response.status_code >= 500:
                 await response.aclose()
                 if not idempotent or attempt == MAX_ATTEMPTS - 1:
+                    self._log_refusal(connection, response, url)
                     raise ExternalServiceError(
                         f"{connection.display_name} answered {response.status_code}"
                     )
@@ -489,8 +491,25 @@ class ConnectionClient:
                 await response.aclose()
                 # The message reaches the model without redaction; the status
                 # is diagnosis enough, the body is the service's to keep.
+                self._log_refusal(connection, response, url)
                 raise ExternalServiceError(
                     f"{connection.display_name} answered {response.status_code}"
                 )
             return response
         raise ExternalServiceError(f"{connection.display_name}: too many attempts")
+
+    def _log_refusal(
+        self, connection: Connection, response: httpx.Response, url: str
+    ) -> None:
+        """The status an answer was given up on, for the operator.
+
+        The model is told the same status, but the model's answer is not the
+        operator's log. The body stays out: it is the service's, and it may
+        say anything about the user's data.
+        """
+        logger.warning(
+            "%s answered %s url=%s",
+            connection.id,
+            response.status_code,
+            _loggable(url),
+        )
