@@ -141,7 +141,19 @@ def terraform(out: Path | None, check: bool) -> None:
     show_default=True,
     help="Where to append the steps a person still has to take.",
 )
-def register(names: tuple[str, ...], notice: Path) -> None:
+@click.option(
+    "--reset-authorization",
+    "reset",
+    multiple=True,
+    metavar="<agent>-<connection>",
+    help=(
+        "Unlink this authorization from the registration that holds it, delete "
+        "it, and let the run recreate and bind it. Every user of the agent "
+        "approves the connection again; for when a provider revokes its tokens, "
+        "which Gemini Enterprise cannot see. By hand, not from CD. Repeatable."
+    ),
+)
+def register(names: tuple[str, ...], notice: Path, reset: tuple[str, ...]) -> None:
     """Create or update authorizations and bring registrations in line.
 
     Exits 0 when steps are left for a person (they are written to the notice
@@ -152,7 +164,9 @@ def register(names: tuple[str, ...], notice: Path) -> None:
     try:
         project = load_project(find_project_file(Path.cwd()))
         gcp = GcpClient(quota_project=str(project.data["project"]))
-        summary = register_project(project, gcp, notice, list(names) or None)
+        summary = register_project(
+            project, gcp, notice, list(names) or None, list(reset)
+        )
     except GeteError as error:
         click.echo(str(error), err=True)
         sys.exit(1)
