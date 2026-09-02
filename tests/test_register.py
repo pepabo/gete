@@ -13,6 +13,7 @@ from gete.declaration import load_project
 from gete.errors import DeclarationError
 from gete.gcp import GcpError
 from gete.register import (
+    DISCOVERY,
     REDIRECT_URI,
     agent_body,
     authorization_body,
@@ -561,6 +562,9 @@ def test_the_in_use_notice_names_the_unlink_step_before_the_delete(
     # The bind curl at the end is the generic template's; the unlink must
     # come with its own PATCH before it, not borrow that one.
     assert text.count("?updateMask=authorizationConfig") == 2
+    # One command does the whole round trip when the holder is under the
+    # same engine; the notice offers it before the steps by hand.
+    assert "gete register finance --reset-authorization finance-freee" in text
 
 
 def test_other_update_errors_fail_that_agent(
@@ -705,6 +709,313 @@ def test_a_name_that_matches_no_agent_is_an_error(
     with pytest.raises(DeclarationError, match="financee"):
         register_project(
             project_with(project, FINANCE), gcp, tmp_path / "n.md", ["financee"]
+        )
+
+
+# --- resetting an authorization
+
+
+class LiveBindings:
+    """One registration and the authorizations under the parent, answered
+    from state the writes change, so a read after a write shows what it
+    would show live. Deleting a bound authorization is refused the way
+    Gemini Enterprise refuses it."""
+
+    def __init__(
+        self,
+        gcp: FakeGcp,
+        *,
+        bound: list[str],
+        existing: list[str],
+        registration: str = "agents/7",
+    ) -> None:
+        self.bound = list(bound)
+        self.existing = list(existing)
+        self.registration = registration
+        gcp.route("GET", AGENTS_URL, lambda body: {"agents": [self.agent()]})
+        gcp.route("PATCH", f"{DISCOVERY}/{registration}", self.patch)
+        gcp.route(
+            "GET",
+            AUTHS_URL,
+            lambda body: {"authorizations": [{"name": n} for n in self.existing]},
+        )
+        gcp.route("POST", AUTHS_URL, self.post)
+        for name in existing:
+            gcp.route("DELETE", f"{DISCOVERY}/{name}", self.delete(name))
+
+    def agent(self) -> dict[str, Any]:
+        return {
+            "name": self.registration,
+            "adkAgentDefinition": {
+                "provisionedReasoningEngine": {"reasoningEngine": ENGINE}
+            },
+            "authorizationConfig": {"toolAuthorizations": list(self.bound)},
+        }
+
+    def patch(self, body: dict[str, Any]) -> dict[str, Any]:
+        config = body.get("authorizationConfig") or {}
+        self.bound = list(config.get("toolAuthorizations") or [])
+        return {}
+
+    def post(self, body: dict[str, Any]) -> dict[str, Any]:
+        self.existing.append(body["name"])
+        return {}
+
+    def delete(self, name: str) -> Any:
+        def handler(body: Any) -> Any:
+            if name in self.bound:
+                return GcpError(
+                    400,
+                    "FAILED_PRECONDITION: Authorization is linked to a resource "
+                    f"and cannot be deleted: {self.registration}",
+                )
+            self.existing.remove(name)
+            return {}
+
+        return handler
+
+
+def writes_in_order(gcp: FakeGcp) -> list[tuple[str, str]]:
+    return [(m, url.rsplit("/", 1)[-1]) for m, url, _, _ in gcp.calls if m != "GET"]
+
+
+def test_a_reset_unlinks_deletes_recreates_and_binds_again_in_that_order(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """A bound authorization cannot be deleted, and an agent without its
+    authorization cannot be used, so the run ends where it started: bound,
+    to a new authorization nobody has approved yet."""
+    resource = f"{GE}/authorizations/finance-freee"
+    live = LiveBindings(gcp, bound=[resource], existing=[resource])
+    summary = register_project(
+        project_with(project, FINANCE), gcp, tmp_path / "n.md", reset=["finance-freee"]
+    )
+    assert summary.failed == []
+    assert writes_in_order(gcp) == [
+        ("PATCH", "7"),
+        ("DELETE", "finance-freee"),
+        ("POST", "authorizations"),
+        ("PATCH", "7"),
+    ]
+    unlink = gcp.writes("PATCH")[0]
+    assert unlink[1] == {"updateMask": "authorizationConfig"}
+    assert unlink[2] == {"authorizationConfig": {}}
+    assert live.existing == [resource]
+    assert live.bound == [resource]
+    assert summary.registered == ["finance"]
+    assert any("approve" in line for line in summary.messages)
+
+
+def test_a_reset_name_outside_the_declared_authorizations_is_refused(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The reset deletes; a typo must not reach for whatever it happens to name."""
+    with pytest.raises(DeclarationError, match="finance-github") as raised:
+        register_project(
+            project_with(project, FINANCE),
+            gcp,
+            tmp_path / "n.md",
+            reset=["finance-github"],
+        )
+    # The names that would have been accepted are the help.
+    assert "finance-freee" in str(raised.value)
+    assert gcp.writes("DELETE") == []
+
+
+def test_a_reset_for_an_agent_left_out_by_the_names_is_refused(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """Deleting it and then not recreating it would leave the agent unusable."""
+    other = {**FINANCE, "name": "other", "display_name": "Other"}
+    with pytest.raises(DeclarationError, match="finance-freee"):
+        register_project(
+            project_with(project, FINANCE, other),
+            gcp,
+            tmp_path / "n.md",
+            ["other"],
+            reset=["finance-freee"],
+        )
+    assert gcp.writes("DELETE") == []
+
+
+def test_a_reset_leaves_the_agents_other_authorizations_bound(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """Dropping every binding for a moment would refuse the other connections'
+    users mid-run for nothing; only the one being reset leaves."""
+    freee = f"{GE}/authorizations/finance-freee"
+    github = f"{GE}/authorizations/finance-github"
+    for name in ("client-id", "client-secret"):
+        gcp.route(
+            "GET",
+            f"{SECRETS}/ge-oauth-github-{name}/versions/latest:access",
+            secret(name),
+        )
+    gcp.route("PATCH", f"{AUTHS_URL}/finance-github", {})
+    live = LiveBindings(gcp, bound=[freee, github], existing=[freee, github])
+    two = {**FINANCE, "connections": ["freee", "github"]}
+    summary = register_project(
+        project_with(project, two), gcp, tmp_path / "n.md", reset=["finance-freee"]
+    )
+    assert summary.failed == []
+    unlink = gcp.writes("PATCH")[0]
+    assert unlink[2] == {"authorizationConfig": {"toolAuthorizations": [github]}}
+    assert gcp.writes("DELETE") == [(f"{DISCOVERY}/{freee}", None, None)]
+    assert sorted(live.bound) == [freee, github]
+    assert sorted(live.existing) == [freee, github]
+
+
+def test_a_reset_of_an_authorization_already_gone_still_recreates_and_binds(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """Half a reset - deleted by hand, never recreated - is the state the
+    flag exists to get out of; it must not stop there a second time."""
+    resource = f"{GE}/authorizations/finance-freee"
+    live = LiveBindings(gcp, bound=[], existing=[])
+    gcp.route("DELETE", f"{DISCOVERY}/{resource}", GcpError(404, "not found"))
+    summary = register_project(
+        project_with(project, FINANCE), gcp, tmp_path / "n.md", reset=["finance-freee"]
+    )
+    assert summary.failed == []
+    assert writes_in_order(gcp) == [
+        ("DELETE", "finance-freee"),
+        ("POST", "authorizations"),
+        ("PATCH", "7"),
+    ]
+    assert live.existing == [resource]
+    assert live.bound == [resource]
+
+
+def test_a_reset_unlinks_from_a_registration_left_behind_by_another_agent(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The in_use case: a registration nobody uses any more still holds the
+    authorization, and it would refuse the delete like any other holder."""
+    resource = f"{GE}/authorizations/finance-freee"
+    live = LiveBindings(
+        gcp, bound=[resource], existing=[resource], registration="agents/old"
+    )
+    leftover = live.agent()
+    leftover["adkAgentDefinition"] = {
+        "provisionedReasoningEngine": {"reasoningEngine": "reasoningEngines/gone"}
+    }
+    own = {
+        "name": "agents/7",
+        "adkAgentDefinition": {
+            "provisionedReasoningEngine": {"reasoningEngine": ENGINE}
+        },
+    }
+    gcp.route(
+        "GET",
+        AGENTS_URL,
+        lambda body: {
+            "agents": [
+                {**leftover, "authorizationConfig": {"toolAuthorizations": live.bound}},
+                own,
+            ]
+        },
+    )
+    gcp.route("PATCH", f"{DISCOVERY}/agents/7", {})
+    summary = register_project(
+        project_with(project, FINANCE), gcp, tmp_path / "n.md", reset=["finance-freee"]
+    )
+    assert summary.failed == []
+    assert writes_in_order(gcp) == [
+        ("PATCH", "old"),
+        ("DELETE", "finance-freee"),
+        ("POST", "authorizations"),
+        ("PATCH", "7"),
+    ]
+    assert live.bound == []
+    assert any("unlinked finance-freee from old" in line for line in summary.messages)
+
+
+def test_a_reset_binds_again_even_when_the_agent_list_is_a_step_behind(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The bind cannot rest on the list having caught up with the unlink: a
+    list still naming the binding that was just removed would end the run
+    with the agent short of its authorization and nothing said about it."""
+    resource = f"{GE}/authorizations/finance-freee"
+    behind = {
+        "name": "agents/7",
+        "adkAgentDefinition": {
+            "provisionedReasoningEngine": {"reasoningEngine": ENGINE}
+        },
+        "authorizationConfig": {"toolAuthorizations": [resource]},
+    }
+    gcp.route("GET", AGENTS_URL, lambda body: {"agents": [behind]})
+    gcp.route("PATCH", f"{DISCOVERY}/agents/7", {})
+    gcp.route("DELETE", f"{DISCOVERY}/{resource}", {})
+    summary = register_project(
+        project_with(project, FINANCE), gcp, tmp_path / "n.md", reset=["finance-freee"]
+    )
+    assert summary.failed == []
+    assert writes_in_order(gcp) == [
+        ("PATCH", "7"),
+        ("DELETE", "finance-freee"),
+        ("POST", "authorizations"),
+        ("PATCH", "7"),
+    ]
+    assert gcp.writes("PATCH")[-1][2]["authorizationConfig"] == {
+        "toolAuthorizations": [resource]
+    }
+
+
+def test_a_reset_for_an_agent_without_an_engine_is_refused(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The run skips an agent that declares no engine, so the reset would be
+    dropped without a word and read as done."""
+    homeless = {key: value for key, value in FINANCE.items() if key != "registration"}
+    with pytest.raises(DeclarationError, match="finance-freee"):
+        register_project(
+            project_with(project, homeless),
+            gcp,
+            tmp_path / "n.md",
+            reset=["finance-freee"],
+        )
+    assert gcp.writes("DELETE") == []
+
+
+def test_a_refused_delete_says_the_authorization_is_unlinked_by_now(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """A registration under another engine holds it too, and the unlink does
+    not reach that far. The agent is short of the binding until the next run,
+    which is what the operator has to be told."""
+    resource = f"{GE}/authorizations/finance-freee"
+    LiveBindings(gcp, bound=[resource], existing=[resource])
+    gcp.route(
+        "DELETE",
+        f"{DISCOVERY}/{resource}",
+        GcpError(400, "FAILED_PRECONDITION: Authorization is linked to a resource"),
+    )
+    summary = register_project(
+        project_with(project, FINANCE), gcp, tmp_path / "n.md", reset=["finance-freee"]
+    )
+    assert summary.failed == ["finance"]
+    assert gcp.writes("POST") == []
+    assert any(
+        "cannot delete authorization finance-freee" in line and "unlinked" in line
+        for line in summary.messages
+    )
+
+
+def test_a_reset_ignores_an_id_no_authorization_could_carry(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """Another agent's name and connection are too long together to be an
+    authorization id at all. Reading the ids must not turn that into a crash
+    for a reset that names neither of them."""
+    long_named = {**FINANCE, "name": "a" * 60, "display_name": "Long"}
+    with pytest.raises(DeclarationError, match="finance-github"):
+        register_project(
+            project_with(project, FINANCE, long_named),
+            gcp,
+            tmp_path / "n.md",
+            ["finance"],
+            reset=["finance-github"],
         )
 
 

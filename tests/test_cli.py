@@ -45,6 +45,41 @@ def test_validate_reports_a_missing_project_file() -> None:
     assert "gete.yaml" in result.output
 
 
+def test_register_passes_the_authorizations_to_reset_through(
+    project: ProjectBuilder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The flag deletes; it has to arrive as given, once per authorization."""
+    from gete.register import Summary
+
+    seen: dict[str, Any] = {}
+
+    def fake_register(
+        project: Any, gcp: Any, notice: Path, names: Any, reset: Any
+    ) -> Summary:
+        seen["names"] = names
+        seen["reset"] = list(reset)
+        return Summary(registered=["finance"])
+
+    monkeypatch.setattr("gete.cli.register_project", fake_register)
+    monkeypatch.setattr("gete.gcp.GcpClient", lambda quota_project: object())
+    project.write_agent("finance", {"connections": ["freee"]})
+    runner = CliRunner()
+    with runner.isolated_filesystem(temp_dir=project.root):
+        result = runner.invoke(
+            main,
+            [
+                "register",
+                "finance",
+                "--reset-authorization",
+                "finance-freee",
+                "--reset-authorization",
+                "finance-github",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert seen == {"names": ["finance"], "reset": ["finance-freee", "finance-github"]}
+
+
 def test_version_is_shown() -> None:
     result = CliRunner().invoke(main, ["--version"])
     assert result.exit_code == 0
