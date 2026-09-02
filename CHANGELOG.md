@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.16](https://github.com/pepabo/gete/compare/v0.2.15...v0.2.16) - 2026-09-02
+
+- Reset one authorization from the command line by @haruotsu in https://github.com/pepabo/gete/pull/53
+- Let the model recover from a tool name it made up by @haruotsu in https://github.com/pepabo/gete/pull/54
+
 ## [v0.2.15](https://github.com/pepabo/gete/compare/v0.2.14...v0.2.15) - 2026-09-01
 
 - Tell a refused token apart from a missing one by @haruotsu in https://github.com/pepabo/gete/pull/50
