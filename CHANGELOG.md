@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.17](https://github.com/pepabo/gete/compare/v0.2.16...v0.2.17) - 2026-09-03
+
+- Let two prefixless connections share an agent when one names its issuer by @haruotsu in https://github.com/pepabo/gete/pull/56
+- Bump ruff from 0.16.3 to 0.16.4 by @dependabot[bot] in https://github.com/pepabo/gete/pull/51
+
 ## [v0.2.16](https://github.com/pepabo/gete/compare/v0.2.15...v0.2.16) - 2026-09-02
 
 - Reset one authorization from the command line by @haruotsu in https://github.com/pepabo/gete/pull/53
