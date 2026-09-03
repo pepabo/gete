@@ -6,10 +6,15 @@ docs: https://developer.zendesk.com/api-reference/
 # authorization and token endpoints move with it. Nothing here is an address
 # until the installation sets connections.zendesk.base_url in its gete.yaml;
 # hosts stays empty because the only host comes from that root.
-# Zendesk issues JWT-shaped access tokens whose claims name no issuer, and
-# the service announces no prefix. A JWT like that says as little about its
-# origin as an opaque token, so it is accepted by elimination, and an agent
-# may hold only one connection of this kind.
+# Zendesk announces no prefix, and what its access tokens look like is the
+# installation's own setting rather than the service's promise: with token
+# expiry turned on they are JWTs issued by the subdomain, and without it they
+# are JWTs whose claims name no issuer, which says as little about their
+# origin as an opaque token. The catalog cannot promise either, so tokens are
+# accepted by elimination here - and an agent may hold only one connection of
+# that kind. An installation that has expiry on says so with
+# connections.zendesk.tokens.format: jwt in its gete.yaml, and then this
+# connection no longer takes that place.
 token_prefixes: []
 
 oauth:
@@ -40,13 +45,20 @@ setup: |
   here. When they do not, the consent screen still appears and the exchange
   fails afterwards.
 
-# The accepted example records the observed shape - a JWT whose claims name
-# no issuer - not a contract: the service promises nothing about its tokens.
-# verified is absent because no authorization has been taken through Gemini
-# Enterprise yet.
+  Zendesk can be set to issue access tokens that expire. Those tokens are
+  JWTs issued by the subdomain, and an installation that has the setting on
+  may declare connections.zendesk.tokens.format: jwt in its gete.yaml, which
+  frees an agent to hold Zendesk beside another connection whose tokens
+  announce themselves no way at all. The declaration is held to: turn the
+  setting off again and every Zendesk token is refused until it is removed.
+
+# No accepted example: which of the two shapes arrives is the installation's
+# setting, and an entry fixing one of them would contradict an installation
+# that has the other - the declared one most of all, whose accepted tokens
+# name a subdomain the catalog cannot know. What is refused is refused either
+# way. verified is absent because no authorization has been taken through
+# Gemini Enterprise yet.
 examples:
-  accepts:
-    - "eyJhbGciOiJFZERTQSJ9.eyJleHAiOjB9.sig" # claims: {"exp": 0}, no issuer
   rejects:
     - "ya29.a0AfH6SMB" # Google access token
     # Claims: {"iss": "https://accounts.google.com"}, as in an ID token.

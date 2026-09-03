@@ -50,12 +50,28 @@
       }
     },
     "token_prefixes": {
-      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination; an agent may declare only one such connection.",
+      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination, unless tokens.format says what they look like; an agent may declare only one connection that announces itself neither way.",
       "type": "array",
       "uniqueItems": true,
       "items": {
         "type": "string",
         "minLength": 1
+      }
+    },
+    "tokens": {
+      "description": "What issued tokens look like, for a service whose tokens announce themselves by their shape rather than by a prefix. Declaring it is a promise held at runtime: a token that does not have the declared shape is refused. Whether a provider issues such tokens can be a per-installation setting, so this belongs in gete.yaml rather than in a catalog entry that would promise it everywhere.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format"
+      ],
+      "properties": {
+        "format": {
+          "description": "jwt: the tokens are JWTs whose iss claim names the connection's own service. Nothing else is a format that says whose token it is.",
+          "enum": [
+            "jwt"
+          ]
+        }
       }
     },
     "oauth": {

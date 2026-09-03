@@ -288,6 +288,29 @@ connections cannot be told apart, so an agent may hold only one of them.
 Declaring a second one in `gete.yaml` is fine; naming both under one agent's
 `connections` is what `gete validate` refuses.
 
+Some services announce themselves without a prefix: their access tokens are
+JWTs whose `iss` claim names the service's own host. `tokens.format: jwt` says
+so, and gete holds the connection to it — a token that is not such a JWT is
+refused, however little else claims it. In return the connection is no longer
+accepted by elimination, and an agent may hold it next to one that is:
+
+```yaml
+connections:
+  zendesk:
+    base_url: https://acme.zendesk.com
+    tokens:
+      format: jwt      # tokens are JWTs issued by acme.zendesk.com, nothing else
+```
+
+An agent may then read Zendesk and write to `internal-api` above, which keeps
+the one place a token is taken by elimination.
+
+Whether a provider issues such tokens can be a setting rather than a promise —
+Zendesk does so only with token expiry turned on — so the declaration belongs
+in `gete.yaml`, not in a catalog entry that would promise it for every
+installation. It cuts both ways: turn that setting off and every token the
+connection is handed is refused until the declaration goes with it.
+
 A service whose root moves with the installation — the tenant in a subdomain,
 or a deployment you host — writes its URLs around `{base_url}`, and the
 installation fills it in:

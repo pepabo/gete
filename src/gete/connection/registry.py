@@ -30,6 +30,10 @@ _JWT_HEADER_PREFIX = "eyJ"
 # otherwise a prefixless service accepts Google tokens by elimination.
 GOOGLE_ACCESS_TOKEN_PREFIX = "ya29."
 
+# The one token format a connection can commit to. A service that issues it
+# names itself in every token, which is what a prefix would otherwise do.
+JWT_FORMAT = "jwt"
+
 # Stands for the root of a service that differs per installation, wherever the
 # connection's URLs are written around it. A definition meant to be shared
 # cannot spell a tenant's host, and a stand-in host would be a name a stranger
@@ -175,6 +179,11 @@ class Connection:
     # never travels to them. Empty means downloads stay on hosts.
     redirect_hosts: frozenset[str] = frozenset()
     token_prefixes: tuple[str, ...] = ()
+    # The format the service commits to issuing, JWT_FORMAT or None. A
+    # connection that declares one takes nothing else, so it announces itself
+    # as surely as a prefix does and is not accepted by elimination; one this
+    # gete cannot judge takes nothing at all.
+    token_format: str | None = None
     # Prefixes declared by every other connection in the registry, filled in by
     # Registry. A connection without prefixes of its own accepts a token only
     # if none of these match, so a bare from_mapping() connection judges more
@@ -213,6 +222,7 @@ class Connection:
             hosts=frozenset(hosts),
             redirect_hosts=frozenset(data.get("redirect_hosts", ())),
             token_prefixes=tuple(data.get("token_prefixes", ())),
+            token_format=data.get("tokens", {}).get("format"),
             base_url=base_url,
             docs=data.get("docs"),
             oauth_client=data.get("oauth_client"),
@@ -262,16 +272,23 @@ class Connection:
     def accepts_token(self, token: str) -> bool:
         """Whether the token may be treated as this connection's.
 
-        A declared prefix decides on its own: Google issues ya29.c.<payload>
-        access tokens that carry two dots, and a shape heuristic must not
-        overrule a prefix the catalog vouches for. Without prefixes, a JWT
-        is judged by the issuer its claims name - Google ID tokens and
-        service account tokens always name Google's - and a JWT that names
-        none says as little as an opaque token, so it is judged like one.
-        One that cannot be read is refused rather than guessed about.
+        A declared token format decides first and alone: the connection has
+        promised what its tokens look like, and anything else is refused
+        however little else claims it. A declared prefix decides next: Google
+        issues ya29.c.<payload> access tokens that carry two dots, and a shape
+        heuristic must not overrule a prefix the catalog vouches for. With
+        neither, a JWT is judged by the issuer its claims name - Google ID
+        tokens and service account tokens always name Google's - and a JWT
+        that names none says as little as an opaque token, so it is judged
+        like one. One that cannot be read is refused rather than guessed about.
         """
         if not token:
             return False
+        if self.token_format is not None:
+            # A resolved declaration outlives the gete that wrote it, and a
+            # format this one cannot judge is not one it may fall back from:
+            # elimination would accept what the declaration meant to narrow.
+            return self.token_format == JWT_FORMAT and self._issued_here_jwt(token)
         if self.token_prefixes:
             return token.startswith(self.token_prefixes)
         if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
@@ -287,13 +304,45 @@ class Connection:
         # it is not some other service's.
         return not any(token.startswith(prefix) for prefix in self.foreign_prefixes)
 
-    def issued_here(self, issuer: str) -> bool:
-        """Whether the issuer names this connection's own service.
+    def _issued_here_jwt(self, token: str) -> bool:
+        """Whether the token is a JWT this connection's own service issued.
+
+        What a connection declaring the format holds every token to. A token
+        of any other shape, one whose claims cannot be read, and one that
+        names no issuer are all refused alike: none of them is what was
+        promised, and the promise is the only reason the connection may sit
+        beside another that accepts tokens by elimination.
+        """
+        if not looks_like_jwt(token):
+            return False
+        claims = jwt_claims(token)
+        if claims is None:
+            return False
+        issuer = claims.get("iss")
+        return isinstance(issuer, str) and self.issued_here(issuer)
+
+    @property
+    def issuer_hosts(self) -> frozenset[str]:
+        """Hosts a token of this connection's may name as its issuer.
 
         The hosts the token may travel to and the OAuth endpoints all count
         as its service: the issuer of a service's tokens is its authorization
-        server, which may live beside the API rather than on it. Matched by
-        host, exactly, whether the issuer is written as a URL or bare.
+        server, which may live beside the API rather than on it. Empty while
+        the installation root is open, because none of them are names yet.
+        """
+        own = {entry.partition("/")[0] for entry in self.hosts}
+        own.update(
+            host
+            for url in (self.oauth.authorization_url, self.oauth.token_url)
+            if (host := urlsplit(url).hostname) is not None
+        )
+        return frozenset(own)
+
+    def issued_here(self, issuer: str) -> bool:
+        """Whether the issuer names this connection's own service.
+
+        Matched by host, exactly, whether the issuer is written as a URL or
+        bare.
         """
         try:
             # The issuer arrives inside an unvetted token; one that urlsplit
@@ -301,15 +350,7 @@ class Connection:
             named = urlsplit(issuer if "://" in issuer else f"//{issuer}").hostname
         except ValueError:
             return False
-        if named is None:
-            return False
-        own = {entry.partition("/")[0] for entry in self.hosts}
-        own.update(
-            host
-            for url in (self.oauth.authorization_url, self.oauth.token_url)
-            if (host := urlsplit(url).hostname) is not None
-        )
-        return named in own
+        return named is not None and named in self.issuer_hosts
 
     def allows(self, url: str) -> bool:
         """Whether a token may be attached to a request for this URL.

@@ -1,12 +1,25 @@
 """The resolved declaration: one file that carries everything the runtime needs."""
 
+import base64
+import json
 from pathlib import Path
 
 import yaml
 from conftest import ProjectBuilder
 
 import gete
+from gete.connection import Registry
 from gete.declaration import load_project, load_resolved, resolve
+
+
+def jwt_issued_by(issuer: str) -> str:
+    """A JWT-shaped token naming this issuer. The signature is never checked."""
+    payload = (
+        base64.urlsafe_b64encode(json.dumps({"iss": issuer}).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    return f"eyJhbGciOiJSUzI1NiJ9.{payload}.sig"
 
 
 def write_project_with_policy(project: ProjectBuilder) -> None:
@@ -65,6 +78,32 @@ def test_resolved_connections_carry_the_overrides_and_every_known_prefix(
         "other services' prefixes are needed for elimination"
     )
     assert connections["slack"]["retired"]
+
+
+def test_a_declared_token_format_travels_to_the_runtime(
+    project: ProjectBuilder,
+) -> None:
+    """It is the deployment that has to refuse a token of any other shape;
+    validate only let the connection be held beside an anonymous one."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "zendesk": {
+                    "base_url": "https://acme.zendesk.com",
+                    "tokens": {"format": "jwt"},
+                }
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk"]})
+    loaded = load_project(project.root / "gete.yaml")
+    connections = resolve(loaded, loaded.agents[0])["resolved"]["connections"]
+    zendesk = Registry.from_documents(connections).get("zendesk")
+    assert zendesk.accepts_token(jwt_issued_by("https://acme.zendesk.com"))
+    assert not zendesk.accepts_token("a1b2c3d4e5f60718293a4b5c6d7e8f90")
 
 
 def test_resolved_file_reads_back_without_gete_yaml(

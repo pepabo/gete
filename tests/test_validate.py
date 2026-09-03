@@ -372,6 +372,49 @@ def test_two_prefixless_connections_on_one_agent_are_reported(
     ), found
 
 
+def test_a_declared_token_format_may_be_held_beside_a_prefixless_connection(
+    project: ProjectBuilder,
+) -> None:
+    """An agent that reads one service and writes to another needs both, and
+    a service whose tokens name their issuer is not the anonymous one."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": INTERNAL_API,
+                "zendesk": {
+                    "base_url": "https://acme.zendesk.com",
+                    "tokens": {"format": "jwt"},
+                },
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
+    assert problems(project) == []
+
+
+def test_the_catalog_alone_still_leaves_zendesk_accepted_by_elimination(
+    project: ProjectBuilder,
+) -> None:
+    """Zendesk issues JWTs only with token expiry turned on, which is the
+    installation's setting; the catalog cannot promise it for everyone."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": INTERNAL_API,
+                "zendesk": {"base_url": "https://acme.zendesk.com"},
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
+    assert any("elimination" in p for p in problems(project))
+
+
 def test_prefixless_connections_on_separate_agents_are_accepted(
     project: ProjectBuilder,
 ) -> None:

@@ -11,6 +11,20 @@ NONE_DECLARED = "(none)"
 BY_ELIMINATION = "(none: by elimination)"
 
 
+def token_shapes(connection: Connection) -> str:
+    """What the connection accepts a token by, for the person preparing it.
+
+    Which of the three it is decides whether an agent may hold the connection
+    beside another that announces itself no other way, so a declared format
+    must not read as the elimination it replaces.
+    """
+    if connection.token_prefixes:
+        return ", ".join(connection.token_prefixes)
+    if connection.token_format:
+        return f"(none: {connection.token_format} issued by this service)"
+    return BY_ELIMINATION
+
+
 def connections_table(registry: Registry) -> list[dict[str, Any]]:
     """One row per connection, retired ones included, in id order."""
     catalog = set(catalog_connections())
@@ -22,8 +36,7 @@ def connections_table(registry: Registry) -> list[dict[str, Any]]:
                 "display_name": connection.display_name,
                 "status": "retired" if connection.retired else "available",
                 "hosts": ", ".join(sorted(connection.hosts)),
-                "token_prefixes": ", ".join(connection.token_prefixes)
-                or BY_ELIMINATION,
+                "token_prefixes": token_shapes(connection),
                 "verified": connection.verified.get("gemini_enterprise", NOT_VERIFIED),
                 "source": "catalog" if connection.id in catalog else "gete.yaml",
                 "retired": connection.retired or "",
@@ -59,7 +72,7 @@ def format_connection(connection: Connection) -> str:
             "redirect hosts",
             [", ".join(sorted(connection.redirect_hosts)) or NONE_DECLARED],
         ),
-        ("token prefixes", [", ".join(connection.token_prefixes) or BY_ELIMINATION]),
+        ("token prefixes", [token_shapes(connection)]),
         ("mcp url", [connection.mcp_url or NONE_DECLARED]),
         ("authorization", [oauth.authorization_url]),
         ("token url", [oauth.token_url]),

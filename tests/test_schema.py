@@ -592,3 +592,27 @@ def test_connection_may_ask_for_pkce() -> None:
             {**CONNECTION, "oauth": {**CONNECTION["oauth"], "pkce": "yes"}},
             source="c.yaml",
         )
+
+
+def test_connection_may_declare_that_its_tokens_are_jwts() -> None:
+    """A service whose access tokens are JWTs issued by its own host is not
+    anonymous, however little its prefixes say."""
+    validate_document(
+        "connection", {**CONNECTION, "tokens": {"format": "jwt"}}, source="c.yaml"
+    )
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        {"format": "opaque"},  # the only format that promises anything is jwt
+        {"format": "JWT"},
+        {},  # a tokens block that declares nothing
+        {"format": "jwt", "issuer": "https://auth.example.com"},
+    ],
+)
+def test_connection_token_format_is_one_declared_shape(tokens: dict[str, Any]) -> None:
+    with pytest.raises(DeclarationError, match="tokens"):
+        validate_document(
+            "connection", {**CONNECTION, "tokens": tokens}, source="c.yaml"
+        )

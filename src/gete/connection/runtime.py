@@ -88,24 +88,37 @@ def describe_state(state: Any) -> list[dict[str, Any]]:
     ]
 
 
+NO_DECLARED_SHAPE = "matches none of the declared shapes"
+
+
 def describe_token(connection: Connection, token: str) -> str:
     """Which declared shape the token has, without repeating any of it.
 
     A connection without prefixes declares no shapes, so a refused JWT is
     described by what refused it - claims that cannot be read, or an issuer
     that does not name this service - or the shape message would leave the
-    refusal looking like a mystery.
+    refusal looking like a mystery. A connection that declares a token format
+    is refusing against a promise, and the promise is named: an operator who
+    turned the provider's expiring-token setting off has every token refused
+    at once, and nothing else in the log would say why.
     """
     for prefix in connection.token_prefixes:
         if token.startswith(prefix):
             return f"starts with {prefix}"
-    if not connection.token_prefixes and looks_like_jwt(token):
-        claims = jwt_claims(token)
-        if claims is None:
-            return "a JWT whose claims cannot be read"
-        if "iss" in claims:
-            return "a JWT whose issuer does not name this service"
-    return "matches none of the declared shapes"
+    if connection.token_prefixes:
+        return NO_DECLARED_SHAPE
+    if not looks_like_jwt(token):
+        if connection.token_format:
+            return f"not the {connection.token_format} this connection declares"
+        return NO_DECLARED_SHAPE
+    claims = jwt_claims(token)
+    if claims is None:
+        return "a JWT whose claims cannot be read"
+    if "iss" in claims:
+        return "a JWT whose issuer does not name this service"
+    if connection.token_format:
+        return "a JWT that names no issuer"
+    return NO_DECLARED_SHAPE
 
 
 def usable_token(connection: Connection, key: str, state: Any) -> str | None:
