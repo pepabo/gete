@@ -166,3 +166,36 @@ def test_a_retired_connection_reads_retired_with_the_reason_alongside() -> None:
     assert result.exit_code == 0, result.output
     assert "status" in result.output and "retired" in result.output
     assert "native connector" in result.output
+
+
+def prefixless(**patch: Any) -> Connection:
+    return Connection.from_mapping(
+        {
+            "id": "example",
+            "display_name": "Example",
+            "hosts": ["api.example.com"],
+            "token_prefixes": [],
+            "oauth": {
+                "authorization_url": "https://auth.example.com/authorize",
+                "token_url": "https://auth.example.com/token",
+                "scopes": {"read": "Read data"},
+            },
+            **patch,
+        }
+    )
+
+
+def test_a_connection_without_prefixes_reads_as_accepted_by_elimination() -> None:
+    rows = connections_table(Registry([prefixless()]))
+    assert rows[0]["token_prefixes"] == "(none: by elimination)"
+    assert "(none: by elimination)" in format_connection(prefixless())
+
+
+def test_a_declared_token_format_reads_as_the_format_it_declares() -> None:
+    """It is not accepted by elimination, and the person preparing the
+    connection has to see which of the two it is."""
+    entry = prefixless(tokens={"format": "jwt"})
+    rows = connections_table(Registry([entry]))
+    assert "jwt" in rows[0]["token_prefixes"]
+    assert "elimination" not in rows[0]["token_prefixes"]
+    assert "jwt" in format_connection(entry)

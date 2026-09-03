@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from gete.connection import Registry
+from gete.connection import Connection, Registry
 from gete.connection.runtime import (
     authorization_id,
     caller_token,
@@ -24,6 +24,48 @@ FREEE_TOKEN = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
 # Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
 GOOGLE_ISSUED_JWT = (
     "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
+)
+
+
+# Claims: {"exp": 0}. A JWT that names no issuer says as little about its
+# origin as an opaque token.
+JWT_WITHOUT_ISSUER = "eyJhbGciOiJFZERTQSJ9.eyJleHAiOjB9.sig"
+# A connection whose tokens are JWTs of its own making, as an installation
+# declares one whose provider issues them.
+DECLARED = Registry(
+    [
+        Connection.from_mapping(
+            {
+                "id": "declared",
+                "display_name": "Declared",
+                "hosts": ["api.example.com"],
+                "tokens": {"format": "jwt"},
+                "oauth": {
+                    "authorization_url": "https://api.example.com/authorize",
+                    "token_url": "https://api.example.com/token",
+                    "scopes": {},
+                },
+            }
+        )
+    ]
+).get("declared")
+# Claims: {"iss": "https://api.example.com"}: a token DECLARED's own service
+# issued, and the only kind it takes.
+OWN_ISSUER_JWT = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FwaS5leGFtcGxlLmNvbSJ9.sig"
+# A format no gete of this version knows, as a resolved declaration written
+# by a later one carries it.
+UNJUDGEABLE = Connection.from_mapping(
+    {
+        "id": "later",
+        "display_name": "Later",
+        "hosts": ["api.example.com"],
+        "tokens": {"format": "paseto"},
+        "oauth": {
+            "authorization_url": "https://api.example.com/authorize",
+            "token_url": "https://api.example.com/token",
+            "scopes": {},
+        },
+    }
 )
 
 
@@ -119,6 +161,43 @@ def test_describe_token_says_why_a_jwt_was_refused_without_repeating_it() -> Non
         describe_token(GITHUB, GOOGLE_ISSUED_JWT)
         == "matches none of the declared shapes"
     )
+
+
+def test_describe_token_says_a_declared_format_was_not_met() -> None:
+    """The connection promised JWTs of its own making. An operator who turned
+    the provider's expiring-token setting off sees every token refused, and
+    the message has to say which promise the token missed."""
+    assert (
+        describe_token(DECLARED, FREEE_TOKEN) == "not the jwt this connection declares"
+    )
+    assert describe_token(DECLARED, JWT_WITHOUT_ISSUER) == "a JWT that names no issuer"
+    assert (
+        describe_token(DECLARED, GOOGLE_ISSUED_JWT)
+        == "a JWT whose issuer does not name this service"
+    )
+    assert FREEE_TOKEN not in describe_token(DECLARED, FREEE_TOKEN)
+
+
+def test_describe_token_names_a_format_this_gete_cannot_judge() -> None:
+    """Nothing is accepted under a format this gete cannot judge, so the
+    reason is the format and not the token: a JWT issued by this very service
+    is refused along with everything else, and saying its issuer is wrong
+    would send the operator after the wrong thing."""
+    unjudgeable = "declared as paseto, which this gete cannot judge"
+    assert not UNJUDGEABLE.accepts_token(OWN_ISSUER_JWT)
+    assert describe_token(UNJUDGEABLE, OWN_ISSUER_JWT) == unjudgeable
+    assert describe_token(UNJUDGEABLE, FREEE_TOKEN) == unjudgeable
+    assert describe_token(UNJUDGEABLE, GOOGLE_ISSUED_JWT) == unjudgeable
+
+
+def test_usable_token_refuses_what_a_declared_format_rules_out(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Elimination would have taken the opaque token; the declaration is what
+    keeps it from travelling."""
+    with caplog.at_level(logging.WARNING):
+        assert usable_token(DECLARED, "declared", {"declared": FREEE_TOKEN}) is None
+    assert FREEE_TOKEN not in caplog.text
 
 
 def test_caller_token_takes_the_state_from_the_current_call() -> None:

@@ -147,6 +147,79 @@ def test_prefixless_connection_alone_still_refuses_google_access_tokens() -> Non
     assert alone.accepts_token("a1b2c3d4e5f60718293a4b5c6d7e8f90")
 
 
+JWT_TOKENS: dict[str, Any] = {"tokens": {"format": "jwt"}}
+
+
+def test_a_declared_jwt_format_accepts_a_token_the_service_issued() -> None:
+    """The declaration says the tokens are JWTs of this service's own making,
+    and the issuer is what says so."""
+    entry = Registry([connection(**JWT_TOKENS)]).get("example")
+    assert entry.accepts_token(jwt_with({"iss": "https://auth.example.com"}))
+    assert entry.accepts_token(jwt_with({"iss": "api.example.com"}))
+
+
+def test_a_declared_jwt_format_refuses_a_token_that_is_not_a_jwt() -> None:
+    """Without the declaration elimination would take it; with it, the
+    connection promises a shape and holds itself to it."""
+    declared = Registry([connection(**JWT_TOKENS)]).get("example")
+    anonymous = Registry([connection()]).get("example")
+    opaque = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+    assert anonymous.accepts_token(opaque)
+    assert not declared.accepts_token(opaque)
+
+
+@pytest.mark.parametrize(
+    "claims",
+    [
+        {"exp": 0},  # a JWT that names no issuer says nothing about its origin
+        {"iss": "https://idp.example.org"},
+        {"iss": "https://accounts.google.com"},
+        {"iss": None},
+    ],
+)
+def test_a_declared_jwt_format_refuses_a_jwt_from_anywhere_else(claims: Any) -> None:
+    entry = Registry([connection(**JWT_TOKENS)]).get("example")
+    assert not entry.accepts_token(jwt_with(claims))
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["", "a.b.c", "eyJhbGciOiJSUzI1NiJ9.x.sig", "ya29.a0AfH6SMB", "gho_16C7e42F29"],
+)
+def test_a_declared_jwt_format_refuses_what_it_cannot_read(token: str) -> None:
+    entry = Registry([connection(**JWT_TOKENS)]).get("example")
+    assert not entry.accepts_token(token)
+
+
+def test_a_declared_jwt_format_is_judged_before_any_foreign_prefix() -> None:
+    """Elimination against the others' prefixes is what the declaration replaces."""
+    declared = connection(**JWT_TOKENS)
+    other = connection(id="other", token_prefixes=["ex_"])
+    entry = Registry([declared, other]).get("example")
+    assert entry.foreign_prefixes == ("ex_",)
+    assert entry.accepts_token(jwt_with({"iss": "https://api.example.com"}))
+    assert not entry.accepts_token("something_no_prefix_matches")
+
+
+def test_a_token_format_this_gete_cannot_judge_accepts_nothing() -> None:
+    """A resolved declaration outlives the gete that wrote it. The schema
+    refuses an unknown format where it is written; where it is only read,
+    falling back to elimination would widen what the declaration narrowed."""
+    entry = Registry([connection(tokens={"format": "paseto"})]).get("example")
+    assert not entry.accepts_token("a1b2c3d4e5f60718293a4b5c6d7e8f90")
+    assert not entry.accepts_token(jwt_with({"iss": "https://api.example.com"}))
+
+
+def test_a_declared_jwt_format_accepts_the_installation_root_as_the_issuer() -> None:
+    """The root is where the service lives for a rooted connection, and its
+    tokens are issued there."""
+    entry = Connection.from_mapping(
+        {**ROOTED, **JWT_TOKENS, "base_url": "https://acme.example.com"}
+    )
+    assert entry.accepts_token(jwt_with({"iss": "https://acme.example.com"}))
+    assert not entry.accepts_token(jwt_with({"iss": "https://other.example.com"}))
+
+
 @pytest.mark.parametrize(
     ("url", "allowed"),
     [
@@ -446,6 +519,82 @@ def test_a_prefixless_connection_is_no_problem_on_its_own() -> None:
 def test_connections_that_announce_themselves_never_collide(catalog: Registry) -> None:
     """Prefixes are checked against each other; only the prefixless are counted."""
     assert elimination_problems(["freee", "github", "google"], catalog) == []
+
+
+def test_a_declared_token_format_is_not_an_acceptance_by_elimination() -> None:
+    """It takes only tokens its own service issued, so the connection beside
+    it keeps every token that announces itself no other way."""
+    zendesk = connection(id="zendesk", token_prefixes=[], **JWT_TOKENS)
+    internal = connection(
+        id="internal",
+        token_prefixes=[],
+        hosts=["api.internal.example.com"],
+        oauth={
+            "authorization_url": "https://auth.internal.example.com/authorize",
+            "token_url": "https://auth.internal.example.com/token",
+            "scopes": {"read": "Read internal data"},
+        },
+    )
+    registry = Registry([zendesk, internal])
+    assert elimination_problems(["zendesk", "internal"], registry) == []
+
+
+def test_a_shared_issuer_confuses_a_declared_format_and_an_anonymous_one() -> None:
+    """The anonymous connection takes a JWT naming its own authorization
+    server too, so one issuer serving both is the same confusion as two
+    declaring connections sharing one - the declaration says nothing the
+    other's token does not say as well."""
+    declared = connection(id="declared", **JWT_TOKENS)
+    anonymous = connection(id="anonymous", hosts=["api.other.example.com"])
+    registry = Registry([declared, anonymous])
+    token = jwt_with({"iss": "https://auth.example.com"})
+    assert registry.get("declared").accepts_token(token)
+    assert registry.get("anonymous").accepts_token(token)
+    found = elimination_problems(["declared", "anonymous"], registry)
+    assert len(found) == 1, found
+    assert "auth.example.com" in found[0], found
+
+
+def test_an_anonymous_pair_sharing_an_issuer_is_reported_once() -> None:
+    """Neither can be told from the other by anything at all; naming the
+    issuer they share on top of that would say it twice."""
+    one = connection(id="one")
+    two = connection(id="two", hosts=["api.two.example.com"])
+    found = elimination_problems(["one", "two"], Registry([one, two]))
+    assert len(found) == 1, found
+
+
+def test_two_declared_token_formats_from_different_services_never_collide() -> None:
+    """Each takes only what its own issuer named; neither reaches the other's."""
+    one = connection(id="one", **JWT_TOKENS)
+    two = connection(
+        id="two",
+        hosts=["api.two.example.com"],
+        oauth={
+            "authorization_url": "https://auth.two.example.com/authorize",
+            "token_url": "https://auth.two.example.com/token",
+            "scopes": {"read": "Read data"},
+        },
+        **JWT_TOKENS,
+    )
+    assert elimination_problems(["one", "two"], Registry([one, two])) == []
+
+
+def test_two_declared_token_formats_issued_by_one_host_are_reported() -> None:
+    """Both would accept a JWT that names the shared issuer, so a token from
+    either authorization passes as the other's."""
+    api = connection(id="api", **JWT_TOKENS)
+    mcp = connection(id="mcp", hosts=["mcp.example.com"], **JWT_TOKENS)
+    found = elimination_problems(["api", "mcp"], Registry([api, mcp]))
+    assert [p for p in found if "api" in p and "mcp" in p] == found
+    assert len(found) == 1
+
+
+def test_prefixes_next_to_a_declared_token_format_are_reported() -> None:
+    """The format decides on its own, so the prefixes would never be read."""
+    entry = connection(token_prefixes=["ex_"], **JWT_TOKENS)
+    problems = connection_problems(entry, Registry([entry]))
+    assert any("tokens" in problem for problem in problems), problems
 
 
 def test_a_connection_that_accepts_google_issued_jwts_is_reported() -> None:

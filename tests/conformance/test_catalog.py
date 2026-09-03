@@ -229,3 +229,33 @@ def test_zendesk_says_what_a_person_has_to_do_before_authorizing() -> None:
     setup = CATALOG["zendesk"]["setup"]
     assert "OAuth" in setup
     assert "redirect URI" in setup
+
+
+def test_zendesk_promises_no_token_format_for_every_installation() -> None:
+    """Zendesk issues JWTs of its own only with token expiry turned on, which
+    is the installation's setting; the catalog must not promise it."""
+    assert "tokens" not in CATALOG["zendesk"]
+    assert "tokens.format" in CATALOG["zendesk"]["setup"]
+
+
+def test_zendesk_records_no_accepted_shape_because_it_has_two() -> None:
+    """An accepted example would fix one of the shapes, and contradict the
+    installation that has the other. What is refused is refused either way."""
+    assert "accepts" not in CATALOG["zendesk"]["examples"]
+    assert CATALOG["zendesk"]["examples"]["rejects"]
+
+
+def test_an_installation_may_declare_that_zendesk_issues_jwts() -> None:
+    """With expiry on the tokens name the subdomain, and Zendesk stops being
+    the one connection an agent may hold by elimination."""
+    registry = Registry.from_catalog(
+        {
+            "zendesk": {
+                "base_url": "https://acme.zendesk.com",
+                "tokens": {"format": "jwt"},
+            }
+        }
+    )
+    zendesk = registry.get("zendesk")
+    assert connection_problems(zendesk, registry) == []
+    assert elimination_problems(["zendesk", "freee"], registry) == []

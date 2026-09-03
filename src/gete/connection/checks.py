@@ -44,26 +44,62 @@ def elimination_problems(
 ) -> list[str]:
     """Describe connections that cannot be held together, or return an empty list.
 
-    A connection without token prefixes accepts whatever no other connection
-    claims. Two of them are indistinguishable: a token issued by either
-    authorization passes as the other's. Only the connections handed to the
-    same agent can be confused that way, so the pairing is what is refused,
-    not the second prefixless connection an installation declares. The
-    registry holds every connection gete ships as well, and declaring a
-    service of your own must not depend on which of those announce themselves.
+    A connection that announces itself neither by a token prefix nor by a
+    declared token format accepts whatever no other connection claims. Two of
+    them are indistinguishable: a token issued by either authorization passes
+    as the other's. Only the connections handed to the same agent can be
+    confused that way, so the pairing is what is refused, not the second such
+    connection an installation declares. The registry holds every connection
+    gete ships as well, and declaring a service of your own must not depend on
+    which of those announce themselves.
+
+    A declared format announces the service in every token, so it does not
+    take that one place - unless one issuer stands behind two of the
+    connections judging tokens by issuer, which is the same confusion by
+    another route. An anonymous connection is one of those: it takes a JWT
+    naming its own authorization server as readily as a declaring one does,
+    so a shared issuer confuses the two whichever of them declared.
     """
-    prefixless = sorted(
-        connection_id
-        for connection_id in set(connection_ids)
-        if not registry.get(connection_id, include_retired=True).token_prefixes
-    )
-    if len(prefixless) < 2:
-        return []
-    return [
-        f"{', '.join(prefixless)} declare no token_prefixes; only one of an "
-        "agent's connections may accept tokens by elimination, or a token from "
-        "one of them would be accepted as another's"
+    connections = [
+        registry.get(connection_id, include_retired=True)
+        for connection_id in sorted(set(connection_ids))
     ]
+    problems: list[str] = []
+    anonymous = [
+        connection
+        for connection in connections
+        if not connection.token_prefixes and connection.token_format is None
+    ]
+    if len(anonymous) >= 2:
+        problems.append(
+            f"{', '.join(connection.id for connection in anonymous)} declare "
+            "neither token_prefixes nor tokens.format; only one of an agent's "
+            "connections may accept tokens by elimination, or a token from one "
+            "of them would be accepted as another's"
+        )
+    # A prefix decides on its own and before any issuer does, so a connection
+    # held to one judges no token by who issued it, and shares an issuer with
+    # nothing.
+    by_issuer = [
+        connection
+        for connection in connections
+        if connection.token_format is not None or not connection.token_prefixes
+    ]
+    for index, connection in enumerate(by_issuer):
+        for other in by_issuer[index + 1 :]:
+            if connection.token_format is None and other.token_format is None:
+                # Already refused above, by everything the pair fails to say
+                # about itself rather than by the one issuer they happen to
+                # share; naming it here would say it twice.
+                continue
+            shared = connection.issuer_hosts & other.issuer_hosts
+            if shared:
+                problems.append(
+                    f"{connection.id}, {other.id} both accept tokens issued by "
+                    f"{', '.join(sorted(shared))}; a token from one of them "
+                    "would be accepted as the other's"
+                )
+    return problems
 
 
 def connection_problems(connection: Connection, registry: Registry) -> list[str]:
@@ -101,6 +137,14 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
             problems.append(
                 f"hosts: {entry} never applies; the bare {host} entry admits every path"
             )
+    if connection.token_format is not None and connection.token_prefixes:
+        # The format decides on its own, so the prefixes beside it are never
+        # read - and a reader would have to know that to see which of the two
+        # rules the connection is actually held to.
+        problems.append(
+            f"tokens: format {connection.token_format} decides on its own; the "
+            "token_prefixes declared beside it are never read"
+        )
     for other in registry.all(include_retired=True):
         if other.id == connection.id:
             continue
