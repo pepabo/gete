@@ -395,6 +395,35 @@ def test_a_declared_token_format_may_be_held_beside_a_prefixless_connection(
     assert problems(project) == []
 
 
+def test_a_declared_format_beside_a_connection_of_the_same_issuer_is_refused(
+    project: ProjectBuilder,
+) -> None:
+    """One authorization server standing in front of both services puts its
+    host in either connection's tokens, and the declaration then says nothing
+    the other's token does not say as well."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": INTERNAL_API,
+                "internal-billing": {
+                    "display_name": "Internal Billing",
+                    "hosts": ["billing.internal.example.com"],
+                    "tokens": {"format": "jwt"},
+                    "oauth": INTERNAL_API["oauth"],
+                },
+            },
+        }
+    )
+    project.write_agent(
+        "mail-triage", {"connections": ["internal-api", "internal-billing"]}
+    )
+    found = problems(project)
+    assert any("auth.internal.example.com" in problem for problem in found), found
+
+
 def test_the_catalog_alone_still_leaves_zendesk_accepted_by_elimination(
     project: ProjectBuilder,
 ) -> None:

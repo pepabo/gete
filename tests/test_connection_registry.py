@@ -526,10 +526,42 @@ def test_a_declared_token_format_is_not_an_acceptance_by_elimination() -> None:
     it keeps every token that announces itself no other way."""
     zendesk = connection(id="zendesk", token_prefixes=[], **JWT_TOKENS)
     internal = connection(
-        id="internal", token_prefixes=[], hosts=["api.internal.example.com"]
+        id="internal",
+        token_prefixes=[],
+        hosts=["api.internal.example.com"],
+        oauth={
+            "authorization_url": "https://auth.internal.example.com/authorize",
+            "token_url": "https://auth.internal.example.com/token",
+            "scopes": {"read": "Read internal data"},
+        },
     )
     registry = Registry([zendesk, internal])
     assert elimination_problems(["zendesk", "internal"], registry) == []
+
+
+def test_a_shared_issuer_confuses_a_declared_format_and_an_anonymous_one() -> None:
+    """The anonymous connection takes a JWT naming its own authorization
+    server too, so one issuer serving both is the same confusion as two
+    declaring connections sharing one - the declaration says nothing the
+    other's token does not say as well."""
+    declared = connection(id="declared", **JWT_TOKENS)
+    anonymous = connection(id="anonymous", hosts=["api.other.example.com"])
+    registry = Registry([declared, anonymous])
+    token = jwt_with({"iss": "https://auth.example.com"})
+    assert registry.get("declared").accepts_token(token)
+    assert registry.get("anonymous").accepts_token(token)
+    found = elimination_problems(["declared", "anonymous"], registry)
+    assert len(found) == 1, found
+    assert "auth.example.com" in found[0], found
+
+
+def test_an_anonymous_pair_sharing_an_issuer_is_reported_once() -> None:
+    """Neither can be told from the other by anything at all; naming the
+    issuer they share on top of that would say it twice."""
+    one = connection(id="one")
+    two = connection(id="two", hosts=["api.two.example.com"])
+    found = elimination_problems(["one", "two"], Registry([one, two]))
+    assert len(found) == 1, found
 
 
 def test_two_declared_token_formats_from_different_services_never_collide() -> None:

@@ -303,7 +303,10 @@ connections:
 ```
 
 An agent may then read Zendesk and write to `internal-api` above, which keeps
-the one place a token is taken by elimination.
+the one place a token is taken by elimination. What the two may not share is
+an issuer: one authorization server in front of both services puts its host
+in either connection's tokens, and `gete validate` refuses that pairing for
+the same reason it refuses two anonymous connections.
 
 Whether a provider issues such tokens can be a setting rather than a promise —
 Zendesk does so only with token expiry turned on — so the declaration belongs

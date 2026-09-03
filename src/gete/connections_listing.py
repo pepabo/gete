@@ -20,7 +20,7 @@ def token_shapes(connection: Connection) -> str:
     """
     if connection.token_prefixes:
         return ", ".join(connection.token_prefixes)
-    if connection.token_format:
+    if connection.token_format is not None:
         return f"(none: {connection.token_format} issued by this service)"
     return BY_ELIMINATION
 

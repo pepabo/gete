@@ -49,6 +49,24 @@ DECLARED = Registry(
         )
     ]
 ).get("declared")
+# Claims: {"iss": "https://api.example.com"}: a token DECLARED's own service
+# issued, and the only kind it takes.
+OWN_ISSUER_JWT = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FwaS5leGFtcGxlLmNvbSJ9.sig"
+# A format no gete of this version knows, as a resolved declaration written
+# by a later one carries it.
+UNJUDGEABLE = Connection.from_mapping(
+    {
+        "id": "later",
+        "display_name": "Later",
+        "hosts": ["api.example.com"],
+        "tokens": {"format": "paseto"},
+        "oauth": {
+            "authorization_url": "https://api.example.com/authorize",
+            "token_url": "https://api.example.com/token",
+            "scopes": {},
+        },
+    }
+)
 
 
 def teardown_function() -> None:
@@ -158,6 +176,18 @@ def test_describe_token_says_a_declared_format_was_not_met() -> None:
         == "a JWT whose issuer does not name this service"
     )
     assert FREEE_TOKEN not in describe_token(DECLARED, FREEE_TOKEN)
+
+
+def test_describe_token_names_a_format_this_gete_cannot_judge() -> None:
+    """Nothing is accepted under a format this gete cannot judge, so the
+    reason is the format and not the token: a JWT issued by this very service
+    is refused along with everything else, and saying its issuer is wrong
+    would send the operator after the wrong thing."""
+    unjudgeable = "declared as paseto, which this gete cannot judge"
+    assert not UNJUDGEABLE.accepts_token(OWN_ISSUER_JWT)
+    assert describe_token(UNJUDGEABLE, OWN_ISSUER_JWT) == unjudgeable
+    assert describe_token(UNJUDGEABLE, FREEE_TOKEN) == unjudgeable
+    assert describe_token(UNJUDGEABLE, GOOGLE_ISSUED_JWT) == unjudgeable
 
 
 def test_usable_token_refuses_what_a_declared_format_rules_out(

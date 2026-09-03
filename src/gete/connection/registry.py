@@ -327,8 +327,9 @@ class Connection:
 
         The hosts the token may travel to and the OAuth endpoints all count
         as its service: the issuer of a service's tokens is its authorization
-        server, which may live beside the API rather than on it. Empty while
-        the installation root is open, because none of them are names yet.
+        server, which may live beside the API rather than on it. A URL still
+        written around {base_url} contributes nothing, because it is not a
+        name until the installation sets the root.
         """
         own = {entry.partition("/")[0] for entry in self.hosts}
         own.update(
