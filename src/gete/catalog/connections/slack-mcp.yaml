@@ -1,0 +1,126 @@
+id: slack-mcp
+display_name: Slack MCP
+docs: https://docs.slack.dev/ai/slack-mcp-server/
+
+# The token this hands out is an ordinary Slack user token, and slack.com's
+# Web API would very likely take it. slack.com still does not belong on this
+# list: the face of this connection is the MCP server's tools, which an mcp:
+# block can hold to an allow list. Naming slack.com beside it would make the
+# whole Web API the face - every method the token's scopes reach, with
+# nothing to hold it to.
+hosts:
+  - mcp.slack.com
+# Slack user tokens announce themselves, so this connection is not accepted
+# by elimination and may sit beside one that is. With token rotation enabled
+# the prefix becomes xoxe.xoxp-.
+token_prefixes:
+  - xoxp-
+  - xoxe.xoxp-
+
+oauth:
+  # The authorization server mcp.slack.com advertises (RFC 8414): its own
+  # issuer, with the endpoints on slack.com. This is the user pair, not the
+  # app pair at oauth/v2/authorize and oauth.v2.access. That one answers with
+  # the app's token at the top level and the user's underneath, in
+  # authed_user, where Gemini Enterprise never looks; oauth.v2.user.access
+  # answers with the user's token at the top level and nothing else to take.
+  authorization_url: https://slack.com/oauth/v2_user/authorize
+  # The metadata names client_secret_post as the only client authentication
+  # method. Whether Gemini Enterprise sends the secret that way is
+  # unconfirmed, and a connection cannot say: the Authorization resource has
+  # no field for it.
+  token_url: https://slack.com/api/oauth.v2.user.access
+  # scope_parameter stays at its default. The app pair needs user_scope
+  # because oauth/v2/authorize reads scope as the app's own permissions. This
+  # endpoint is reached by standard MCP clients as an RFC 8414 authorization
+  # server, and those send a plain scope parameter, so scope it is -
+  # unconfirmed; user_scope is the switch if the consent screen answers
+  # invalid_scope.
+  # pkce stays unset: S256 is supported here, not required.
+  # No authorization_query either. One would keep access_type and prompt off
+  # the URL, as notion-mcp does, but it would also fix the scopes, and the
+  # menu below could not be offered beside it. Slack is expected to ignore
+  # parameters it does not know; unconfirmed.
+  #
+  # Slack fixes a user token's scopes at consent. A scope added here later
+  # reaches nobody already authorized until their authorization is reset, so
+  # the floor is all that reading Slack takes, and the menu holds the rest.
+  scopes:
+    search:read.public: Search public channels
+    search:read.private: Search private channels you are a member of
+    search:read.im: Search your direct messages
+    search:read.mpim: Search your group direct messages
+    search:read.users: Search people in the workspace
+    channels:history: Read messages in public channels
+    groups:history: Read messages in private channels you are a member of
+    im:history: Read your direct messages
+    mpim:history: Read your group direct messages
+    channels:read: List public channels and their members
+    groups:read: List private channels you are a member of and their members
+    im:read: List your direct messages
+    mpim:read: List your group direct messages
+    users:read: Read people's profiles
+  optional_scopes:
+    search:read.files: Search files
+    files:read: Read files shared with you
+    chat:write: Send messages as you
+    reactions:write: Add reactions as you
+    canvases:read: Read canvases
+    canvases:write: Create and edit canvases as you
+    lists:read: Read lists
+    lists:write: Create and edit lists as you
+  # Not offered at all: users:read.email, because nothing here needs a
+  # person's email address; channels:write, groups:write, im:write and
+  # mpim:write, because no agent has a reason to open a conversation;
+  # files:write and emoji:read, for want of a use.
+
+mcp:
+  url: https://mcp.slack.com/mcp
+
+setup: |
+  The MCP server registers no clients of its own: an MCP client is backed by
+  a Slack app, and only an app from the Slack Marketplace or one internal to
+  the workspace will do; an unlisted app is refused. Create an internal app,
+  or take an existing one, and under OAuth & Permissions add every scope
+  named above to its User Token Scopes - the defaults and the optional ones
+  both, since an agent may select any of them. Leave Bot Token Scopes alone:
+  this connection carries the user's token and never the app's.
+
+  Register exactly one redirect URI on the app (Slack calls them Redirect
+  URLs): the one named above. Put the app's client id and client secret in
+  the secrets named above.
+
+  Where the workspace requires apps to be approved, an admin has to approve
+  this one before anyone can authorize. Semantic search needs a plan that
+  includes Slack AI search; keyword search works on any plan.
+
+  No authorization has been taken through Gemini Enterprise yet, so the
+  following is read off the server's metadata rather than seen to work:
+  - The token endpoint names client_secret_post as its only client
+    authentication method. Whether Gemini Enterprise sends the client secret
+    that way is unconfirmed.
+  - The scopes are sent under scope, the parameter a standard MCP client
+    uses. If the consent screen answers invalid_scope, set
+    oauth.scope_parameter to user_scope in gete.yaml.
+  - The authorization URL carries access_type and prompt, which are
+    Google's vocabulary. Whether Slack ignores them is unconfirmed.
+  - A standard MCP client sends resource (RFC 8707) with the code exchange;
+    Gemini Enterprise does not. Whether Slack requires it is unconfirmed.
+  - The metadata offers the refresh_token grant, so tokens may expire.
+    Whether Gemini Enterprise refreshes them is its own doing.
+
+# verified is absent because no authorization has been taken through Gemini
+# Enterprise yet.
+
+examples:
+  accepts:
+    - "xoxp-1234-5678-abcdef"
+    - "xoxe.xoxp-1-abcdef"
+  rejects:
+    - "ya29.a0AfH6SMB" # Google access token
+    # Claims: {"iss": "https://accounts.google.com"}, as in an ID token.
+    - "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # GitHub
+    # A bot token belongs to the app, not to a person; the connection is per
+    # user and refusing the shape keeps it so.
+    - "xoxb-1234-5678-abcdef"

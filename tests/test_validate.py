@@ -67,8 +67,18 @@ def test_unknown_connection_is_reported(project: ProjectBuilder) -> None:
 def test_retired_connection_is_reported_with_the_reason(
     project: ProjectBuilder,
 ) -> None:
-    project.write_agent("mail-triage", {"connections": ["slack"]})
-    assert any("connector" in p for p in problems(project))
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "old-api": {**INTERNAL_API, "retired": "Declare internal-api instead."}
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["old-api"]})
+    assert any("Declare internal-api instead" in p for p in problems(project))
 
 
 def test_duplicate_connection_is_reported(project: ProjectBuilder) -> None:

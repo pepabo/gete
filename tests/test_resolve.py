@@ -77,7 +77,6 @@ def test_resolved_connections_carry_the_overrides_and_every_known_prefix(
     assert "google" in connections, (
         "other services' prefixes are needed for elimination"
     )
-    assert connections["slack"]["retired"]
 
 
 def test_a_declared_token_format_travels_to_the_runtime(

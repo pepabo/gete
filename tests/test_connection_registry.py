@@ -381,10 +381,11 @@ def test_unknown_connection_names_the_known_ones(catalog: Registry) -> None:
         catalog.get("nope")
 
 
-def test_retired_connection_explains_why(catalog: Registry) -> None:
-    with pytest.raises(RetiredConnection, match="connector"):
-        catalog.get("slack")
-    assert catalog.get("slack", include_retired=True).retired
+def test_retired_connection_explains_why() -> None:
+    registry = Registry([connection(id="old", retired="Declare new instead.")])
+    with pytest.raises(RetiredConnection, match="Declare new instead"):
+        registry.get("old")
+    assert registry.get("old", include_retired=True).retired
 
 
 def test_overlapping_prefixes_between_connections_are_reported() -> None:

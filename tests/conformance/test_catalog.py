@@ -14,7 +14,7 @@ CATALOG = catalog_connections()
 
 
 def test_catalog_has_the_initial_connections() -> None:
-    assert {"freee", "google", "github", "notion-mcp", "slack"} <= set(CATALOG)
+    assert {"freee", "google", "github", "notion-mcp", "slack-mcp"} <= set(CATALOG)
 
 
 @pytest.mark.parametrize("connection_id", sorted(CATALOG))
@@ -45,10 +45,6 @@ def test_google_access_tokens_are_rejected_everywhere_but_google() -> None:
     for entry in registry.all(include_retired=True):
         expected = entry.id == "google"
         assert entry.accepts_token("ya29.a0AfH6SMB") is expected, entry.id
-
-
-def test_slack_is_retired_with_a_reason() -> None:
-    assert CATALOG["slack"]["retired"]
 
 
 def test_google_hosts_are_specific_apis_not_the_whole_domain() -> None:
@@ -207,6 +203,106 @@ def test_freee_and_freee_mcp_cannot_be_held_by_one_agent() -> None:
     authorization would pass as the other's."""
     registry = Registry.from_catalog()
     assert elimination_problems(["freee", "freee-mcp"], registry)
+
+
+def test_slack_mcp_does_not_reach_the_slack_web_api() -> None:
+    """The token is an ordinary Slack user token and the Web API would very
+    likely take it, but the face of this connection is the MCP server's tools.
+    slack.com beside it would make every Web API method the token's scopes
+    reach part of that face."""
+    hosts = CATALOG["slack-mcp"]["hosts"]
+    assert hosts == ["mcp.slack.com"]
+    assert "slack.com" not in hosts
+
+
+def test_slack_mcp_defaults_stay_read_only_with_writes_on_the_menu() -> None:
+    """A bare `connections: [slack-mcp]` searches and reads what the user can;
+    files, writing, canvases and lists have to be selected."""
+    oauth = CATALOG["slack-mcp"]["oauth"]
+    assert set(oauth["scopes"]) == {
+        "search:read.public",
+        "search:read.private",
+        "search:read.im",
+        "search:read.mpim",
+        "search:read.users",
+        "channels:history",
+        "groups:history",
+        "im:history",
+        "mpim:history",
+        "channels:read",
+        "groups:read",
+        "im:read",
+        "mpim:read",
+        "users:read",
+    }
+    assert set(oauth["optional_scopes"]) == {
+        "search:read.files",
+        "files:read",
+        "chat:write",
+        "reactions:write",
+        "canvases:read",
+        "canvases:write",
+        "lists:read",
+        "lists:write",
+    }
+
+
+def test_slack_mcp_offers_no_email_addresses_and_creates_no_conversations() -> None:
+    """Nothing here needs a person's email address, and no agent has a reason
+    to open channels or direct messages; neither is on the menu at all."""
+    oauth = CATALOG["slack-mcp"]["oauth"]
+    offered = set(oauth["scopes"]) | set(oauth["optional_scopes"])
+    for scope in (
+        "users:read.email",
+        "channels:write",
+        "groups:write",
+        "im:write",
+        "mpim:write",
+        "files:write",
+        "emoji:read",
+    ):
+        assert scope not in offered, scope
+
+
+def test_slack_mcp_sends_its_scopes_under_scope_with_no_verbatim_query() -> None:
+    """Slack's app pair needs user_scope because oauth/v2/authorize reads scope
+    as the app's own permissions; the user pair behind the MCP server is
+    reached by standard MCP clients with a plain scope parameter. A verbatim
+    authorization_query would fix the scopes and leave no menu."""
+    oauth = CATALOG["slack-mcp"]["oauth"]
+    assert "scope_parameter" not in oauth
+    assert "authorization_query" not in oauth
+    assert "pkce" not in oauth
+
+
+def test_slack_mcp_takes_user_tokens_and_refuses_bot_tokens() -> None:
+    """The connection is per user; an app's xoxb- token must never pass as one."""
+    slack_mcp = Registry.from_catalog().get("slack-mcp")
+    assert slack_mcp.accepts_token("xoxp-1234-5678-abcdef")
+    assert slack_mcp.accepts_token("xoxe.xoxp-1-abcdef")
+    assert not slack_mcp.accepts_token("xoxb-1234-5678-abcdef")
+    assert "xoxb-1234-5678-abcdef" in CATALOG["slack-mcp"]["examples"]["rejects"]
+
+
+def test_slack_mcp_says_what_a_person_has_to_do_before_authorizing() -> None:
+    """The app's user scopes, the one redirect URI, and what has not been seen
+    to work yet."""
+    setup = CATALOG["slack-mcp"]["setup"]
+    assert "User Token Scopes" in setup
+    assert "Bot Token Scopes" in setup
+    assert "redirect URI" in setup
+    assert "unconfirmed" in setup
+
+
+def test_slack_mcp_is_not_verified_until_an_authorization_has_been_taken() -> None:
+    assert "verified" not in CATALOG["slack-mcp"]
+
+
+def test_slack_mcp_can_sit_beside_a_connection_accepted_by_elimination() -> None:
+    """Its tokens announce themselves, so it takes nothing by elimination."""
+    registry = Registry.from_catalog()
+    assert elimination_problems(["slack-mcp", "freee"], registry) == []
+    assert elimination_problems(["slack-mcp", "notion-mcp"], registry) == []
 
 
 def test_zendesk_leaves_its_root_open_until_an_installation_names_it() -> None:

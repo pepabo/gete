@@ -13,11 +13,10 @@ from gete.connections_listing import connections_table, format_connection
 def test_table_lists_every_connection_with_hosts_and_verification() -> None:
     rows = connections_table(Registry.from_catalog())
     by_id = {row["id"]: row for row in rows}
-    assert set(by_id) >= {"freee", "google", "github", "slack"}
+    assert set(by_id) >= {"freee", "google", "github", "slack-mcp"}
     assert "api.freee.co.jp" in by_id["freee"]["hosts"]
     assert by_id["freee"]["verified"] == "2026-08-20"
     assert by_id["github"]["verified"] == "not verified in Gemini Enterprise"
-    assert by_id["slack"]["status"] == "retired"
     assert by_id["freee"]["status"] == "available"
 
 
@@ -62,13 +61,14 @@ def test_the_description_shows_the_menu_next_to_the_default_scopes() -> None:
 
 
 def test_cli_prints_one_line_per_connection(project: ProjectBuilder) -> None:
+    write_connections(project)
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=project.root):
         result = runner.invoke(main, ["connections"])
     assert result.exit_code == 0, result.output
     lines = [line for line in result.output.splitlines() if line.strip()]
     assert any(line.startswith("freee") for line in lines)
-    assert any("retired" in line and line.startswith("slack") for line in lines)
+    assert any("retired" in line and line.startswith("old-api") for line in lines)
 
 
 def test_cli_connections_works_without_a_project() -> None:
@@ -100,15 +100,33 @@ WITH_SETUP: dict[str, Any] = {
 }
 
 
-def describe(project: ProjectBuilder, connection_id: str) -> Any:
+# A connection nobody may declare any more; the reason travels with it.
+RETIRED: dict[str, Any] = {
+    "display_name": "Old API",
+    "hosts": ["api.old.example.com"],
+    "token_prefixes": ["old_"],
+    "retired": "Its data is read through the native connector; declare internal-api.",
+    "oauth": {
+        "authorization_url": "https://auth.old.example.com/authorize",
+        "token_url": "https://auth.old.example.com/token",
+        "scopes": {"read": "Read old data"},
+    },
+}
+
+
+def write_connections(project: ProjectBuilder) -> None:
     project.write_project(
         {
             "version": 1,
             "project": "example-project",
             "location": "us-central1",
-            "connections": {"internal-api": WITH_SETUP},
+            "connections": {"internal-api": WITH_SETUP, "old-api": RETIRED},
         }
     )
+
+
+def describe(project: ProjectBuilder, connection_id: str) -> Any:
+    write_connections(project)
     runner = CliRunner()
     with runner.isolated_filesystem(temp_dir=project.root):
         return runner.invoke(main, ["connections", connection_id])
@@ -158,14 +176,25 @@ def test_a_catalog_connection_can_be_described_without_a_project() -> None:
     assert "api.github.com" in result.output
 
 
-def test_a_retired_connection_reads_retired_with_the_reason_alongside() -> None:
+def test_a_retired_connection_reads_retired_with_the_reason_alongside(
+    project: ProjectBuilder,
+) -> None:
     """The listing says "retired"; describing one must not say something else."""
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        result = runner.invoke(main, ["connections", "slack"])
+    result = describe(project, "old-api")
     assert result.exit_code == 0, result.output
     assert "status" in result.output and "retired" in result.output
     assert "native connector" in result.output
+
+
+def test_describing_slack_mcp_prints_the_app_setup_without_a_project() -> None:
+    """The Slack app is prepared by a person; the description has to carry it."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(main, ["connections", "slack-mcp"])
+    assert result.exit_code == 0, result.output
+    assert "mcp.slack.com" in result.output
+    assert "Before anyone can authorize:" in result.output
+    assert "User Token Scopes" in result.output
 
 
 def prefixless(**patch: Any) -> Connection:
