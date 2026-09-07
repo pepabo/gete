@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.18](https://github.com/pepabo/gete/compare/v0.2.17...v0.2.18) - 2026-09-07
+
+- Read Slack through its MCP server with the user's own token by @haruotsu in https://github.com/pepabo/gete/pull/58
+
 ## [v0.2.17](https://github.com/pepabo/gete/compare/v0.2.16...v0.2.17) - 2026-09-03
 
 - Let two prefixless connections share an agent when one names its issuer by @haruotsu in https://github.com/pepabo/gete/pull/56
