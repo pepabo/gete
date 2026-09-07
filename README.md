@@ -239,8 +239,8 @@ tools:
 ### Connections
 
 `gete connections` lists what ships: `freee`, `freee-mcp`, `google`, `github`,
-`notion-mcp`, `zendesk`, and `slack` (retired, with the reason). Add your own or
-override a catalog entry in `gete.yaml`:
+`notion-mcp`, `slack-mcp`, and `zendesk`. Add your own or override a catalog
+entry in `gete.yaml`:
 
 ```yaml
 connections:
@@ -401,9 +401,9 @@ Adding a connection to the catalog is one YAML file under
 ### Shared credentials
 
 A connection reads with the caller's token. Some writes have no such token
-to ride on — Slack posting is one, which is why the `slack` connection is
-retired — so gete also ships tools that act with a credential the agent
-holds. Whoever can call the agent acts through that credential; the tools
+to ride on — posting to Slack from an agent nobody has authorized is one —
+so gete also ships tools that act with a credential the agent holds.
+Whoever can call the agent acts through that credential; the tools
 and their guardrails ship with gete, and a declaration can only name them:
 
 ```yaml

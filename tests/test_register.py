@@ -74,9 +74,23 @@ def test_authorization_uri_joins_scopes_with_spaces() -> None:
 
 
 def test_authorization_uri_uses_the_connections_scope_parameter() -> None:
-    slack = CATALOG.get("slack", include_retired=True)
-    params = query(authorization_uri(slack, "c"))
-    assert "user_scope" in params
+    """Slack's app pair reads scope as the app's own permissions and takes the
+    user's under user_scope; a connection declares which the service reads."""
+    entry = Connection.from_mapping(
+        {
+            "id": "example",
+            "display_name": "Example",
+            "hosts": ["api.example.com"],
+            "oauth": {
+                "authorization_url": "https://auth.example.com/authorize",
+                "token_url": "https://auth.example.com/token",
+                "scopes": {"read": "Read data"},
+                "scope_parameter": "user_scope",
+            },
+        }
+    )
+    params = query(authorization_uri(entry, "c"))
+    assert params["user_scope"] == ["read"]
     assert "scope" not in params
 
 
