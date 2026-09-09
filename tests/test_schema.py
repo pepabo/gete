@@ -7,7 +7,7 @@ import pytest
 
 from gete.declaration import read_yaml
 from gete.errors import DeclarationError
-from gete.schema import validate_document
+from gete.schema import load_schema, validate_document
 
 GETE: dict[str, Any] = {
     "version": 1,
@@ -421,6 +421,15 @@ def test_connection_rejects_wildcards_plain_http_and_empty_scope_text(
     """Bare host names, https only, and scope text for the consent screen."""
     with pytest.raises(DeclarationError):
         validate_document("connection", {**CONNECTION, **patch}, source="c.yaml")
+
+
+def test_the_schema_says_what_a_verified_date_records_and_what_follows() -> None:
+    """No behaviour follows from the field, so a reader who meets it has only
+    the schema to learn from: what the date stands for, and that gete does
+    nothing with it."""
+    verified = load_schema("connection")["properties"]["verified"]
+    assert "description" in verified
+    assert "description" in verified["properties"]["gemini_enterprise"]
 
 
 def test_connection_messages_declare_the_reauthorization_text() -> None:

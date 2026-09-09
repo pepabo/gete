@@ -150,10 +150,12 @@
       "minLength": 1
     },
     "verified": {
+      "description": "Where an authorization through this connection has been taken end to end and seen to work. Nothing follows from it: gete checks nothing against it and behaves no differently, but `gete connections` prints it, so a reader can tell what was observed from what a provider's metadata merely promises.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "gemini_enterprise": {
+          "description": "The date an authorization was taken through Gemini Enterprise: consent screen, code exchange, and the token used against the service. Absent until one has been.",
           "type": "string",
           "format": "date"
         }
