@@ -26,21 +26,20 @@ oauth:
   # answers with the user's token at the top level and nothing else to take.
   authorization_url: https://slack.com/oauth/v2_user/authorize
   # The metadata names client_secret_post as the only client authentication
-  # method. Whether Gemini Enterprise sends the secret that way is
-  # unconfirmed, and a connection cannot say: the Authorization resource has
-  # no field for it.
+  # method, and the code exchange goes through however Gemini Enterprise
+  # sends the secret. Which of the two it sends a connection cannot say: the
+  # Authorization resource has no field for it.
   token_url: https://slack.com/api/oauth.v2.user.access
   # scope_parameter stays at its default. The app pair needs user_scope
-  # because oauth/v2/authorize reads scope as the app's own permissions. This
-  # endpoint is reached by standard MCP clients as an RFC 8414 authorization
-  # server, and those send a plain scope parameter, so scope it is -
-  # unconfirmed; user_scope is the switch if the consent screen answers
-  # invalid_scope.
+  # because oauth/v2/authorize reads scope as the app's own permissions; this
+  # endpoint is reached as an RFC 8414 authorization server, where a plain
+  # scope parameter is what a standard MCP client sends, and the consent
+  # screen was built from the scopes sent that way.
   # pkce stays unset: S256 is supported here, not required.
   # No authorization_query either. One would keep access_type and prompt off
   # the URL, as notion-mcp does, but it would also fix the scopes, and the
-  # menu below could not be offered beside it. Slack is expected to ignore
-  # parameters it does not know; unconfirmed.
+  # menu below could not be offered beside it. Slack ignores the two: the
+  # consent screen was reached with both on the URL.
   #
   # Slack fixes a user token's scopes at consent. A scope added here later
   # reaches nobody already authorized until their authorization is reset, so
@@ -90,27 +89,36 @@ setup: |
   URLs): the one named above. Put the app's client id and client secret in
   the secrets named above.
 
+  Turn Model Context Protocol on, under Features -> Agents & AI Apps. With it
+  off the server answers the initialize request with 400 and "App is not
+  enabled", pointing at the app's own settings page. That is a refusal made
+  after reading the token, not a refusal of it - a token the server does not
+  accept answers 401 invalid_token instead - so a correct token looks broken
+  until the toggle is on. Turning it on needs neither a reinstall nor a fresh
+  authorization: a token taken before the toggle works after it.
+
   Where the workspace requires apps to be approved, an admin has to approve
   this one before anyone can authorize. Semantic search needs a plan that
   includes Slack AI search; keyword search works on any plan.
 
-  No authorization has been taken through Gemini Enterprise yet, so the
-  following is read off the server's metadata rather than seen to work:
-  - The token endpoint names client_secret_post as its only client
-    authentication method. Whether Gemini Enterprise sends the client secret
-    that way is unconfirmed.
-  - The scopes are sent under scope, the parameter a standard MCP client
-    uses. If the consent screen answers invalid_scope, set
-    oauth.scope_parameter to user_scope in gete.yaml.
-  - The authorization URL carries access_type and prompt, which are
-    Google's vocabulary. Whether Slack ignores them is unconfirmed.
-  - A standard MCP client sends resource (RFC 8707) with the code exchange;
-    Gemini Enterprise does not. Whether Slack requires it is unconfirmed.
+  An authorization taken through Gemini Enterprise settles what the server's
+  metadata alone could not:
+  - The code exchange goes through however Gemini Enterprise sends the client
+    secret, though the token endpoint names client_secret_post as its only
+    client authentication method.
+  - The consent screen is built from the scopes sent under scope, the
+    parameter a standard MCP client uses; user_scope, which the app pair
+    needs, is not wanted here.
+  - access_type and prompt on the authorization URL are ignored.
+  - resource (RFC 8707) is not required. A standard MCP client sends it with
+    the code exchange and Gemini Enterprise does not; the exchange goes
+    through either way.
   - The metadata offers the refresh_token grant, so tokens may expire.
-    Whether Gemini Enterprise refreshes them is its own doing.
+    Whether Gemini Enterprise refreshes one is unconfirmed: none issued here
+    has yet lived long enough to find out.
 
-# verified is absent because no authorization has been taken through Gemini
-# Enterprise yet.
+verified:
+  gemini_enterprise: 2026-09-09
 
 examples:
   accepts:
