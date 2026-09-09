@@ -285,17 +285,36 @@ def test_slack_mcp_takes_user_tokens_and_refuses_bot_tokens() -> None:
 
 
 def test_slack_mcp_says_what_a_person_has_to_do_before_authorizing() -> None:
-    """The app's user scopes, the one redirect URI, and what has not been seen
-    to work yet."""
+    """The app's user scopes, the one redirect URI, and the toggle the server
+    reads before it will hold a session."""
     setup = CATALOG["slack-mcp"]["setup"]
     assert "User Token Scopes" in setup
     assert "Bot Token Scopes" in setup
     assert "redirect URI" in setup
-    assert "unconfirmed" in setup
+    assert "Model Context Protocol" in setup
 
 
-def test_slack_mcp_is_not_verified_until_an_authorization_has_been_taken() -> None:
-    assert "verified" not in CATALOG["slack-mcp"]
+def test_slack_mcp_names_the_toggle_that_leaves_a_good_token_refused() -> None:
+    """With Model Context Protocol off the server refuses the initialize
+    request, which reads like a bad token and is not one. Turning it on takes
+    back nothing already granted, so setup must say that too."""
+    setup = CATALOG["slack-mcp"]["setup"]
+    assert "Agents & AI Apps" in setup
+    assert "400" in setup
+    assert "reinstall" in setup
+
+
+def test_slack_mcp_leaves_only_refreshing_unconfirmed() -> None:
+    """The rest of setup was seen through Gemini Enterprise; no token issued
+    there has yet lived long enough to expire."""
+    setup = CATALOG["slack-mcp"]["setup"]
+    unconfirmed = [line for line in setup.splitlines() if "unconfirmed" in line]
+    assert len(unconfirmed) == 1
+    assert "refresh" in unconfirmed[0]
+
+
+def test_slack_mcp_records_the_authorization_it_was_verified_with() -> None:
+    assert CATALOG["slack-mcp"]["verified"] == {"gemini_enterprise": "2026-09-09"}
 
 
 def test_slack_mcp_can_sit_beside_a_connection_accepted_by_elimination() -> None:
