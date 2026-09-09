@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.2.19](https://github.com/pepabo/gete/compare/v0.2.18...v0.2.19) - 2026-09-09
+
+- Say in the schema what a verified date records by @haruotsu in https://github.com/pepabo/gete/pull/66
+- Mark slack-mcp verified and name the toggle it needs by @haruotsu in https://github.com/pepabo/gete/pull/65
+
 ## [v0.2.18](https://github.com/pepabo/gete/compare/v0.2.17...v0.2.18) - 2026-09-07
 
 - Read Slack through its MCP server with the user's own token by @haruotsu in https://github.com/pepabo/gete/pull/58
