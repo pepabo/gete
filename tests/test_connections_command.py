@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import pytest
 from click.testing import CliRunner
 from conftest import ProjectBuilder
 
@@ -60,22 +61,20 @@ def test_the_description_shows_the_menu_next_to_the_default_scopes() -> None:
     assert "optional scopes" in output
 
 
+@pytest.mark.usefixtures("below_project")
 def test_cli_prints_one_line_per_connection(project: ProjectBuilder) -> None:
     write_connections(project)
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=project.root):
-        result = runner.invoke(main, ["connections"])
+    result = CliRunner().invoke(main, ["connections"])
     assert result.exit_code == 0, result.output
     lines = [line for line in result.output.splitlines() if line.strip()]
     assert any(line.startswith("freee") for line in lines)
     assert any("retired" in line and line.startswith("old-api") for line in lines)
 
 
+@pytest.mark.usefixtures("outside_any_project")
 def test_cli_connections_works_without_a_project() -> None:
     """The catalog is worth reading before there is a gete.yaml."""
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        result = runner.invoke(main, ["connections"])
+    result = CliRunner().invoke(main, ["connections"])
     assert result.exit_code == 0, result.output
     assert "freee" in result.output
 
@@ -126,12 +125,12 @@ def write_connections(project: ProjectBuilder) -> None:
 
 
 def describe(project: ProjectBuilder, connection_id: str) -> Any:
+    """Callers take below_project: connections reads the overrides from there."""
     write_connections(project)
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=project.root):
-        return runner.invoke(main, ["connections", connection_id])
+    return CliRunner().invoke(main, ["connections", connection_id])
 
 
+@pytest.mark.usefixtures("below_project")
 def test_describing_a_connection_prints_what_a_person_has_to_do_first(
     project: ProjectBuilder,
 ) -> None:
@@ -141,6 +140,7 @@ def test_describing_a_connection_prints_what_a_person_has_to_do_first(
         assert line in result.output
 
 
+@pytest.mark.usefixtures("below_project")
 def test_the_description_names_the_secrets_and_the_redirect_uri(
     project: ProjectBuilder,
 ) -> None:
@@ -151,6 +151,7 @@ def test_the_description_names_the_secrets_and_the_redirect_uri(
     assert "https://vertexaisearch.cloud.google.com/oauth-redirect" in output
 
 
+@pytest.mark.usefixtures("below_project")
 def test_a_connection_without_setup_notes_is_still_described(
     project: ProjectBuilder,
 ) -> None:
@@ -160,6 +161,7 @@ def test_a_connection_without_setup_notes_is_still_described(
     assert "https://accounts.secure.freee.co.jp/public_api/token" in result.output
 
 
+@pytest.mark.usefixtures("below_project")
 def test_describing_an_unknown_connection_names_the_known_ones(
     project: ProjectBuilder,
 ) -> None:
@@ -168,14 +170,14 @@ def test_describing_an_unknown_connection_names_the_known_ones(
     assert "freee" in result.output
 
 
+@pytest.mark.usefixtures("outside_any_project")
 def test_a_catalog_connection_can_be_described_without_a_project() -> None:
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        result = runner.invoke(main, ["connections", "github"])
+    result = CliRunner().invoke(main, ["connections", "github"])
     assert result.exit_code == 0, result.output
     assert "api.github.com" in result.output
 
 
+@pytest.mark.usefixtures("below_project")
 def test_a_retired_connection_reads_retired_with_the_reason_alongside(
     project: ProjectBuilder,
 ) -> None:
@@ -186,11 +188,10 @@ def test_a_retired_connection_reads_retired_with_the_reason_alongside(
     assert "native connector" in result.output
 
 
+@pytest.mark.usefixtures("outside_any_project")
 def test_describing_slack_mcp_prints_the_app_setup_without_a_project() -> None:
     """The Slack app is prepared by a person; the description has to carry it."""
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        result = runner.invoke(main, ["connections", "slack-mcp"])
+    result = CliRunner().invoke(main, ["connections", "slack-mcp"])
     assert result.exit_code == 0, result.output
     assert "mcp.slack.com" in result.output
     assert "Before anyone can authorize:" in result.output

@@ -61,6 +61,37 @@ def project(tmp_path: Path) -> ProjectBuilder:
     return ProjectBuilder(tmp_path)
 
 
+@pytest.fixture
+def below_project(project: ProjectBuilder, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A working directory inside the project, so discovery has to walk up.
+
+    The commands that read a project take it from the working directory. A test
+    about such a command, rather than about the loader it calls, therefore has
+    to run from somewhere in the tree instead of at its root.
+    """
+    directory = project.root / "somewhere"
+    directory.mkdir()
+    monkeypatch.chdir(directory)
+    return directory
+
+
+@pytest.fixture
+def outside_any_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A working directory with no gete.yaml above it.
+
+    For the commands that have to answer before there is a project at all.
+    """
+    directory = tmp_path / "elsewhere"
+    directory.mkdir()
+    # A gete.yaml anywhere above would be found by the walk up, and every test
+    # that means "there is no project" would pass without proving anything.
+    assert not any(
+        (parent / "gete.yaml").exists() for parent in (directory, *directory.parents)
+    )
+    monkeypatch.chdir(directory)
+    return directory
+
+
 class FakeGcp:
     """Answers from a table of (method, url) and records every write."""
 
