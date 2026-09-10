@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import pytest
 from click.testing import CliRunner
 from conftest import ProjectBuilder
 
@@ -70,12 +71,11 @@ def test_node_ids_are_safe_mermaid_identifiers(project: ProjectBuilder) -> None:
         assert head.replace("_", "").isalnum(), line
 
 
+@pytest.mark.usefixtures("below_project")
 def test_cli_prints_mermaid(project: ProjectBuilder) -> None:
     project.write_agent("finance", FINANCE)
     (project.agents_dir / "finance" / "src").mkdir()
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=project.root):
-        result = runner.invoke(main, ["graph", "finance"])
+    result = CliRunner().invoke(main, ["graph", "finance"])
     assert result.exit_code == 0, result.output
     assert result.output.startswith("flowchart LR")
 

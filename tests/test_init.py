@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from conftest import ProjectBuilder
 
@@ -62,21 +63,20 @@ def test_init_agent_refuses_a_name_that_is_not_a_label(tmp_path: Path) -> None:
         init_agent(tmp_path, "Mail_Triage")
 
 
-def test_cli_init_creates_the_project_when_there_is_none(tmp_path: Path) -> None:
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=tmp_path) as cwd:
-        result = runner.invoke(main, ["init", "mail-triage"])
-        assert result.exit_code == 0, result.output
-        assert (Path(cwd) / "gete.yaml").is_file()
-        assert (Path(cwd) / "agents" / "mail-triage" / "agent.yaml").is_file()
-        assert "gete.yaml" in result.output
+def test_cli_init_creates_the_project_when_there_is_none(
+    outside_any_project: Path,
+) -> None:
+    result = CliRunner().invoke(main, ["init", "mail-triage"])
+    assert result.exit_code == 0, result.output
+    assert (outside_any_project / "gete.yaml").is_file()
+    assert (outside_any_project / "agents" / "mail-triage" / "agent.yaml").is_file()
+    assert "gete.yaml" in result.output
 
 
+@pytest.mark.usefixtures("below_project")
 def test_cli_init_adds_to_an_existing_project_from_anywhere_below_it(
     project: ProjectBuilder,
 ) -> None:
-    runner = CliRunner()
-    with runner.isolated_filesystem(temp_dir=project.root):
-        result = runner.invoke(main, ["init", "new-agent"])
+    result = CliRunner().invoke(main, ["init", "new-agent"])
     assert result.exit_code == 0, result.output
     assert (project.root / "agents" / "new-agent" / "agent.yaml").is_file()
