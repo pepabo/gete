@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.2.20](https://github.com/pepabo/gete/compare/v0.2.19...v0.2.20) - 2026-09-10
+
+- Bump Songmu/tagpr from 1.20.1 to 1.20.2 by @dependabot[bot] in https://github.com/pepabo/gete/pull/60
+- Bump ruff from 0.16.4 to 0.16.5 by @dependabot[bot] in https://github.com/pepabo/gete/pull/61
+- Update google-adk[mcp] requirement from <2.8,>=2.6 to >=2.6,<2.9 by @dependabot[bot] in https://github.com/pepabo/gete/pull/62
+- Bump google-auth from 2.56.3 to 2.57.0 by @dependabot[bot] in https://github.com/pepabo/gete/pull/63
+- Bump click from 8.4.2 to 8.5.0 by @dependabot[bot] in https://github.com/pepabo/gete/pull/64
+- Replace Click's deprecated isolated_filesystem in the CLI tests by @haruotsu in https://github.com/pepabo/gete/pull/68
+
 ## [v0.2.19](https://github.com/pepabo/gete/compare/v0.2.18...v0.2.19) - 2026-09-09
 
 - Say in the schema what a verified date records by @haruotsu in https://github.com/pepabo/gete/pull/66
