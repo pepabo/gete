@@ -1,5 +1,12 @@
 # Changelog
 
+## [v0.2.21](https://github.com/pepabo/gete/compare/v0.2.20...v0.2.21) - 2026-09-15
+
+- Bump Songmu/tagpr from 1.20.2 to 1.20.3 by @dependabot[bot] in https://github.com/pepabo/gete/pull/70
+- Bump ruff from 0.16.5 to 0.16.6 by @dependabot[bot] in https://github.com/pepabo/gete/pull/71
+- Bump types-pyyaml from 6.0.12.20260815 to 6.0.12.20260906 by @dependabot[bot] in https://github.com/pepabo/gete/pull/72
+- Bump google-auth from 2.57.0 to 2.57.1 by @dependabot[bot] in https://github.com/pepabo/gete/pull/73
+
 ## [v0.2.20](https://github.com/pepabo/gete/compare/v0.2.19...v0.2.20) - 2026-09-10
 
 - Bump Songmu/tagpr from 1.20.1 to 1.20.2 by @dependabot[bot] in https://github.com/pepabo/gete/pull/60
