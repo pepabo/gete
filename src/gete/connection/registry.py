@@ -188,6 +188,11 @@ class Connection:
     # Registry. A connection without prefixes of its own accepts a token only
     # if none of these match, so a bare from_mapping() connection judges more
     # leniently than the same connection taken from a Registry.
+    # Not narrowed to the connections one agent holds, the way the rules on
+    # what an agent may hold together are: elimination is the weakest way to
+    # accept a token, and one announcing itself as another known service's is
+    # not this connection's whichever agent it reached. A connection whose
+    # tokens do carry such a prefix declares it.
     foreign_prefixes: tuple[str, ...] = ()
     base_url: str | None = None
     docs: str | None = None

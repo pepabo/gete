@@ -388,15 +388,56 @@ def test_retired_connection_explains_why() -> None:
     assert registry.get("old", include_retired=True).retired
 
 
-def test_overlapping_prefixes_between_connections_are_reported() -> None:
-    """Elimination only works if no two services can claim the same token."""
+def test_overlapping_prefixes_on_one_agent_are_reported_as_one_pairing() -> None:
+    """A token carrying the longer prefix is accepted by both, so its shape
+    cannot say which of the two authorizations it came from."""
     a = connection(id="a", token_prefixes=["tok_"])
     b = connection(id="b", token_prefixes=["tok_v2_"])
-    registry = Registry([a, b])
-    assert any(
-        "tok_" in problem
-        for problem in connection_problems(registry.get("a"), registry)
+    found = elimination_problems(["b", "a"], Registry([a, b]))
+    assert len(found) == 1, found
+    assert "a, b" in found[0] and "'tok_v2_'" in found[0], found
+
+
+def test_a_shared_prefix_is_no_problem_on_its_own() -> None:
+    """One service run in two places issues the same shapes from both. The
+    registry may hold the two; only an agent holding both could confuse them."""
+    hosted = connection(id="hosted", token_prefixes=["tok_"])
+    self_hosted = connection(
+        id="self-hosted", token_prefixes=["tok_"], hosts=["tok.example.net"]
     )
+    registry = Registry([hosted, self_hosted])
+    assert connection_problems(registry.get("self-hosted"), registry) == []
+    assert elimination_problems(["self-hosted"], registry) == []
+
+
+def test_a_pair_sharing_several_prefixes_is_reported_once() -> None:
+    """The pairing is what has to change, whichever prefix gives it away."""
+    hosted = connection(id="hosted", token_prefixes=["tko_", "tku_"])
+    self_hosted = connection(id="self-hosted", token_prefixes=["tku_", "tko_"])
+    found = elimination_problems(
+        ["hosted", "self-hosted"], Registry([hosted, self_hosted])
+    )
+    assert len(found) == 1, found
+    assert "'tko_', 'tku_'" in found[0], found
+
+
+def test_prefixes_a_declared_token_format_never_reads_overlap_nothing() -> None:
+    """The format decides on its own, so the connection takes no token for
+    its prefix and cannot be mistaken for one that does."""
+    by_format = connection(id="by-format", token_prefixes=["tok_"], **JWT_TOKENS)
+    by_prefix = connection(
+        id="by-prefix",
+        token_prefixes=["tok_"],
+        hosts=["api.prefix.example.com"],
+        oauth={
+            "authorization_url": "https://auth.prefix.example.com/authorize",
+            "token_url": "https://auth.prefix.example.com/token",
+            "scopes": {"read": "Read data"},
+        },
+    )
+    registry = Registry([by_format, by_prefix])
+    assert not registry.get("by-format").accepts_token("tok_1")
+    assert elimination_problems(["by-format", "by-prefix"], registry) == []
 
 
 def test_too_broad_hosts_are_reported() -> None:
