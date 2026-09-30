@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.23](https://github.com/pepabo/gete/compare/v0.2.22...v0.2.23) - 2026-09-30
+
+- Add a github-app connection whose tokens gete issues itself by @haruotsu in https://github.com/pepabo/gete/pull/83
+
 ## [v0.2.22](https://github.com/pepabo/gete/compare/v0.2.21...v0.2.22) - 2026-09-30
 
 - Check token prefix overlap per agent, not across the registry by @haruotsu in https://github.com/pepabo/gete/pull/81
