@@ -828,3 +828,10 @@ def test_a_connection_cannot_be_both_oauth_and_an_app() -> None:
     both.pop("id")
     with pytest.raises(DeclarationError):
         Registry.from_catalog({"example-app": both})
+
+
+def test_an_app_id_given_as_a_number_is_read_as_its_digits() -> None:
+    registry = Registry.from_catalog({"github-app": {"app": {"app_id": 123}}})
+    app = registry.get("github-app").app
+    assert app is not None
+    assert app.app_id == "123"

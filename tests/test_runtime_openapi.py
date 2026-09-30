@@ -1,6 +1,7 @@
 """OpenAPI tools: operations become tools, and requests go through gete's client."""
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,7 @@ import pytest
 import yaml
 from conftest import ProjectBuilder
 
-from gete.connection import Registry
+from gete.connection import Registry, github_app
 from gete.declaration import RESOLVED_FILE, Agent, load_project, resolve
 from gete.errors import DeclarationError, GeteError
 from gete.openapi import pruned_description
@@ -839,3 +840,14 @@ def test_an_app_connection_is_offered_no_reauthorization_tool(
     """There is nothing for a user to approve."""
     tools = build_app_agent(project).tools
     assert not any(isinstance(tool, ReauthorizationToolset) for tool in tools)
+
+
+def test_building_an_app_agent_takes_the_key_out_of_the_environment(
+    project: ProjectBuilder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Taken before the agent's own modules are imported, so none of them
+    finds the key where every other setting is."""
+    monkeypatch.setattr(github_app, "_held_keys", {})
+    monkeypatch.setenv("GETE_APP_KEY_GITHUB_APP", "pem")
+    build_app_agent(project)
+    assert "GETE_APP_KEY_GITHUB_APP" not in os.environ

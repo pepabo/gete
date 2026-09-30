@@ -437,7 +437,7 @@ connections:
   github-app:
     base_url: https://ghe.example.com/api/v3   # leave out for github.com
     app:
-      app_id: "123"
+      app_id: 123
       private_key_secret: ge-github-app-private-key
       # The ceiling of every token issued through this connection
       repositories: [example-org/requests]
@@ -471,7 +471,11 @@ For such a connection gete:
 - delivers the key like `secret_env`: `private_key_secret` reaches the
   deployment as `GETE_APP_KEY_GITHUB_APP`, which the agent cannot set
   itself. The App ID and the ceiling travel in the resolved declaration.
-  `gete run` reads the PEM from the same variable.
+  `gete run` reads the PEM from the same variable. When the agent is built,
+  before its own modules are imported, gete takes the variable out of the
+  environment and keeps the key to itself;
+- draws the connection in `gete graph` marked `(bot)`, like a shared
+  credential.
 
 `repositories` must share one owner, since a token comes from one
 installation. `permissions` is required: left out, a token would carry
@@ -479,6 +483,14 @@ everything the installation was granted. Whoever can call the agent acts as
 the App within that ceiling, whatever they could reach on GitHub
 themselves, so keep it to what the agent's tools read. `mcp` blocks cannot
 use an app connection yet.
+
+The ceiling binds the tokens gete issues, not the key. Python tools run in
+the same process as gete, and code that goes looking for the key there can
+find it and issue a token with the installation's whole grant. Taking it out
+of the environment keeps it away from tools reading their settings and from
+processes they start; it is not a sandbox. Grant the App itself no more than
+the agents holding the connection may do, and review the python tools of
+those agents as code that holds the key.
 
 ### Shared credentials
 

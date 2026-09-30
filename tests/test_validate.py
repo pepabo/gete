@@ -948,6 +948,13 @@ def test_an_app_the_installation_did_not_fill_in_is_refused(
     assert any(f"app.{missing}" in p and "gete.yaml" in p for p in found), found
 
 
+def test_an_app_id_written_as_a_bare_number_passes(project: ProjectBuilder) -> None:
+    """YAML reads an unquoted App ID as a number; it names the same App."""
+    write_github_app(project, app_id=123)
+    project.write_agent("triage", {"connections": ["github-app"]})
+    assert problems(project) == []
+
+
 def test_app_repositories_under_more_than_one_owner_are_refused(
     project: ProjectBuilder,
 ) -> None:

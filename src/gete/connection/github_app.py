@@ -19,7 +19,7 @@ import logging
 import os
 import time
 import urllib.parse
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping, MutableMapping
 from datetime import datetime
 from typing import Any
 
@@ -70,7 +70,7 @@ class InstallationTokens:
         self._connection = connection
         self._app = connection.app
         self._client = client or httpx.AsyncClient(timeout=TIMEOUT_SECONDS)
-        self._environ = os.environ if environ is None else environ
+        self._environ = environ
         self._clock = clock
         self._lock = asyncio.Lock()
         self._installation: int | None = None
@@ -186,7 +186,7 @@ class InstallationTokens:
         """The App's own credential, signed with the key the deployment holds."""
         if not self._app.app_id:
             raise self._unavailable("no App is declared for it")
-        pem = self._environ.get(self._connection.app_key_env)
+        pem = _app_key(self._connection.app_key_env, self._environ)
         if not pem:
             raise self._unavailable(
                 f"the App's private key is not in {self._connection.app_key_env}"
@@ -225,6 +225,39 @@ class InstallationTokens:
             f"{self._connection.display_name} is unavailable: {reason}. "
             "Ask the operator to check the App."
         )
+
+
+# Keys taken out of the environment by hold_app_keys, by variable name.
+_held_keys: dict[str, str] = {}
+
+
+def hold_app_keys(
+    connections: Iterable[Connection],
+    environ: MutableMapping[str, str] = os.environ,
+) -> None:
+    """Take the app connections' private keys out of the environment.
+
+    Called before an agent's own modules are imported. The key could issue
+    a token with the installation's whole grant; left in the environment,
+    any tool reading its settings, and any process it starts, would find it
+    there. This does not isolate the key from code running in the same
+    process, which can still reach this module; it keeps the key off the
+    path every other setting is read from.
+    """
+    for connection in connections:
+        if connection.app is None:
+            continue
+        pem = environ.pop(connection.app_key_env, None)
+        if pem:
+            _held_keys[connection.app_key_env] = pem
+
+
+def _app_key(name: str, environ: Mapping[str, str] | None) -> str | None:
+    if environ is not None:
+        return environ.get(name)
+    # Not held when nothing built an agent first, as when gete's client is
+    # used on its own; the environment is then the only place it can be.
+    return _held_keys.get(name) or os.environ.get(name)
 
 
 def _json_object(response: httpx.Response) -> Mapping[str, Any]:

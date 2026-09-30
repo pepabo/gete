@@ -11,8 +11,12 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-from gete.connection import Connection, Registry
-from gete.connection.github_app import AppTokenUnavailable, InstallationTokens
+from gete.connection import Connection, Registry, github_app
+from gete.connection.github_app import (
+    AppTokenUnavailable,
+    InstallationTokens,
+    hold_app_keys,
+)
 from gete.errors import UserFacingError
 
 PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -259,3 +263,49 @@ async def test_an_answer_that_is_not_json_is_reported_as_text() -> None:
     github.installations = {"example-org/requests": httpx.Response(200, content=b"{")}
     with pytest.raises(AppTokenUnavailable):
         await issuer(github).token()
+
+
+@pytest.fixture
+def held(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    keys: dict[str, str] = {}
+    monkeypatch.setattr(github_app, "_held_keys", keys)
+    return keys
+
+
+def test_holding_the_keys_takes_them_out_of_the_environment(
+    held: dict[str, str],
+) -> None:
+    """What the agent's own code or a process it starts reads from the
+    environment no longer includes the App's key."""
+    environ = {"GETE_APP_KEY_GITHUB_APP": PEM, "OTHER": "kept"}
+    hold_app_keys([app_connection()], environ)
+    assert environ == {"OTHER": "kept"}
+
+
+def test_a_connection_that_is_not_an_app_keeps_its_variable(
+    held: dict[str, str],
+) -> None:
+    environ = {"GETE_APP_KEY_GITHUB": "not ours to take"}
+    github = Registry.from_catalog().get("github")
+    hold_app_keys([github], environ)
+    assert environ == {"GETE_APP_KEY_GITHUB": "not ours to take"}
+
+
+async def test_a_held_key_still_signs(held: dict[str, str]) -> None:
+    hold_app_keys([app_connection()], {"GETE_APP_KEY_GITHUB_APP": PEM})
+    github = GitHub()
+    tokens = InstallationTokens(
+        app_connection(),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(github)),
+        environ=None,
+        clock=lambda: NOW,
+    )
+    assert await tokens.token() == TOKEN
+
+
+def test_holding_twice_keeps_the_key_already_held(held: dict[str, str]) -> None:
+    """A second build in the same process finds the variable gone; the key it
+    took the first time is still the one used."""
+    hold_app_keys([app_connection()], {"GETE_APP_KEY_GITHUB_APP": PEM})
+    hold_app_keys([app_connection()], {})
+    assert held == {"GETE_APP_KEY_GITHUB_APP": PEM}

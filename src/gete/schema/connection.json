@@ -139,9 +139,13 @@
       "additionalProperties": false,
       "properties": {
         "app_id": {
-          "description": "The App's numeric ID, from its settings page.",
-          "type": "string",
-          "pattern": "^[0-9]+$"
+          "description": "The App's numeric ID, from its settings page. Quoted or not; YAML reads a bare one as a number.",
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^[0-9]+$",
+          "minimum": 1
         },
         "private_key_secret": {
           "description": "Secret Manager secret holding the App's private key (PEM). The latest version is used.",

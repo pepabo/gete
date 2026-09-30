@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from gete.connection.github_app import hold_app_keys
 from gete.connection.runtime import authorization_id
 from gete.declaration import Agent, Resolved, load_resolved, resolved_from_document
 from gete.policies import applicable, compose_instruction
@@ -33,6 +34,12 @@ def _build(resolved: Resolved) -> Any:
     from google.adk.agents import LlmAgent
 
     agent = resolved.agent
+    # Before build_tools imports the agent's own modules, so none of them
+    # finds an App's key in the environment.
+    hold_app_keys(
+        resolved.registry.get(connection_id, include_retired=True)
+        for connection_id in agent.connections
+    )
     policies = applicable(resolved.policies, resolved.data)
     rules = RedactRules.from_policies(policies)
     authorizations = {
