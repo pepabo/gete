@@ -12,7 +12,7 @@ from importlib.metadata import version
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from gete.declaration import Agent, Project
+from gete.declaration import Agent, Project, app_key_secrets
 from gete.shared_credentials import SHARED_CREDENTIALS
 
 # No version in the header: a development build's version changes with every
@@ -150,7 +150,11 @@ def _runtime_settings(
     scalars: dict[str, str] = {}
     if runtime.get("env"):
         maps["env"] = _hcl_map(runtime["env"])
-    secret_env = {**runtime.get("secret_env", {}), **_shared_secret_env(project, agent)}
+    secret_env = {
+        **runtime.get("secret_env", {}),
+        **_shared_secret_env(project, agent),
+        **app_key_secrets(project, agent),
+    }
     if secret_env:
         maps["secret_env"] = _hcl_map(secret_env)
     for key in ("min_instances", "max_instances"):

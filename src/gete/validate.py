@@ -7,7 +7,11 @@ from urllib.parse import urlsplit
 
 from gete._yaml import read_yaml
 from gete.connection import Registry
-from gete.connection.checks import connection_problems, elimination_problems
+from gete.connection.checks import (
+    app_problems,
+    connection_problems,
+    elimination_problems,
+)
 from gete.connection.registry import missing_base_url
 from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
@@ -117,7 +121,27 @@ def _agent_problems(
             found.append(f"connections: {error}")
             continue
         known.add(connection_id)
-        menu = connection.oauth.optional_scopes
+        if connection.app is not None:
+            found.extend(
+                f"connections: {message}" for message in app_problems(connection)
+            )
+            if connection_id in agent.scope_selections:
+                found.append(
+                    f"connections: {connection_id} issues its own tokens and "
+                    "offers no scopes to select; what they may do is "
+                    f"connections.{connection_id}.app.permissions in gete.yaml"
+                )
+            for block, values in (("env", agent.env), ("secret_env", agent.secret_env)):
+                if connection.app_key_env in values:
+                    # Delivered from gete.yaml; an agent pointing the variable
+                    # elsewhere would issue tokens as an App of its choosing.
+                    found.append(
+                        f"runtime.agent_engine.{block}: {connection.app_key_env} "
+                        f"is delivered from connections.{connection_id}.app."
+                        "private_key_secret in gete.yaml; the agent does not set it"
+                    )
+            continue
+        menu = connection.oauth.optional_scopes if connection.oauth else {}
         outside = [
             scope
             for scope in agent.scope_selections.get(connection_id, ())
@@ -320,6 +344,13 @@ def _mcp_problems(
         ]
     url: str = mcp["url"]
     connection = registry.get(connection_id)
+    if connection.app is not None:
+        # The MCP toolset attaches a token it reads synchronously, and an
+        # issued token is fetched by gete's own client when a request is made.
+        return [
+            f"mcp: connection {connection_id!r} issues its own tokens, which "
+            "only openapi blocks and gete's client send"
+        ]
     if not connection.allows(url):
         hosts = ", ".join(sorted(connection.hosts))
         return [

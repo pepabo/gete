@@ -82,3 +82,32 @@ def test_the_connections_without_a_token_are_named(project: ProjectBuilder) -> N
         "finance", ["freee", "google"], {"GETE_TOKEN_FREEE": "a1b2c3"}
     )
     assert missing_tokens("finance", ["freee", "google"], state) == ["google"]
+
+
+def test_an_app_connection_is_not_asked_for_a_users_token(
+    project: ProjectBuilder,
+) -> None:
+    """Its token is issued from the key in GETE_APP_KEY_<CONNECTION>; a
+    GETE_TOKEN_ variable for it would never be read."""
+    from gete.run import user_authorized
+
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "github-app": {
+                    "app": {
+                        "app_id": "123",
+                        "private_key_secret": "ge-github-app-private-key",
+                        "repositories": ["example-org/requests"],
+                        "permissions": {"issues": "read"},
+                    }
+                }
+            },
+        }
+    )
+    project.write_agent("triage", {"connections": ["freee", "github-app"]})
+    loaded = load_project(project.root / "gete.yaml")
+    assert user_authorized(loaded, loaded.agents[0]) == ["freee"]

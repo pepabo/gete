@@ -1,6 +1,7 @@
 """OpenAPI tools: operations become tools, and requests go through gete's client."""
 
 import copy
+import os
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,7 @@ import pytest
 import yaml
 from conftest import ProjectBuilder
 
-from gete.connection import Registry
+from gete.connection import Registry, github_app
 from gete.declaration import RESOLVED_FILE, Agent, load_project, resolve
 from gete.errors import DeclarationError, GeteError
 from gete.openapi import pruned_description
@@ -778,3 +779,75 @@ async def test_the_pruned_description_builds_the_same_tools(tmp_path: Path) -> N
             ours._get_declaration().model_dump_json()
             == theirs._get_declaration().model_dump_json()
         )
+
+
+GITHUB_APP_OVERRIDE: dict[str, Any] = {
+    "app": {
+        "app_id": "123",
+        "private_key_secret": "ge-github-app-private-key",
+        "repositories": ["example-org/requests"],
+        "permissions": {"issues": "read"},
+    }
+}
+
+
+def build_app_agent(project: ProjectBuilder) -> Any:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"github-app": GITHUB_APP_OVERRIDE},
+        }
+    )
+    directory = project.write_agent(
+        "mail-triage",
+        {
+            "connections": ["github-app"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": "./spec.yaml",
+                        "connection": "github-app",
+                        "operations": ["ListSearchResults"],
+                        "effect": "read",
+                    }
+                }
+            ],
+        },
+    )
+    (directory / "spec.yaml").write_text(yaml.safe_dump(SPEC, sort_keys=False))
+    loaded = load_project(project.root / "gete.yaml")
+    path = directory / RESOLVED_FILE
+    path.write_text(yaml.safe_dump(resolve(loaded, loaded.agents[0]), sort_keys=False))
+    return build(path)
+
+
+async def test_an_app_connections_tools_are_offered_without_a_users_token(
+    project: ProjectBuilder,
+) -> None:
+    """The token is issued when a request is made; whether it can be is told
+    then, as text, not by hiding the tools."""
+    [built] = build_app_agent(project).tools
+    assert isinstance(built, OpenApiToolset)
+    tools = await built.get_tools(Context({}))
+    assert [tool.name for tool in tools] == ["ListSearchResults"]
+
+
+def test_an_app_connection_is_offered_no_reauthorization_tool(
+    project: ProjectBuilder,
+) -> None:
+    """There is nothing for a user to approve."""
+    tools = build_app_agent(project).tools
+    assert not any(isinstance(tool, ReauthorizationToolset) for tool in tools)
+
+
+def test_building_an_app_agent_takes_the_key_out_of_the_environment(
+    project: ProjectBuilder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Taken before the agent's own modules are imported, so none of them
+    finds the key where every other setting is."""
+    monkeypatch.setattr(github_app, "_held_keys", {})
+    monkeypatch.setenv("GETE_APP_KEY_GITHUB_APP", "pem")
+    build_app_agent(project)
+    assert "GETE_APP_KEY_GITHUB_APP" not in os.environ

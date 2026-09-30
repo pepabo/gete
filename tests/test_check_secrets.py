@@ -142,3 +142,40 @@ def test_a_shared_credentials_token_secret_is_checked(project: ProjectBuilder) -
     loaded = load_project(project.root / "gete.yaml")
     reported = [str(problem) for problem in check_secrets(loaded, gcp)]
     assert any("slack-bot-token" in message for message in reported)
+
+
+def test_an_app_connections_private_key_is_checked_instead_of_an_oauth_client(
+    project: ProjectBuilder,
+) -> None:
+    """The key is delivered to the deployment whether or not the agent is
+    registered, and there is no OAuth client behind an App connection."""
+    gcp = FakeGcp()
+    gcp.route("GET", versions("ge-github-app-private-key"), {})
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "github-app": {
+                    "app": {
+                        "app_id": "123",
+                        "private_key_secret": "ge-github-app-private-key",
+                        "repositories": ["example-org/requests"],
+                        "permissions": {"issues": "read"},
+                    }
+                }
+            },
+        }
+    )
+    project.write_agent(
+        "triage",
+        {
+            "connections": ["github-app"],
+            "registration": {"gemini_enterprise": {"engine": "app_1"}},
+        },
+    )
+    loaded = load_project(project.root / "gete.yaml")
+    reported = [str(problem) for problem in check_secrets(loaded, gcp)]
+    assert len(reported) == 1, reported
+    assert "ge-github-app-private-key" in reported[0]

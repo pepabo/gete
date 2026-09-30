@@ -250,6 +250,10 @@ class OpenApiToolset(BaseToolset):
         # No context at all counts as no token: the Agent Card is built that
         # way, and it must not promise what an unauthorized user cannot call.
         state = getattr(readonly_context, "state", None)
+        if self._connection.app is not None:
+            # No user's token is involved. The token is issued when a request
+            # is made, and a failure to issue one is told then, as text.
+            return list(self._tools)
         if usable_token(self._connection, self._key, state) is None:
             return []
         return list(self._tools)

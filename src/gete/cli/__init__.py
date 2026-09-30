@@ -261,17 +261,18 @@ def run(name: str) -> None:
         find_agent,
         initial_state,
         missing_tokens,
+        user_authorized,
     )
 
     try:
         project = load_project(find_project_file(Path.cwd()))
         agent = build_local_agent(project, name)
-        declared = find_agent(project, name)
+        authorized = user_authorized(project, find_agent(project, name))
     except GeteError as error:
         click.echo(str(error), err=True)
         sys.exit(1)
-    state = initial_state(name, declared.connections, os.environ)
-    missing = missing_tokens(name, declared.connections, state)
+    state = initial_state(name, authorized, os.environ)
+    missing = missing_tokens(name, authorized, state)
     if missing:
         click.echo(
             f"no token for {', '.join(missing)}; set GETE_TOKEN_<CONNECTION>", err=True

@@ -213,3 +213,38 @@ def test_without_the_project_entry_nothing_is_injected(
     """validate reports it; the generated call must not invent a secret name."""
     project.write_agent("poster", {"shared_credentials": ["slack_post"]})
     assert "SLACK_BOT_TOKEN" not in files(project)["poster.tf"]
+
+
+APP_PROJECT: dict[str, Any] = {
+    "version": 1,
+    "project": "example-project",
+    "location": "us-central1",
+    "connections": {
+        "github-app": {
+            "app": {
+                "app_id": "123",
+                "private_key_secret": "ge-github-app-private-key",
+                "repositories": ["example-org/requests"],
+                "permissions": {"issues": "read"},
+            }
+        }
+    },
+}
+
+
+def test_an_app_connections_private_key_is_wired_into_secret_env(
+    project: ProjectBuilder,
+) -> None:
+    """Named once in gete.yaml, delivered to every agent holding the connection."""
+    project.write_project(APP_PROJECT)
+    project.write_agent("triage", {"connections": ["github-app"]})
+    text = files(project)["triage.tf"]
+    assert 'GETE_APP_KEY_GITHUB_APP = "ge-github-app-private-key"' in text
+
+
+def test_an_agent_without_the_app_connection_gets_no_key(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(APP_PROJECT)
+    project.write_agent("triage")
+    assert "GETE_APP_KEY" not in files(project)["triage.tf"]

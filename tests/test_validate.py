@@ -896,3 +896,142 @@ def test_openapi_operations_are_held_against_the_description(
     )
     found = problems(project)
     assert any("Nope" in p for p in found), found
+
+
+GITHUB_APP = {
+    "app_id": "123",
+    "private_key_secret": "ge-github-app-private-key",
+    "repositories": ["example-org/requests"],
+    "permissions": {"issues": "read"},
+}
+
+
+def write_github_app(project: ProjectBuilder, **app: Any) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"github-app": {"app": {**GITHUB_APP, **app}}},
+        }
+    )
+
+
+def test_a_configured_github_app_passes(project: ProjectBuilder) -> None:
+    write_github_app(project)
+    project.write_agent("triage", {"connections": ["github-app"]})
+    assert problems(project) == []
+
+
+@pytest.mark.parametrize(
+    "missing", ["app_id", "private_key_secret", "repositories", "permissions"]
+)
+def test_an_app_the_installation_did_not_fill_in_is_refused(
+    project: ProjectBuilder, missing: str
+) -> None:
+    """The catalog cannot know which App; without one there is nothing to
+    issue with, and without the limits a token would carry everything."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "github-app": {
+                    "app": {k: v for k, v in GITHUB_APP.items() if k != missing}
+                }
+            },
+        }
+    )
+    project.write_agent("triage", {"connections": ["github-app"]})
+    found = problems(project)
+    assert any(f"app.{missing}" in p and "gete.yaml" in p for p in found), found
+
+
+def test_an_app_id_written_as_a_bare_number_passes(project: ProjectBuilder) -> None:
+    """YAML reads an unquoted App ID as a number; it names the same App."""
+    write_github_app(project, app_id=123)
+    project.write_agent("triage", {"connections": ["github-app"]})
+    assert problems(project) == []
+
+
+def test_app_repositories_under_more_than_one_owner_are_refused(
+    project: ProjectBuilder,
+) -> None:
+    """A token comes from one installation, and an installation belongs to one
+    account; the repositories of a second owner could never be reached."""
+    write_github_app(project, repositories=["example-org/a", "other-org/b"])
+    project.write_agent("triage", {"connections": ["github-app"]})
+    found = problems(project)
+    assert any("example-org" in p and "other-org" in p for p in found), found
+
+
+def test_an_app_connection_selects_no_scopes(project: ProjectBuilder) -> None:
+    write_github_app(project)
+    project.write_agent(
+        "triage", {"connections": [{"id": "github-app", "scopes": ["repo"]}]}
+    )
+    found = problems(project)
+    assert any("github-app" in p and "scopes" in p for p in found), found
+
+
+def test_an_app_connection_does_not_back_an_mcp_block(
+    project: ProjectBuilder,
+) -> None:
+    """Its tokens are issued per request by gete's own client, which the MCP
+    toolset does not go through."""
+    write_github_app(project)
+    project.write_agent(
+        "triage",
+        {
+            "connections": ["github-app"],
+            "tools": [
+                {
+                    "mcp": {
+                        "url": "https://api.github.com/mcp",
+                        "connection": "github-app",
+                        "effect": "read",
+                    }
+                }
+            ],
+        },
+    )
+    found = problems(project)
+    assert any("mcp" in p and "github-app" in p for p in found), found
+
+
+@pytest.mark.parametrize("block", ["env", "secret_env"])
+def test_the_agent_cannot_claim_the_app_key_variable_itself(
+    project: ProjectBuilder, block: str
+) -> None:
+    """The key is delivered from gete.yaml; an agent setting the variable
+    would issue tokens as an App of its own choosing."""
+    write_github_app(project)
+    project.write_agent(
+        "triage",
+        {
+            "connections": ["github-app"],
+            "runtime": {
+                "agent_engine": {block: {"GETE_APP_KEY_GITHUB_APP": "elsewhere"}}
+            },
+        },
+    )
+    found = problems(project)
+    assert any("GETE_APP_KEY_GITHUB_APP" in p for p in found), found
+
+
+def test_an_openapi_block_reads_through_an_app_connection(
+    project: ProjectBuilder,
+) -> None:
+    write_github_app(project)
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "github-app",
+            "operations": ["ListThings"],
+            "effect": "read",
+        },
+        connections=["github-app"],
+    )
+    assert problems(project) == []

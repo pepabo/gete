@@ -54,9 +54,6 @@ def format_connection(connection: Connection) -> str:
     once. Some providers hand out no way to delete a client again, so a person
     guessing at any one of the three has to get it right the first time.
     """
-    oauth = connection.oauth
-    scopes = [f"{scope}: {text}" for scope, text in oauth.scopes.items()]
-    optional = [f"{scope}: {text}" for scope, text in oauth.optional_scopes.items()]
     fields: list[tuple[str, list[str]]] = [
         # The same word the listing uses; the reason gets a line of its own.
         ("status", ["retired" if connection.retired else "available"]),
@@ -74,15 +71,7 @@ def format_connection(connection: Connection) -> str:
         ),
         ("token prefixes", [token_shapes(connection)]),
         ("mcp url", [connection.mcp_url or NONE_DECLARED]),
-        ("authorization", [oauth.authorization_url]),
-        ("token url", [oauth.token_url]),
-        ("scopes", scopes or [NONE_DECLARED]),
-        # The menu, because the OAuth client has to be prepared for every
-        # scope an agent may select, not only the defaults.
-        ("optional scopes", optional or [NONE_DECLARED]),
-        ("client id", [connection.client_id_secret]),
-        ("client secret", [connection.client_secret_secret]),
-        ("redirect uri", [REDIRECT_URI]),
+        *(_app_fields(connection) if connection.app else _oauth_fields(connection)),
     ]
     width = max(len(name) for name, _ in fields)
     lines = [f"{connection.id}  {connection.display_name}"]
@@ -100,6 +89,41 @@ def format_connection(connection: Connection) -> str:
             for line in connection.setup.rstrip().splitlines()
         )
     return "\n".join(lines) + "\n"
+
+
+def _oauth_fields(connection: Connection) -> list[tuple[str, list[str]]]:
+    oauth = connection.oauth
+    if oauth is None:
+        return []
+    scopes = [f"{scope}: {text}" for scope, text in oauth.scopes.items()]
+    optional = [f"{scope}: {text}" for scope, text in oauth.optional_scopes.items()]
+    return [
+        ("authorization", [oauth.authorization_url]),
+        ("token url", [oauth.token_url]),
+        ("scopes", scopes or [NONE_DECLARED]),
+        # The menu, because the OAuth client has to be prepared for every
+        # scope an agent may select, not only the defaults.
+        ("optional scopes", optional or [NONE_DECLARED]),
+        ("client id", [connection.client_id_secret]),
+        ("client secret", [connection.client_secret_secret]),
+        ("redirect uri", [REDIRECT_URI]),
+    ]
+
+
+def _app_fields(connection: Connection) -> list[tuple[str, list[str]]]:
+    """The App in place of an OAuth client: nobody authorizes the connection,
+    so what a person prepares is the App, its key, and the ceiling."""
+    app = connection.app
+    if app is None:
+        return []
+    permissions = [f"{name}: {level}" for name, level in app.permissions.items()]
+    return [
+        ("app id", [app.app_id or NONE_DECLARED]),
+        ("private key", [app.private_key_secret or NONE_DECLARED]),
+        ("delivered as", [connection.app_key_env]),
+        ("repositories", list(app.repositories) or [NONE_DECLARED]),
+        ("permissions", permissions or [NONE_DECLARED]),
+    ]
 
 
 def format_table(rows: list[dict[str, Any]]) -> str:

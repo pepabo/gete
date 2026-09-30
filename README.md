@@ -239,7 +239,7 @@ tools:
 ### Connections
 
 `gete connections` lists what ships: `freee`, `freee-mcp`, `google`, `github`,
-`notion-mcp`, `slack-mcp`, and `zendesk`. Add your own or override a catalog
+`github-app`, `notion-mcp`, `slack-mcp`, and `zendesk`. Add your own or override a catalog
 entry in `gete.yaml`:
 
 ```yaml
@@ -421,6 +421,76 @@ connections:
 
 Adding a connection to the catalog is one YAML file under
 `src/gete/catalog/connections/`; the conformance tests check it.
+
+### Connections gete issues tokens for
+
+Some reads have no user's token behind them either: the agent is meant to
+read the same repositories whoever calls it. `github-app` is a connection whose tokens gete issues itself, from
+a GitHub App's private key, instead of receiving them from Gemini Enterprise.
+Agents use it from `openapi` blocks (and python tools through gete's client)
+exactly like any other connection — `operations`, `params`, `does_not`, and
+the host check all apply as before:
+
+```yaml
+# gete.yaml
+connections:
+  github-app:
+    base_url: https://ghe.example.com/api/v3   # leave out for github.com
+    app:
+      app_id: 123
+      private_key_secret: ge-github-app-private-key
+      # The ceiling of every token issued through this connection
+      repositories: [example-org/requests]
+      permissions: {issues: read}
+
+# agent.yaml
+connections: [github-app]
+tools:
+  - openapi:
+      spec: ./specs/github.yaml
+      connection: github-app
+      effect: read
+      operations: [SearchIssues, GetIssue, ListIssueComments]
+      params:
+        SearchIssues:
+          q: {prefix: "repo:example-org/requests is:issue "}
+```
+
+For such a connection gete:
+
+- signs an RS256 App JWT from `app_id` and the key, backdated a minute and
+  valid for less than ten, and finds the installation through the first of
+  `repositories` the App is installed on
+  (`GET /repos/{owner}/{repo}/installation`);
+- asks for an installation token narrowed to `repositories` and
+  `permissions`, and reuses it in the process until a few minutes before
+  its `expires_at`;
+- creates no Gemini Enterprise authorization and offers no reauthorization
+  tool. A missing key, or GitHub refusing to issue a token, is reported to
+  the user as text;
+- delivers the key like `secret_env`: `private_key_secret` reaches the
+  deployment as `GETE_APP_KEY_GITHUB_APP`, which the agent cannot set
+  itself. The App ID and the ceiling travel in the resolved declaration.
+  `gete run` reads the PEM from the same variable. When the agent is built,
+  before its own modules are imported, gete takes the variable out of the
+  environment and keeps the key to itself;
+- draws the connection in `gete graph` marked `(bot)`, like a shared
+  credential.
+
+`repositories` must share one owner, since a token comes from one
+installation. `permissions` is required: left out, a token would carry
+everything the installation was granted. Whoever can call the agent acts as
+the App within that ceiling, whatever they could reach on GitHub
+themselves, so keep it to what the agent's tools read. `mcp` blocks cannot
+use an app connection yet.
+
+The ceiling binds the tokens gete issues, not the key. Python tools run in
+the same process as gete, and code that goes looking for the key there can
+find it and issue a token with the installation's whole grant. Taking it out
+of the environment keeps it away from tools reading their settings and from
+processes they start; it is not a sandbox. Grant the App itself no more than
+the agents holding the connection may do, and review the python tools of
+those agents as code that holds the key.
 
 ### Shared credentials
 

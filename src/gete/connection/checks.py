@@ -3,7 +3,12 @@
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
-from gete.connection.registry import GOOGLE_ACCESS_TOKEN_PREFIX, Connection, Registry
+from gete.connection.registry import (
+    GOOGLE_ACCESS_TOKEN_PREFIX,
+    Connection,
+    OAuth,
+    Registry,
+)
 
 # Platform domains under which unrelated parties host services. Hosts are
 # matched exactly, so listing one of these is almost certainly a mistake
@@ -182,18 +187,8 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
             f"tokens: format {connection.token_format} decides on its own; the "
             "token_prefixes declared beside it are never read"
         )
-    for scope in sorted(connection.oauth.optional_scopes):
-        if scope in connection.oauth.scopes:
-            problems.append(
-                f"oauth.optional_scopes: {scope} is already a default scope"
-            )
-    if connection.oauth.optional_scopes and connection.oauth.authorization_query:
-        # The verbatim query is the whole authorization URL; a selection
-        # would be accepted and then never reach the consent screen.
-        problems.append(
-            "oauth.optional_scopes: the menu cannot be offered next to a "
-            "verbatim authorization_query, which fixes the scopes"
-        )
+    if connection.oauth is not None:
+        problems.extend(_oauth_problems(connection.oauth))
     for token in connection.examples.accepts:
         if not connection.accepts_token(token):
             problems.append(f"examples.accepts: {token!r} is not accepted")
@@ -217,4 +212,53 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
         and not connection.allows(connection.mcp_url)
     ):
         problems.append(f"mcp.url: {connection.mcp_url} is not covered by hosts")
+    return problems
+
+
+def _oauth_problems(oauth: OAuth) -> list[str]:
+    problems: list[str] = []
+    for scope in sorted(oauth.optional_scopes):
+        if scope in oauth.scopes:
+            problems.append(
+                f"oauth.optional_scopes: {scope} is already a default scope"
+            )
+    if oauth.optional_scopes and oauth.authorization_query:
+        # The verbatim query is the whole authorization URL; a selection
+        # would be accepted and then never reach the consent screen.
+        problems.append(
+            "oauth.optional_scopes: the menu cannot be offered next to a "
+            "verbatim authorization_query, which fixes the scopes"
+        )
+    return problems
+
+
+def app_problems(connection: Connection) -> list[str]:
+    """What an app connection still lacks before a token can be issued.
+
+    A catalog entry leaves the App open, the way it leaves a moving root
+    open, so the gap is refused where an agent picks the connection up.
+    """
+    app = connection.app
+    if app is None:
+        return []
+    where = f"connections.{connection.id}.app"
+    problems = [
+        f"{connection.id} has no app.{name}; set {where}.{name} in gete.yaml"
+        for name, value in (
+            ("app_id", app.app_id),
+            ("private_key_secret", app.private_key_secret),
+            ("repositories", app.repositories),
+            # Without it a token carries everything the installation was
+            # granted, which is exactly what the ceiling is there to stop.
+            ("permissions", app.permissions),
+        )
+        if not value
+    ]
+    owners = sorted({repository.partition("/")[0] for repository in app.repositories})
+    if len(owners) > 1:
+        problems.append(
+            f"{connection.id}: app.repositories belong to {', '.join(owners)}; a "
+            "token is issued by one installation, and an installation belongs "
+            "to one account"
+        )
     return problems

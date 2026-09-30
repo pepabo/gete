@@ -21,6 +21,7 @@ __all__ = [
     "Problem",
     "Project",
     "Resolved",
+    "app_key_secrets",
     "find_project_file",
     "load_project",
     "load_resolved",
@@ -238,6 +239,23 @@ def resolve(project: Project, agent: Agent) -> dict[str, Any]:
             "gete_version": version("gete"),
         },
     }
+
+
+def app_key_secrets(project: Project, agent: Agent) -> dict[str, str]:
+    """The private key secrets of the agent's app connections, by their env names.
+
+    Named once in gete.yaml and delivered the way secret_env delivers any
+    other: the agent holds the connection and gets the wiring, without
+    writing - or being able to change - where the key comes from. A key not
+    named yet is left out rather than invented; validate reports the gap.
+    """
+    registry = Registry.from_catalog(project.connection_overrides)
+    wired: dict[str, str] = {}
+    for connection_id in agent.connections:
+        connection = registry.get(connection_id, include_retired=True)
+        if connection.app is not None and connection.app.private_key_secret:
+            wired[connection.app_key_env] = connection.app.private_key_secret
+    return wired
 
 
 @dataclass(frozen=True)
