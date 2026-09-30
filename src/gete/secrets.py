@@ -6,7 +6,7 @@ usually is not.
 """
 
 from gete.connection import Registry
-from gete.declaration import Problem, Project
+from gete.declaration import Problem, Project, app_key_secrets
 from gete.gcp import GcpApi, GcpError
 
 SECRET_MANAGER = "https://secretmanager.googleapis.com/v1"
@@ -25,9 +25,16 @@ def secrets_needed(project: Project) -> dict[str, list[str]]:
             secret = shared.get(name, {}).get("token_secret")
             if secret:
                 names.append(str(secret))
+        # Delivered like secret_env too, registered or not: the deployment
+        # issues its tokens with the key.
+        names.extend(app_key_secrets(project, agent).values())
         if agent.data.get("registration"):
             for connection_id in agent.connections:
                 connection = registry.get(connection_id)
+                if connection.oauth is None:
+                    # Nobody authorizes an app connection; there is no
+                    # OAuth client behind it.
+                    continue
                 names.extend(
                     (connection.client_id_secret, connection.client_secret_secret)
                 )

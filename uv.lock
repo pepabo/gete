@@ -666,6 +666,7 @@ wheels = [
 name = "gete"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "google-adk", extra = ["mcp"] },
     { name = "httpx" },
     { name = "jsonschema" },
@@ -691,6 +692,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", marker = "extra == 'cli'", specifier = ">=8.1" },
+    { name = "cryptography", specifier = ">=43" },
     { name = "google-adk", extras = ["mcp"], specifier = ">=2.6,<2.9" },
     { name = "google-auth", marker = "extra == 'cli'", specifier = ">=2.38" },
     { name = "httpx", specifier = ">=0.28" },

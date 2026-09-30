@@ -1122,3 +1122,61 @@ def _with_pkce(enabled: bool) -> Connection:
     return Connection.from_mapping(
         {"id": "example", "display_name": "Example", "oauth": oauth}
     )
+
+
+def project_with_github_app(project: ProjectBuilder, agent: dict[str, Any]) -> Any:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"project_number": NUMBER},
+            "connections": {
+                "github-app": {
+                    "app": {
+                        "app_id": "123",
+                        "private_key_secret": "ge-github-app-private-key",
+                        "repositories": ["example-org/requests"],
+                        "permissions": {"issues": "read"},
+                    }
+                }
+            },
+        }
+    )
+    project.write_agent(agent["name"], agent)
+    return load_project(project.root / "gete.yaml")
+
+
+def test_an_app_connection_gets_no_authorization(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """Nobody approves an App connection: gete issues its tokens, so there is
+    no consent screen to send anyone to and no OAuth client to read."""
+    loaded = project_with_github_app(
+        project, {**FINANCE, "connections": ["freee", "github-app"]}
+    )
+    notice = tmp_path / "n.md"
+    summary = register_project(loaded, gcp, notice)
+    assert summary.failed == []
+    posts = gcp.writes("POST")
+    assert [post[1] for post in posts] == [{"authorizationId": "finance-freee"}]
+    assert not any("github-app" in url for _, url, _, _ in gcp.calls)
+    assert "finance-github-app" not in notice.read_text()
+
+
+def test_an_app_connection_has_no_authorization_to_reset(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    loaded = project_with_github_app(
+        project, {**FINANCE, "connections": ["freee", "github-app"]}
+    )
+    with pytest.raises(DeclarationError, match="finance-github-app"):
+        register_project(loaded, gcp, tmp_path / "n.md", reset=["finance-github-app"])
+    assert gcp.writes("DELETE") == []
+
+
+def test_an_app_connection_has_no_authorization_body() -> None:
+    """register may run without validate; nothing may reach Gemini Enterprise
+    claiming users approve a connection nobody authorizes."""
+    with pytest.raises(DeclarationError, match="issues its own tokens"):
+        authorization_body(GE, "finance", CATALOG.get("github-app"), "c", "s")

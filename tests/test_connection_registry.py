@@ -751,3 +751,80 @@ def test_the_root_itself_may_not_contain_the_placeholder() -> None:
         Connection.from_mapping(
             {**ROOTED, "base_url": "https://acme.example.com/{base_url}"}
         )
+
+
+APP: dict[str, Any] = {
+    "id": "example-app",
+    "display_name": "Example App",
+    "hosts": ["api.example.com"],
+    "token_prefixes": ["ghs_"],
+    "app": {
+        "app_id": "123",
+        "private_key_secret": "example-app-private-key",
+        "repositories": ["example-org/requests"],
+        "permissions": {"issues": "read"},
+    },
+}
+
+
+def test_an_app_connection_carries_its_app_instead_of_oauth() -> None:
+    entry = Connection.from_mapping(APP)
+    assert entry.oauth is None
+    assert entry.app is not None
+    assert entry.app.app_id == "123"
+    assert entry.app.private_key_secret == "example-app-private-key"
+    assert entry.app.repositories == ("example-org/requests",)
+    assert entry.app.permissions == {"issues": "read"}
+
+
+def test_an_oauth_connection_has_no_app() -> None:
+    assert connection().app is None
+
+
+def test_the_private_key_arrives_in_a_variable_named_after_the_connection() -> None:
+    assert Connection.from_mapping(APP).app_key_env == "GETE_APP_KEY_EXAMPLE_APP"
+
+
+def test_the_catalog_offers_a_github_app_connection(catalog: Registry) -> None:
+    entry = catalog.get("github-app")
+    assert entry.app is not None
+    assert entry.oauth is None
+    assert entry.allows("https://api.github.com/repos/o/r/issues")
+    assert entry.accepts_token("ghs_16C7e42F292c6912E7710c838347Ae178B4a")
+    assert not entry.accepts_token("gho_16C7e42F292c6912E7710c838347Ae178B4a")
+
+
+def test_gete_yaml_fills_in_the_github_app_it_issues_for() -> None:
+    registry = Registry.from_catalog(
+        {
+            "github-app": {
+                "base_url": "https://ghe.example.com/api/v3",
+                "app": {
+                    "app_id": "123",
+                    "private_key_secret": "ge-github-app-private-key",
+                    "repositories": ["example-org/requests"],
+                    "permissions": {"issues": "read"},
+                },
+            }
+        }
+    )
+    entry = registry.get("github-app")
+    assert entry.app is not None
+    assert entry.app.app_id == "123"
+    assert entry.allows("https://ghe.example.com/api/v3/repos/o/r")
+    # The installation's own server replaces the public one; nothing it issues
+    # is meant for api.github.com.
+    assert not entry.allows("https://api.github.com/repos/o/r")
+
+
+def test_a_connection_needs_oauth_or_an_app() -> None:
+    bare = {key: value for key, value in EXAMPLE.items() if key != "oauth"}
+    with pytest.raises(DeclarationError):
+        Registry.from_catalog({"bare": bare})
+
+
+def test_a_connection_cannot_be_both_oauth_and_an_app() -> None:
+    both = {**APP, "oauth": EXAMPLE["oauth"]}
+    both.pop("id")
+    with pytest.raises(DeclarationError):
+        Registry.from_catalog({"example-app": both})

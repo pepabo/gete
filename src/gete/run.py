@@ -3,7 +3,7 @@
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from gete.connection import authorization_id
+from gete.connection import Registry, authorization_id
 from gete.declaration import Agent, Project, resolve
 from gete.errors import DeclarationError
 from gete.runtime import build_document
@@ -40,6 +40,20 @@ def missing_tokens(
         connection_id
         for connection_id in connections
         if authorization_id(agent_name, connection_id) not in state
+    ]
+
+
+def user_authorized(project: Project, agent: Agent) -> list[str]:
+    """The agent's connections read with a user's token, in declaration order.
+
+    An app connection is issued its tokens from the key in its
+    GETE_APP_KEY_ variable; a GETE_TOKEN_ variable for it would never be read.
+    """
+    registry = Registry.from_catalog(project.connection_overrides)
+    return [
+        connection_id
+        for connection_id in agent.connections
+        if registry.get(connection_id, include_retired=True).app is None
     ]
 
 

@@ -139,6 +139,39 @@ class OAuth:
         )
 
 
+# Where the deployment finds an app connection's private key: the secret named
+# in gete.yaml is delivered under this name plus the connection id, the way
+# secret_env delivers any other.
+APP_KEY_ENV_PREFIX = "GETE_APP_KEY_"
+
+
+@dataclass(frozen=True)
+class App:
+    """A GitHub App gete issues installation tokens for.
+
+    Every field may be missing: a catalog entry cannot know which App an
+    installation registered, and validate refuses the gap where an agent
+    picks the connection up, the way it refuses an open base_url.
+    repositories and permissions are the ceiling of every token issued.
+    """
+
+    app_id: str | None = None
+    private_key_secret: str | None = None
+    repositories: tuple[str, ...] = ()
+    permissions: Mapping[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> "App":
+        app_id = data.get("app_id")
+        secret = data.get("private_key_secret")
+        return cls(
+            app_id=None if app_id is None else str(app_id),
+            private_key_secret=None if secret is None else str(secret),
+            repositories=tuple(data.get("repositories", ())),
+            permissions=dict(data.get("permissions", {})),
+        )
+
+
 def _stays_below(path: str, prefix: str) -> bool:
     """Whether the request path stays below the prefix however a server reads it.
 
@@ -173,7 +206,10 @@ class Connection:
 
     id: str
     display_name: str
-    oauth: OAuth
+    # Exactly one of the two: a user's authorization forwarded by Gemini
+    # Enterprise, or an App gete issues tokens for itself.
+    oauth: OAuth | None = None
+    app: App | None = None
     hosts: frozenset[str] = frozenset()
     # Hosts a download may be redirected to, declared one by one; the token
     # never travels to them. Empty means downloads stay on hosts.
@@ -223,7 +259,10 @@ class Connection:
         return cls(
             id=data["id"],
             display_name=data["display_name"],
-            oauth=OAuth.from_mapping(data["oauth"], base_url),
+            oauth=(
+                OAuth.from_mapping(data["oauth"], base_url) if "oauth" in data else None
+            ),
+            app=App.from_mapping(data["app"]) if "app" in data else None,
             hosts=frozenset(hosts),
             redirect_hosts=frozenset(data.get("redirect_hosts", ())),
             token_prefixes=tuple(data.get("token_prefixes", ())),
@@ -254,12 +293,18 @@ class Connection:
         """
         return any(
             url is not None and BASE_URL in url
-            for url in (
-                self.oauth.authorization_url,
-                self.oauth.token_url,
-                self.mcp_url,
-            )
+            for url in (*self._oauth_urls(), self.mcp_url)
         )
+
+    def _oauth_urls(self) -> tuple[str, ...]:
+        if self.oauth is None:
+            return ()
+        return (self.oauth.authorization_url, self.oauth.token_url)
+
+    @property
+    def app_key_env(self) -> str:
+        """The environment variable the App's private key is delivered in."""
+        return APP_KEY_ENV_PREFIX + self.id.upper().replace("-", "_")
 
     @property
     def secret_prefix(self) -> str:
@@ -339,7 +384,7 @@ class Connection:
         own = {entry.partition("/")[0] for entry in self.hosts}
         own.update(
             host
-            for url in (self.oauth.authorization_url, self.oauth.token_url)
+            for url in self._oauth_urls()
             if (host := urlsplit(url).hostname) is not None
         )
         return frozenset(own)
@@ -415,6 +460,13 @@ class Connection:
         """
         if self.rejected is not None:
             return self.rejected
+        if self.app is not None:
+            # Nobody approved anything, so there is no authorization to reset;
+            # what can be wrong is the App's installation or its grant.
+            return (
+                f"{self.display_name} refused the token issued for it. Ask the "
+                "operator to check the App's installation and permissions."
+            )
         return (
             f"{self.display_name} refused the authorization. Approving again in "
             "Gemini Enterprise will not help; ask the operator to reset the "

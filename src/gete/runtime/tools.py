@@ -100,7 +100,10 @@ def build_tools(
                 denied=denied,
             )
             tools.append(openapi)
-            authorized.append(openapi.connection)
+            if openapi.connection.app is None:
+                # An app connection's token is issued, not approved; there is
+                # nothing to send the user back to.
+                authorized.append(openapi.connection)
     # Shared credential tools carry their effects with them; the write among
     # them is confirmed and denied like any declared write tool.
     for name in agent.shared_credentials:

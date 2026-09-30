@@ -229,3 +229,34 @@ def test_a_declared_token_format_reads_as_the_format_it_declares() -> None:
     assert "jwt" in rows[0]["token_prefixes"]
     assert "elimination" not in rows[0]["token_prefixes"]
     assert "jwt" in format_connection(entry)
+
+
+def test_an_app_connection_is_described_by_its_app_not_an_oauth_client() -> None:
+    """Nobody registers an OAuth client for it; what a person prepares is the
+    App, its key, and the limit every token is narrowed to."""
+    registry = Registry.from_catalog(
+        {
+            "github-app": {
+                "app": {
+                    "app_id": "123",
+                    "private_key_secret": "ge-github-app-private-key",
+                    "repositories": ["example-org/requests"],
+                    "permissions": {"issues": "read"},
+                }
+            }
+        }
+    )
+    output = format_connection(registry.get("github-app"))
+    assert "123" in output
+    assert "ge-github-app-private-key" in output
+    assert "GETE_APP_KEY_GITHUB_APP" in output
+    assert "example-org/requests" in output
+    assert "issues: read" in output
+    assert "redirect uri" not in output
+    assert "client id" not in output
+
+
+def test_the_catalogs_app_connection_says_what_is_still_open() -> None:
+    output = format_connection(Registry.from_catalog().get("github-app"))
+    assert "app id" in output
+    assert "(none)" in output

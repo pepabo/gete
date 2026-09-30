@@ -752,3 +752,86 @@ async def test_a_call_header_wins_whatever_case_it_is_written_in() -> None:
     )
     await reader.get_json(URL, headers={"accept": "text/csv"})
     assert seen[0].headers.get_list("accept") == ["text/csv"]
+
+
+APP_REGISTRY = Registry.from_catalog(
+    {
+        "github-app": {
+            "app": {
+                "app_id": "123",
+                "private_key_secret": "ge-github-app-private-key",
+                "repositories": ["example-org/requests"],
+                "permissions": {"issues": "read"},
+            }
+        }
+    }
+)
+GITHUB_APP = APP_REGISTRY.get("github-app")
+APP_TOKEN = "ghs_16C7e42F292c6912E7710c838347Ae178B4a"
+
+
+class FakeTokens:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.forgotten = 0
+
+    async def token(self) -> str:
+        if self.error is not None:
+            raise self.error
+        return APP_TOKEN
+
+    def forget(self) -> None:
+        self.forgotten += 1
+
+
+@pytest.fixture
+def tokens(monkeypatch: pytest.MonkeyPatch) -> FakeTokens:
+    fake = FakeTokens()
+    monkeypatch.setattr(
+        "gete.connection.client.installation_tokens", lambda connection: fake
+    )
+    return fake
+
+
+async def test_an_app_connection_sends_the_token_it_issued(tokens: FakeTokens) -> None:
+    """No user's token is involved: the state holds none, and none is asked for."""
+    set_tool_call(
+        ToolCall(SimpleNamespace(state={}, user_id="u"), {}, registry=APP_REGISTRY)
+    )
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    await client(handler, GITHUB_APP).get_json(URL)
+    assert seen[0].headers["Authorization"] == f"Bearer {APP_TOKEN}"
+
+
+async def test_an_issue_that_failed_is_told_to_the_user_and_nothing_is_sent(
+    tokens: FakeTokens,
+) -> None:
+    from gete.connection.github_app import AppTokenUnavailable
+
+    tokens.error = AppTokenUnavailable("GitHub App is unavailable: no key.")
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    with pytest.raises(AuthorizationRefused, match="no key"):
+        await client(handler, GITHUB_APP).get_json(URL)
+    assert seen == []
+
+
+async def test_a_refused_app_token_is_dropped_and_the_operator_named(
+    tokens: FakeTokens,
+) -> None:
+    """Nobody approved anything, so there is no authorization to reset; the
+    next request is issued a fresh token instead of the refused one."""
+    with pytest.raises(AuthorizationRefused) as raised:
+        await client(lambda request: httpx.Response(401), GITHUB_APP).get_json(URL)
+    assert tokens.forgotten == 1
+    assert "reset" not in str(raised.value)
+    assert "operator" in str(raised.value)
