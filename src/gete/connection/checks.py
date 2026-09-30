@@ -59,6 +59,13 @@ def elimination_problems(
     another route. An anonymous connection is one of those: it takes a JWT
     naming its own authorization server as readily as a declaring one does,
     so a shared issuer confuses the two whichever of them declared.
+
+    Prefixes that overlap are that confusion among the connections that do
+    announce themselves: a token carrying the shared prefix passes as
+    either's. A service that is run in more than one place - hosted by its
+    vendor, and again on an installation's own server - issues the same
+    shapes from each, so the registry may hold both under ids of their own.
+    What is refused is one agent holding the two.
     """
     connections = [
         registry.get(connection_id, include_retired=True)
@@ -99,7 +106,37 @@ def elimination_problems(
                     f"{', '.join(sorted(shared))}; a token from one of them "
                     "would be accepted as the other's"
                 )
+    # A declared format decides before any prefix is read, so a connection
+    # held to one takes no token for its prefix.
+    by_prefix = [
+        connection for connection in connections if connection.token_format is None
+    ]
+    for index, connection in enumerate(by_prefix):
+        for other in by_prefix[index + 1 :]:
+            overlapping = _overlapping_prefixes(connection, other)
+            if overlapping:
+                problems.append(
+                    f"{connection.id}, {other.id} both accept tokens starting "
+                    f"with {', '.join(map(repr, overlapping))}; a token from "
+                    "one of them would be accepted as the other's"
+                )
     return problems
+
+
+def _overlapping_prefixes(connection: Connection, other: Connection) -> list[str]:
+    """The prefixes a token can carry and be accepted by both connections.
+
+    Where one prefix extends the other, the longer one is named: both
+    connections accept exactly the tokens that start with it.
+    """
+    overlapping: set[str] = set()
+    for prefix in connection.token_prefixes:
+        for theirs in other.token_prefixes:
+            if prefix.startswith(theirs):
+                overlapping.add(prefix)
+            elif theirs.startswith(prefix):
+                overlapping.add(theirs)
+    return sorted(overlapping)
 
 
 def connection_problems(connection: Connection, registry: Registry) -> list[str]:
@@ -145,15 +182,6 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
             f"tokens: format {connection.token_format} decides on its own; the "
             "token_prefixes declared beside it are never read"
         )
-    for other in registry.all(include_retired=True):
-        if other.id == connection.id:
-            continue
-        for prefix in connection.token_prefixes:
-            for theirs in other.token_prefixes:
-                if prefix.startswith(theirs) or theirs.startswith(prefix):
-                    problems.append(
-                        f"token_prefixes: {prefix!r} overlaps {theirs!r} ({other.id})"
-                    )
     for scope in sorted(connection.oauth.optional_scopes):
         if scope in connection.oauth.scopes:
             problems.append(

@@ -288,6 +288,30 @@ connections cannot be told apart, so an agent may hold only one of them.
 Declaring a second one in `gete.yaml` is fine; naming both under one agent's
 `connections` is what `gete validate` refuses.
 
+The same goes for prefixes that overlap. A service that runs in more than one
+place — github.com, and a GitHub Enterprise Server of your own — issues the
+same token shapes from each, so the second one is a connection under its own
+id, with a complete definition and the prefix its tokens carry:
+
+```yaml
+connections:
+  github-ghes:
+    display_name: GitHub Enterprise Server
+    base_url: https://ghe.example.com/api/v3
+    token_prefixes: [ghu_]
+    oauth:
+      authorization_url: https://ghe.example.com/login/oauth/authorize
+      token_url: https://ghe.example.com/login/oauth/access_token
+      scopes: {}
+```
+
+One agent declares `github` and another `github-ghes`, and each token goes
+only to the hosts of the connection it arrived for. An agent naming both is
+refused: a `ghu_` token would pass as either's. Leaving `token_prefixes` empty
+is not a way around declaring the prefix — a connection that accepts tokens by
+elimination refuses every token that carries a prefix declared anywhere in
+the project or the catalog, whichever agent holds that connection.
+
 Some services announce themselves without a prefix: their access tokens are
 JWTs whose `iss` claim names the service's own host. `tokens.format: jwt` says
 so, and gete holds the connection to it — a token that is not such a JWT is

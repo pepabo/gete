@@ -464,6 +464,55 @@ def test_prefixless_connections_on_separate_agents_are_accepted(
     assert problems(project) == []
 
 
+# GitHub Enterprise Server is the same product on an installation's own host,
+# so a GitHub App there issues tokens shaped like the ones github.com issues.
+GITHUB_ENTERPRISE_SERVER: dict[str, Any] = {
+    "display_name": "GitHub Enterprise Server",
+    "base_url": "https://ghe.example.com/api/v3",
+    "token_prefixes": ["ghu_"],
+    "oauth": {
+        "authorization_url": "https://ghe.example.com/login/oauth/authorize",
+        "token_url": "https://ghe.example.com/login/oauth/access_token",
+        "scopes": {},
+    },
+}
+
+
+def write_github_enterprise_server(project: ProjectBuilder) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"github-ghes": GITHUB_ENTERPRISE_SERVER},
+        }
+    )
+
+
+def test_a_second_instance_of_a_catalog_service_is_accepted(
+    project: ProjectBuilder,
+) -> None:
+    """Its tokens carry the catalog entry's prefix, and an agent holding only
+    one of the two has nothing to mistake them for."""
+    write_github_enterprise_server(project)
+    project.write_agent("code-search", {"connections": ["github"]})
+    project.write_agent("ghes-search", {"connections": ["github-ghes"]})
+    assert problems(project) == []
+
+
+def test_overlapping_prefixes_on_one_agent_are_reported_at_the_agent(
+    project: ProjectBuilder,
+) -> None:
+    """Either authorization's token would be accepted as the other's, and it
+    is the agent's declaration that has to change, not gete.yaml."""
+    write_github_enterprise_server(project)
+    project.write_agent("code-search", {"connections": ["github", "github-ghes"]})
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/code-search/agent.yaml: connections: "), found
+    assert "github, github-ghes" in found[0] and "'ghu_'" in found[0], found
+
+
 def test_agent_schema_errors_are_reported_with_their_file(
     project: ProjectBuilder,
 ) -> None:
