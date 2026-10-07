@@ -120,6 +120,49 @@ def test_gemini_enterprise_location_must_look_like_a_region(location: str) -> No
         )
 
 
+def test_gemini_enterprise_engines_are_named_once_in_gete_yaml() -> None:
+    validate_document(
+        "gete",
+        {
+            **GETE,
+            "gemini_enterprise": {
+                "engines": {"sales": "my-sales-app_1234567890", "support": "app_2"}
+            },
+        },
+        source="gete.yaml",
+    )
+
+
+@pytest.mark.parametrize("name", ["Sales", "my_sales", "-sales", "sales.eu", ""])
+def test_an_engine_name_is_shaped_like_a_connection_id(name: str) -> None:
+    """One shape for every short name a declaration refers to by."""
+    with pytest.raises(DeclarationError, match="engines"):
+        validate_document(
+            "gete",
+            {**GETE, "gemini_enterprise": {"engines": {name: "app_1"}}},
+            source="gete.yaml",
+        )
+
+
+@pytest.mark.parametrize("engine", ["../../../authorizations", "app 1", "app/1", ""])
+def test_a_named_engines_id_must_still_be_an_identifier(engine: str) -> None:
+    """The id goes into the Discovery Engine URL path wherever it is written."""
+    with pytest.raises(DeclarationError, match="engines"):
+        validate_document(
+            "gete",
+            {**GETE, "gemini_enterprise": {"engines": {"sales": engine}}},
+            source="gete.yaml",
+        )
+
+
+def test_an_empty_engines_block_is_refused() -> None:
+    """Declared but naming nothing, it would refuse every agent's engine."""
+    with pytest.raises(DeclarationError, match="engines"):
+        validate_document(
+            "gete", {**GETE, "gemini_enterprise": {"engines": {}}}, source="gete.yaml"
+        )
+
+
 def test_registration_engine_accepts_a_console_id() -> None:
     validate_document(
         "agent",

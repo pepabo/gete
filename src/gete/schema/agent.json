@@ -146,7 +146,7 @@
           ],
           "properties": {
             "engine": {
-              "description": "Id of the Gemini Enterprise engine. Spliced into the Discovery Engine URL path, so a slash would address another resource.",
+              "description": "The Gemini Enterprise engine: its id from the console URL, or its name once gete.yaml names the engines under gemini_enterprise.engines. The id is spliced into the Discovery Engine URL path, so a slash would address another resource.",
               "type": "string",
               "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
             }

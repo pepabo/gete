@@ -129,6 +129,17 @@ class Agent:
         return path.read_text(encoding="utf-8") if path else self.instruction
 
     @property
+    def engine(self) -> str | None:
+        """What registration.gemini_enterprise.engine says, or None when unlisted.
+
+        A name from gemini_enterprise.engines when gete.yaml declares them,
+        the engine's id otherwise; Project.engine_id tells which.
+        """
+        registration: Mapping[str, Any] = self.data.get("registration", {})
+        engine = registration.get("gemini_enterprise", {}).get("engine")
+        return str(engine) if engine else None
+
+    @property
     def source(self) -> Path | None:
         value = self.data.get("source")
         return self.directory / value if value else None
@@ -172,6 +183,32 @@ class Project:
     def connection_overrides(self) -> Mapping[str, Mapping[str, Any]]:
         overrides: Mapping[str, Mapping[str, Any]] = self.data.get("connections", {})
         return overrides
+
+    @property
+    def engines(self) -> Mapping[str, str] | None:
+        """Engine ids by name, or None while agents write the ids themselves."""
+        gemini_enterprise: Mapping[str, Any] = self.data.get("gemini_enterprise", {})
+        engines: Mapping[str, str] | None = gemini_enterprise.get("engines")
+        return engines
+
+    def engine_id(self, declared: str) -> str:
+        """The id behind what an agent wrote as its engine.
+
+        With engines named, the entry is one of the names and nothing else.
+        An id is refused even when it is right: accepting both would let an
+        id copied from the agent next door land on the wrong engine
+        unnoticed, which naming the engines exists to stop.
+        """
+        if self.engines is None:
+            return declared
+        if declared not in self.engines:
+            names = ", ".join(self.engines)
+            raise DeclarationError(
+                f"registration.gemini_enterprise.engine: {declared!r} is not "
+                f"among gemini_enterprise.engines in {PROJECT_FILE} ({names}); "
+                "with the engines named, an agent refers to one by name"
+            )
+        return self.engines[declared]
 
     def display(self, path: Path) -> str:
         """Path as shown in messages: relative to the project root when below it."""

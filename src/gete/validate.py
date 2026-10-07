@@ -38,6 +38,7 @@ def validate_project(project: Project) -> list[Problem]:
     found: list[Problem] = list(project.problems)
     registry = _registry(project, found)
     found.extend(_policy_problems(project))
+    found.extend(_engine_problems(project))
     for agent in project.agents:
         found.extend(_agent_problems(project, agent, registry))
     return found
@@ -82,6 +83,22 @@ def _policy_problems(project: Project) -> list[Problem]:
             )
         )
     return found
+
+
+def _engine_problems(project: Project) -> list[Problem]:
+    """Two names for one engine: the block exists to make that copy visible."""
+    names_by_id: dict[str, list[str]] = {}
+    for name, engine in (project.engines or {}).items():
+        names_by_id.setdefault(engine, []).append(name)
+    return [
+        Problem(
+            project.display(project.path),
+            f"gemini_enterprise.engines: {', '.join(names)} name the same "
+            f"engine, {engine}",
+        )
+        for engine, names in names_by_id.items()
+        if len(names) > 1
+    ]
 
 
 def _agent_problems(
@@ -167,6 +184,11 @@ def _agent_problems(
     found.extend(
         f"connections: {message}" for message in elimination_problems(known, registry)
     )
+    if agent.engine is not None:
+        try:
+            project.engine_id(agent.engine)
+        except DeclarationError as error:
+            found.append(str(error))
     declared_shared: Mapping[str, Any] = project.data.get("shared_credentials", {})
     for name in agent.shared_credentials:
         credential = SHARED_CREDENTIALS.get(name)

@@ -1035,3 +1035,79 @@ def test_an_openapi_block_reads_through_an_app_connection(
         connections=["github-app"],
     )
     assert problems(project) == []
+
+
+# Engines named once in gete.yaml; agents refer to one by name.
+NAMED_ENGINES: dict[str, Any] = {
+    "version": 1,
+    "project": "example-project",
+    "location": "us-central1",
+    "gemini_enterprise": {
+        "engines": {"sales": "my-sales-app_1234567890", "support": "app_2"}
+    },
+}
+
+
+def registered_with(engine: str) -> dict[str, Any]:
+    return {"registration": {"gemini_enterprise": {"engine": engine}}}
+
+
+def test_an_agent_registers_with_an_engine_by_its_name(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage", registered_with("sales"))
+    assert problems(project) == []
+
+
+def test_a_name_no_engine_carries_is_refused_and_the_names_are_listed(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage", registered_with("sale"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert "registration.gemini_enterprise.engine" in found[0]
+    assert "'sale'" in found[0]
+    assert "sales, support" in found[0]
+
+
+def test_once_engines_are_named_an_id_is_refused_even_a_right_one(
+    project: ProjectBuilder,
+) -> None:
+    """Accepting both would let an id copied from the agent next door land on
+    the wrong engine unnoticed, which naming the engines exists to stop."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage", registered_with("my-sales-app_1234567890"))
+    found = problems(project)
+    assert any("my-sales-app_1234567890" in p and "by name" in p for p in found), found
+
+
+def test_without_named_engines_an_agent_still_gives_the_id(
+    project: ProjectBuilder,
+) -> None:
+    project.write_agent("mail-triage", registered_with("my-sales-app_1234567890"))
+    assert problems(project) == []
+
+
+def test_an_agent_without_a_registration_is_fine_whether_engines_are_named_or_not(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage")
+    assert problems(project) == []
+
+
+def test_two_names_for_one_engine_are_reported(project: ProjectBuilder) -> None:
+    """The second name is the copy-paste the block exists to make visible."""
+    project.write_project(
+        {
+            **NAMED_ENGINES,
+            "gemini_enterprise": {"engines": {"sales": "app_1", "support": "app_1"}},
+        }
+    )
+    project.write_agent("mail-triage", registered_with("sales"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("gete.yaml: gemini_enterprise.engines")
+    assert "sales" in found[0] and "support" in found[0] and "app_1" in found[0]

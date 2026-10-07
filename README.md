@@ -144,6 +144,30 @@ writes are split by naming it twice — the same `url` and `connection`, two
 lists of tool names, two effects. Where a server hands out one grant for both,
 that is the only place an agent can say it means to read.
 
+With more than one engine, name them once in `gete.yaml` and let each agent
+refer to one by name:
+
+```yaml
+# gete.yaml
+gemini_enterprise:
+  engines:
+    sales: my-sales-app_1234567890
+    support: my-support-app_1234567891
+```
+
+```yaml
+# agents/partner-review/agent.yaml
+registration:
+  gemini_enterprise:
+    engine: sales
+```
+
+Once the engines are named, every `engine` is one of the names: `validate`
+refuses a name no engine carries, and refuses an id even when it is right,
+since accepting both would let an id copied from the agent next door land on
+the wrong engine unnoticed. Each id is written once, so a rebuilt engine is
+one line, and `gete graph` and `gete register` say the name.
+
 ### Tools from an OpenAPI description
 
 A service that publishes an OpenAPI description but runs no MCP server can be

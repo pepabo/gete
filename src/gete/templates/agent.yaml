@@ -15,7 +15,8 @@ instruction: ./instruction.md
 #       effect: read
 #       does_not: Does not create or approve anything.
 
-# Where the agent is listed. The id is in the Gemini Enterprise console URL.
+# Where the agent is listed: the id from the Gemini Enterprise console URL,
+# or its name once gete.yaml names the engines under gemini_enterprise.engines.
 # registration:
 #   gemini_enterprise:
 #     engine: my-app_1234567890

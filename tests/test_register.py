@@ -1180,3 +1180,71 @@ def test_an_app_connection_has_no_authorization_body() -> None:
     claiming users approve a connection nobody authorizes."""
     with pytest.raises(DeclarationError, match="issues its own tokens"):
         authorization_body(GE, "finance", CATALOG.get("github-app"), "c", "s")
+
+
+# --- engines named in gete.yaml
+
+NAMED_ENGINES: dict[str, Any] = {
+    "version": 1,
+    "project": "example-project",
+    "location": "us-central1",
+    "gemini_enterprise": {"project_number": NUMBER, "engines": {"sales": "app_1"}},
+}
+
+
+def test_an_engine_named_in_gete_yaml_is_resolved_to_its_id(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent(
+        "finance",
+        {**FINANCE, "registration": {"gemini_enterprise": {"engine": "sales"}}},
+    )
+    summary = register_project(
+        load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
+    )
+    assert summary.failed == []
+    assert summary.needs_human == ["finance"]
+    # The agent list is read under the id, and the notice sends the person there.
+    assert any(url == AGENTS_URL for _, url, _, _ in gcp.calls)
+    assert "engines/app_1/" in (tmp_path / "n.md").read_text()
+
+
+def test_the_summary_names_the_engine_and_the_id_behind_it(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent(
+        "finance",
+        {**FINANCE, "registration": {"gemini_enterprise": {"engine": "sales"}}},
+    )
+    summary = register_project(
+        load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
+    )
+    assert "finance: engine sales (app_1)" in summary.messages
+
+
+def test_the_summary_names_the_engine_by_id_when_that_is_what_the_agent_wrote(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    summary = register_project(project_with(project, FINANCE), gcp, tmp_path / "n.md")
+    assert "finance: engine app_1" in summary.messages
+
+
+def test_a_name_no_engine_carries_fails_that_agent_before_anything_is_read(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """register can run without validate, and the id written here is exactly
+    the copy-paste naming the engines exists to refuse."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent(
+        "finance",
+        {**FINANCE, "registration": {"gemini_enterprise": {"engine": "app_1"}}},
+    )
+    summary = register_project(
+        load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
+    )
+    assert summary.failed == ["finance"]
+    assert any("'app_1'" in line and "sales" in line for line in summary.messages)
+    assert gcp.calls == []
+    assert not (tmp_path / "n.md").exists()
