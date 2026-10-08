@@ -266,7 +266,7 @@ class Registrar:
                 # can run without validate.
                 engine = self._project.engine_id(written)
                 behind = "" if engine == written else f" ({engine})"
-                summary.say(f"{agent.name}: engine {written}{behind}")
+                summary.say(f"{agent.name}: Gemini Enterprise engine {written}{behind}")
                 self._register(agent, engine, summary, held)
             except GeteError as error:
                 summary.say(f"{agent.name}: cannot register: {error}")

@@ -1221,14 +1221,14 @@ def test_the_summary_names_the_engine_and_the_id_behind_it(
     summary = register_project(
         load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
     )
-    assert "finance: engine sales (app_1)" in summary.messages
+    assert "finance: Gemini Enterprise engine sales (app_1)" in summary.messages
 
 
 def test_the_summary_names_the_engine_by_id_when_that_is_what_the_agent_wrote(
     project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
 ) -> None:
     summary = register_project(project_with(project, FINANCE), gcp, tmp_path / "n.md")
-    assert "finance: engine app_1" in summary.messages
+    assert "finance: Gemini Enterprise engine app_1" in summary.messages
 
 
 def test_a_name_no_engine_carries_fails_that_agent_before_anything_is_read(
