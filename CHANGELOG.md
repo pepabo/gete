@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.24](https://github.com/pepabo/gete/compare/v0.2.23...v0.2.24) - 2026-10-08
+
+- Name the Gemini Enterprise engines once in gete.yaml by @haruotsu in https://github.com/pepabo/gete/pull/86
+
 ## [v0.2.23](https://github.com/pepabo/gete/compare/v0.2.22...v0.2.23) - 2026-09-30
 
 - Add a github-app connection whose tokens gete issues itself by @haruotsu in https://github.com/pepabo/gete/pull/83
