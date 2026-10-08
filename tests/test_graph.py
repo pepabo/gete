@@ -199,3 +199,25 @@ def test_a_user_authorized_connection_is_not_drawn_as_a_bot(
 ) -> None:
     project.write_agent("finance", {"connections": ["freee"]})
     assert "bot" not in graph(project)
+
+
+def test_the_engine_is_drawn_by_its_name_when_gete_yaml_names_it(
+    project: ProjectBuilder,
+) -> None:
+    """The id is what naming the engines takes out of sight; the diagram
+    follows suit, and the node is a plain identifier again."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"engines": {"sales": "my-sales-app_1234567890"}},
+        }
+    )
+    project.write_agent(
+        "finance", {"registration": {"gemini_enterprise": {"engine": "sales"}}}
+    )
+    text = graph(project)
+    assert 'GE_sales["Gemini Enterprise<br/>sales"]' in text
+    assert "GE_sales --> finance" in text
+    assert "my-sales-app_1234567890" not in text

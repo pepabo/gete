@@ -1,12 +1,10 @@
 """gete graph: Mermaid drawn from the declarations; no second diagram to go stale."""
 
 import re
-from collections.abc import Mapping
-from typing import Any
 from urllib.parse import urlsplit
 
 from gete.connection import Registry
-from gete.declaration import Agent, Project
+from gete.declaration import Project
 from gete.errors import GeteError
 
 # Marks what acts with a credential the agent holds rather than the caller's.
@@ -38,7 +36,7 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
         if names and agent.name not in names:
             continue
         node = _ident(agent.name)
-        engine = _engine(agent)
+        engine = agent.engine
         if engine and engine not in engines:
             engines.add(engine)
             lines.append(
@@ -108,12 +106,6 @@ def _via(registry: Registry, connection_id: str) -> str:
         # validate reports the unknown id; the diagram still draws the rest.
         return connection_id
     return connection_id + (BOT if connection.app is not None else "")
-
-
-def _engine(agent: Agent) -> str | None:
-    registration: Mapping[str, Any] = agent.data.get("registration", {})
-    engine = registration.get("gemini_enterprise", {}).get("engine")
-    return str(engine) if engine else None
 
 
 def _ident(text: str) -> str:

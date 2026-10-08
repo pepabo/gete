@@ -250,8 +250,8 @@ class Registrar:
         for agent in self._project.agents:
             if names and agent.name not in names:
                 continue
-            engine = _engine_id(agent)
-            if engine is None:
+            written = agent.engine
+            if written is None:
                 summary.say(
                     f"{agent.name}: no registration.gemini_enterprise.engine; skipped"
                 )
@@ -261,6 +261,12 @@ class Registrar:
                 identifier for identifier in reset if owners[identifier] == agent.name
             ]
             try:
+                # Resolved before anything is read: a name no engine carries
+                # is the copy-paste the names exist to refuse, and register
+                # can run without validate.
+                engine = self._project.engine_id(written)
+                behind = "" if engine == written else f" ({engine})"
+                summary.say(f"{agent.name}: Gemini Enterprise engine {written}{behind}")
                 self._register(agent, engine, summary, held)
             except GeteError as error:
                 summary.say(f"{agent.name}: cannot register: {error}")
@@ -311,9 +317,7 @@ class Registrar:
                     f"the agent is not among {', '.join(names)}"
                 )
         unregistered = sorted(
-            identifier
-            for identifier in reset
-            if _engine_id(declared[identifier]) is None
+            identifier for identifier in reset if declared[identifier].engine is None
         )
         if unregistered:
             raise DeclarationError(
@@ -711,12 +715,6 @@ def _fill(template: str, **values: str) -> str:
             f"the notice template uses {error}, which gete does not fill; "
             f"available: {', '.join(sorted(values))}"
         ) from None
-
-
-def _engine_id(agent: Agent) -> str | None:
-    registration: Mapping[str, Any] = agent.data.get("registration", {})
-    engine = registration.get("gemini_enterprise", {}).get("engine")
-    return str(engine) if engine else None
 
 
 def register_project(

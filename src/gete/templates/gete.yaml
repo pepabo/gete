@@ -14,3 +14,9 @@ policies:
 # connections:
 #   github:
 #     base_url: https://api.github.example.com
+
+# Gemini Enterprise engines by name, each the id from the console URL. Once
+# named, an agent's registration.gemini_enterprise.engine is one of the names.
+# gemini_enterprise:
+#   engines:
+#     main: my-app_1234567890
