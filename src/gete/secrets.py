@@ -28,7 +28,7 @@ def secrets_needed(project: Project) -> dict[str, list[str]]:
         # Delivered like secret_env too, registered or not: the deployment
         # issues its tokens with the key.
         names.extend(app_key_secrets(project, agent).values())
-        if agent.data.get("registration"):
+        if agent.engine is not None:
             for connection_id in agent.connections:
                 connection = registry.get(connection_id)
                 if connection.oauth is None:
