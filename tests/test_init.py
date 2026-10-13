@@ -80,3 +80,61 @@ def test_cli_init_adds_to_an_existing_project_from_anywhere_below_it(
     result = CliRunner().invoke(main, ["init", "new-agent"])
     assert result.exit_code == 0, result.output
     assert (project.root / "agents" / "new-agent" / "agent.yaml").is_file()
+
+
+NAMED_ENGINES = (
+    "version: 1\n"
+    "project: example-project\n"
+    "location: us-central1\n"
+    "gemini_enterprise:\n"
+    "  engines:\n"
+    "    sales: my-sales-app_1234567890\n"
+)
+
+
+def test_init_agent_below_an_engines_directory(tmp_path: Path) -> None:
+    """gete init sales/mail-triage: the agent is listed in sales by where it is."""
+    init_project(tmp_path)
+    (tmp_path / "gete.yaml").write_text(NAMED_ENGINES)
+    written = init_agent(tmp_path, "sales/mail-triage")
+    assert {p.name for p in written} == {"agent.yaml", "instruction.md"}
+    assert (tmp_path / "agents" / "sales" / "mail-triage" / "agent.yaml").is_file()
+    project = load_project(tmp_path / "gete.yaml")
+    assert [str(p) for p in validate_project(project)] == []
+    assert project.agents[0].name == "mail-triage"
+    assert project.agents[0].engine == "sales"
+
+
+def test_init_agent_refuses_a_group_that_is_no_named_engine(tmp_path: Path) -> None:
+    """validate would refuse the directory; better to refuse before writing it."""
+    from gete.errors import DeclarationError
+
+    init_project(tmp_path)
+    with pytest.raises(DeclarationError, match="'sales'.*gemini_enterprise.engines"):
+        init_agent(tmp_path, "sales/mail-triage")
+    (tmp_path / "gete.yaml").write_text(NAMED_ENGINES)
+    with pytest.raises(DeclarationError, match="'support'.*sales"):
+        init_agent(tmp_path, "support/mail-triage")
+    assert not (tmp_path / "agents").exists()
+
+
+def test_init_agent_refuses_a_second_directory_level(tmp_path: Path) -> None:
+    from gete.errors import DeclarationError
+
+    init_project(tmp_path)
+    (tmp_path / "gete.yaml").write_text(NAMED_ENGINES)
+    with pytest.raises(DeclarationError, match="one level"):
+        init_agent(tmp_path, "sales/eu/mail-triage")
+    assert not (tmp_path / "agents").exists()
+
+
+def test_cli_init_says_what_it_wrote_before_refusing_the_group(
+    outside_any_project: Path,
+) -> None:
+    """A fresh gete.yaml names no engines, so the group is refused; the file
+    it did create is still reported, since that is where the engine goes."""
+    result = CliRunner().invoke(main, ["init", "sales/mail-triage"])
+    assert result.exit_code == 1, result.output
+    assert (outside_any_project / "gete.yaml").is_file()
+    assert "gete.yaml" in result.output
+    assert "'sales'" in result.output

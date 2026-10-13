@@ -17,6 +17,7 @@ instruction: ./instruction.md
 
 # Where the agent is listed: the id from the Gemini Enterprise console URL,
 # or its name once gete.yaml names the engines under gemini_enterprise.engines.
+# An agent below agents/<engine name>/ is listed there and needs no block.
 # registration:
 #   gemini_enterprise:
 #     engine: my-app_1234567890

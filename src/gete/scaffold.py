@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 from string import Template
+from typing import Any
 
 from gete._yaml import read_yaml
 from gete.declaration import AGENT_FILE, DEFAULT_AGENTS_DIR, PROJECT_FILE
@@ -26,17 +27,38 @@ def init_project(root: Path) -> list[Path]:
 
 
 def init_agent(root: Path, name: str) -> list[Path]:
-    """Write agents/<name>/agent.yaml and instruction.md unless they exist."""
+    """Write agents/<name>/agent.yaml and instruction.md unless they exist.
+
+    <engine>/<name> puts the agent below the engine's directory, where it is
+    listed in that engine. The engine has to be named in gete.yaml already:
+    validate would refuse the directory otherwise, and a scaffold that fails
+    its own validator teaches the wrong shape.
+    """
+    *groups, name = name.split("/")
+    if len(groups) > 1:
+        raise DeclarationError(
+            f"{'/'.join(groups)!r}: agents group one level deep, as <engine>/<name>"
+        )
     if len(name) > 63 or not _LABEL.match(name):
         raise DeclarationError(
             f"{name!r} is not a valid agent name: lowercase letters, digits, hyphens"
         )
-    agents_dir = root / DEFAULT_AGENTS_DIR
+    declared: dict[str, Any] = {}
     project_file = root / PROJECT_FILE
     if project_file.is_file():
         declared = read_yaml(project_file) or {}
-        agents_dir = root / declared.get("agents_dir", DEFAULT_AGENTS_DIR)
-    directory = agents_dir / name
+    directory = root / declared.get("agents_dir", DEFAULT_AGENTS_DIR)
+    if groups:
+        engines = (declared.get("gemini_enterprise") or {}).get("engines") or {}
+        if groups[0] not in engines:
+            named = f" ({', '.join(engines)})" if engines else ""
+            raise DeclarationError(
+                f"{groups[0]!r} is not an engine named under "
+                f"gemini_enterprise.engines in {PROJECT_FILE}{named}; name it "
+                "there first, and agents below that directory are listed in it"
+            )
+        directory = directory / groups[0]
+    directory = directory / name
     return [
         path
         for path, text in (
