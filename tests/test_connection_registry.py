@@ -144,6 +144,16 @@ def test_a_declared_jwt_format_accepts_a_jwt_that_names_no_issuer() -> None:
     assert entry.accepts_token(jwt_with({"exp": 0}))
 
 
+def test_a_declared_jwt_format_refuses_a_google_access_token_by_its_prefix() -> None:
+    """Google's ya29.c.<payload> access tokens carry two dots. One is refused
+    for the prefix it announces, not for a middle segment that happens not
+    to decode, so a payload that does decode changes nothing."""
+    entry = Registry([connection(**JWT_TOKENS)]).get("example")
+    assert not entry.accepts_token("ya29.c.b0Aaekm1K")
+    readable = "ya29." + jwt_with({"exp": 0}).split(".", 1)[1]
+    assert not entry.accepts_token(readable)
+
+
 def test_a_declared_jwt_format_refuses_a_token_that_is_not_a_jwt() -> None:
     """Without the declaration elimination would take it; with it, the
     connection promises a shape and holds itself to it."""

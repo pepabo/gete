@@ -12,6 +12,7 @@ from functools import cache
 from typing import Any
 
 from gete.connection.registry import (
+    GOOGLE_ACCESS_TOKEN_PREFIX,
     JWT_FORMAT,
     Connection,
     Registry,
@@ -105,18 +106,27 @@ def describe_token(connection: Connection, token: str) -> str:
     refusal looking like a mystery. One accepting by elimination takes no
     JWT at all, and its operator is told the declaration that would take
     it: a provider that starts issuing JWTs has every token refused at once,
-    and nothing else in the log would say why. A connection that declares a
-    token format is refusing against a promise, and the half it missed is
-    named. Read in the order accepts_token decides in, so the message names
-    the rule that actually refused the token.
+    and nothing else in the log would say why. The declaration is not named
+    where it would refuse the same token: a Google access token carries two
+    dots as a JWT does, and claims that cannot be read are taken by nothing.
+    A connection that declares a token format is refusing against a
+    promise, and the half it missed is named. Read in the order
+    accepts_token decides in, so the message names the rule that actually
+    refused the token.
     """
     if connection.token_format is not None:
         return _unmet_format(connection.token_format, token)
     for prefix in connection.token_prefixes:
         if token.startswith(prefix):
             return f"starts with {prefix}"
-    if connection.token_prefixes or not looks_like_jwt(token):
+    if (
+        connection.token_prefixes
+        or token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX)
+        or not looks_like_jwt(token)
+    ):
         return NO_DECLARED_SHAPE
+    if jwt_claims(token) is None:
+        return "a JWT whose claims cannot be read"
     return (
         f"a JWT, which {connection.id} does not take: it declares neither "
         "token_prefixes nor tokens.format; declare "
@@ -134,7 +144,7 @@ def _unmet_format(token_format: str, token: str) -> str:
     """
     if token_format != JWT_FORMAT:
         return f"declared as {token_format}, which this gete cannot judge"
-    if not looks_like_jwt(token):
+    if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX) or not looks_like_jwt(token):
         return f"not the {token_format} this connection declares"
     if jwt_claims(token) is None:
         return "a JWT whose claims cannot be read"

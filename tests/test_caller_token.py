@@ -25,6 +25,9 @@ FREEE_TOKEN = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
 GOOGLE_ISSUED_JWT = (
     "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20ifQ.sig"
 )
+# Google issues ya29.c.<payload> access tokens as well; the two dots make one
+# look like a JWT.
+GOOGLE_ACCESS_TOKEN_WITH_DOTS = "ya29.c.b0Aaekm1K"
 
 
 # Claims: {"exp": 0}, as Zendesk's JWTs carry. The shape tokens.format: jwt
@@ -155,11 +158,25 @@ def test_describe_token_says_a_jwt_belongs_to_a_declaring_connection() -> None:
     )
     assert describe_token(FREEE, JWT_WITHOUT_ISSUER) == expected
     assert describe_token(FREEE, GOOGLE_ISSUED_JWT) == expected
-    assert describe_token(FREEE, "eyJhbGciOiJSUzI1NiJ9.x.sig") == expected
     # A declared prefix is the whole judgment; the JWT is described no further.
     assert (
         describe_token(GITHUB, GOOGLE_ISSUED_JWT)
         == "matches none of the declared shapes"
+    )
+
+
+def test_describe_token_does_not_name_the_declaration_where_it_would_not_help() -> None:
+    """A Google access token with two dots looks like a JWT, and so does a
+    token whose claims cannot be read; a declaring connection refuses both
+    as well, so telling the operator to declare the format would send them
+    after a change that refuses the same token."""
+    assert (
+        describe_token(FREEE, GOOGLE_ACCESS_TOKEN_WITH_DOTS)
+        == "matches none of the declared shapes"
+    )
+    assert (
+        describe_token(FREEE, "eyJhbGciOiJSUzI1NiJ9.x.sig")
+        == "a JWT whose claims cannot be read"
     )
 
 
@@ -169,6 +186,10 @@ def test_describe_token_says_a_declared_format_was_not_met() -> None:
     assert DECLARED.accepts_token(JWT_WITHOUT_ISSUER)
     assert (
         describe_token(DECLARED, FREEE_TOKEN) == "not the jwt this connection declares"
+    )
+    assert (
+        describe_token(DECLARED, GOOGLE_ACCESS_TOKEN_WITH_DOTS)
+        == "not the jwt this connection declares"
     )
     assert (
         describe_token(DECLARED, GOOGLE_ISSUED_JWT)

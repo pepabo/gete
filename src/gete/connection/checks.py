@@ -41,7 +41,11 @@ _GOOGLE_ISSUED_JWT_EXAMPLES = (
     "eyJhbGciOiJSUzI1NiJ9."
     "eyJpc3MiOiJhZ2VudEBwcm9qZWN0LmlhbS5nc2VydmljZWFjY291bnQuY29tIn0.sig",
 )
-_GOOGLE_ACCESS_TOKEN_EXAMPLE = GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB"
+# Both shapes Google issues: the second carries two dots, as a JWT does.
+_GOOGLE_ACCESS_TOKEN_EXAMPLES = (
+    GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB",
+    GOOGLE_ACCESS_TOKEN_PREFIX + "c.b0Aaekm1K",
+)
 
 
 def elimination_problems(
@@ -188,7 +192,9 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
         prefix.startswith(GOOGLE_ACCESS_TOKEN_PREFIX)
         for prefix in connection.token_prefixes
     )
-    if not claims_google and connection.accepts_token(_GOOGLE_ACCESS_TOKEN_EXAMPLE):
+    if not claims_google and any(
+        connection.accepts_token(example) for example in _GOOGLE_ACCESS_TOKEN_EXAMPLES
+    ):
         problems.append("a Google access token is accepted")
     # The MCP server is spoken to with the user's token, so its URL must sit
     # where hosts lets the token go - path scoping included.

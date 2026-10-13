@@ -355,9 +355,12 @@ class Connection:
         connection's own service. Claims that name none are kept: Zendesk's
         carry only exp. Google's ID tokens and service account tokens always
         name theirs, which is never the connection's own, so they still fall
-        out without a list of Google's issuers.
+        out without a list of Google's issuers. Google's ya29.c.<payload>
+        access tokens carry two dots as well, and are refused for the prefix
+        they announce rather than for a middle segment that happens not to
+        decode.
         """
-        if not looks_like_jwt(token):
+        if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX) or not looks_like_jwt(token):
             return False
         claims = jwt_claims(token)
         if claims is None:
