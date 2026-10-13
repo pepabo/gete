@@ -361,30 +361,34 @@ elimination refuses every token that carries a prefix declared anywhere in
 the project or the catalog, whichever agent holds that connection.
 
 Some services announce themselves without a prefix: their access tokens are
-JWTs whose `iss` claim names the service's own host. `tokens.format: jwt` says
-so, and gete holds the connection to it — a token that is not such a JWT is
-refused, however little else claims it. In return the connection is no longer
-accepted by elimination, and an agent may hold it next to one that is:
+JWTs. `tokens.format: jwt` says so, and gete holds the connection to it — a
+token that is not a JWT is refused, however little else claims it, and so is
+a JWT whose `iss` claim names any host but the service's own. A JWT that
+names no issuer at all is taken: Zendesk's carry only `exp`. A connection
+that declares neither prefixes nor a format takes no JWT, so the two part by
+shape and an agent may hold one of each:
 
 ```yaml
 connections:
   zendesk:
     base_url: https://acme.zendesk.com
     tokens:
-      format: jwt      # tokens are JWTs issued by acme.zendesk.com, nothing else
+      format: jwt      # tokens are JWTs; any issuer they name is acme.zendesk.com
 ```
 
 An agent may then read Zendesk and write to `internal-api` above, which keeps
-the one place a token is taken by elimination. What the two may not share is
-an issuer: one authorization server in front of both services puts its host
-in either connection's tokens, and `gete validate` refuses that pairing for
-the same reason it refuses two anonymous connections.
+the one place a token is taken by elimination — even when one authorization
+server stands in front of both, since `internal-api` turns every JWT away.
+What an agent may not hold is two connections that declare the format: a JWT
+naming no issuer would pass as either's, and `gete validate` refuses that
+pairing for the same reason it refuses two anonymous connections.
 
 Whether a provider issues such tokens can be a setting rather than a promise —
 Zendesk does so only with token expiry turned on — so the declaration belongs
 in `gete.yaml`, not in a catalog entry that would promise it for every
-installation. It cuts both ways: turn that setting off and every token the
-connection is handed is refused until the declaration goes with it.
+installation. Without it, every JWT the connection is handed is refused, and
+the log names the declaration to add. It cuts both ways: turn that setting off
+and a token that is not a JWT is refused until the declaration goes with it.
 
 A service whose root moves with the installation — the tenant in a subdomain,
 or a deployment you host — writes its URLs around `{base_url}`, and the
