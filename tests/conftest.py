@@ -43,7 +43,8 @@ class ProjectBuilder:
     ) -> Path:
         agent_dir = self.agents_dir / directory
         agent_dir.mkdir(parents=True, exist_ok=True)
-        body = {**MINIMAL_AGENT, "name": directory, **(document or {})}
+        # The directory may be <engine>/<name>; the name is the last part.
+        body = {**MINIMAL_AGENT, "name": Path(directory).name, **(document or {})}
         (agent_dir / "agent.yaml").write_text(yaml.safe_dump(body, sort_keys=False))
         if instruction is not None:
             (agent_dir / "instruction.md").write_text(instruction)

@@ -1248,3 +1248,20 @@ def test_a_name_no_engine_carries_fails_that_agent_before_anything_is_read(
     assert any("'app_1'" in line and "sales" in line for line in summary.messages)
     assert gcp.calls == []
     assert not (tmp_path / "n.md").exists()
+
+
+def test_an_agent_below_an_engines_directory_registers_with_that_engine(
+    project: ProjectBuilder, gcp: FakeGcp, tmp_path: Path
+) -> None:
+    """The directory names the engine; the agent carries no registration block."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent(
+        "sales/finance", {k: v for k, v in FINANCE.items() if k != "registration"}
+    )
+    summary = register_project(
+        load_project(project.root / "gete.yaml"), gcp, tmp_path / "n.md"
+    )
+    assert summary.failed == []
+    assert summary.skipped == []
+    assert "finance: Gemini Enterprise engine sales (app_1)" in summary.messages
+    assert any(url == AGENTS_URL for _, url, _, _ in gcp.calls)

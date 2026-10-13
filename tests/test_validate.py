@@ -520,13 +520,6 @@ def test_agent_schema_errors_are_reported_with_their_file(
     assert any("agent.yaml" in p and "modle" in p for p in problems(project))
 
 
-def test_agents_without_declaration_are_skipped(project: ProjectBuilder) -> None:
-    """A stray directory under agents/ is not an agent."""
-    (project.agents_dir / "notes").mkdir()
-    project.write_agent("mail-triage")
-    assert problems(project) == []
-
-
 def test_duplicate_policy_names_are_reported(project: ProjectBuilder) -> None:
     project.write_policies("a", [{"name": "finance", "when": "always"}])
     project.write_policies("b", [{"name": "finance", "when": "always"}])
@@ -1111,3 +1104,125 @@ def test_two_names_for_one_engine_are_reported(project: ProjectBuilder) -> None:
     assert len(found) == 1, found
     assert found[0].startswith("gete.yaml: gemini_enterprise.engines")
     assert "sales" in found[0] and "support" in found[0] and "app_1" in found[0]
+
+
+# --- agents grouped by engine: agents/<engine>/<name>
+
+
+def test_an_agent_below_an_engines_directory_is_listed_in_that_engine(
+    project: ProjectBuilder,
+) -> None:
+    """The directory says where the agent is listed; no registration block."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    loaded = load_project(project.root / "gete.yaml")
+    assert [agent.name for agent in loaded.agents] == ["mail-triage"]
+    assert loaded.agents[0].directory == project.agents_dir / "sales" / "mail-triage"
+    assert loaded.agents[0].engine == "sales"
+    assert problems(project) == []
+
+
+def test_top_level_agents_and_groups_coexist_in_path_order(
+    project: ProjectBuilder,
+) -> None:
+    """An agent listed nowhere stays directly below agents/, as before."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("support/a-agent")
+    project.write_agent("local-only")
+    project.write_agent("sales/z-agent")
+    project.write_agent("sales/b-agent")
+    loaded = load_project(project.root / "gete.yaml")
+    assert [(agent.name, agent.engine) for agent in loaded.agents] == [
+        ("local-only", None),
+        ("b-agent", "sales"),
+        ("z-agent", "sales"),
+        ("a-agent", "support"),
+    ]
+    assert problems(project) == []
+
+
+def test_a_directory_that_is_neither_an_agent_nor_an_engine_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    """Stepped over quietly, a misspelt engine would drop every agent below
+    it, and the next apply would destroy them."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sale/mail-triage")
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sale: no agent.yaml")
+    assert "sales, support" in found[0]
+
+
+def test_without_named_engines_a_directory_without_agent_yaml_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    (project.agents_dir / "notes").mkdir()
+    project.write_agent("mail-triage")
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/notes: no agent.yaml")
+    assert "gemini_enterprise.engines" in found[0]
+
+
+def test_groups_do_not_nest(project: ProjectBuilder) -> None:
+    """One level is enough; deeper, a typo in a path would open a new level."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    (project.agents_dir / "sales" / "docs").mkdir()
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sales/docs: no agent.yaml")
+
+
+def test_hidden_directories_are_not_strays(project: ProjectBuilder) -> None:
+    """A venv or a VCS directory below agents/ is tooling, not a declaration."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    (project.agents_dir / ".venv").mkdir()
+    (project.agents_dir / "sales" / ".cache").mkdir()
+    assert problems(project) == []
+
+
+def test_a_grouped_agent_that_fails_the_schema_is_reported_with_its_file(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", {"modle": "typo"})
+    found = problems(project)
+    assert any(p.startswith("agents/sales/mail-triage/agent.yaml") for p in found)
+    assert any("modle" in p for p in found)
+
+
+def test_a_registration_that_disagrees_with_the_group_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    """The block is the stale copy an agent moved into a group leaves behind."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", registered_with("support"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sales/mail-triage/agent.yaml: registration")
+    assert "'support'" in found[0] and "sales" in found[0]
+
+
+def test_a_registration_that_agrees_with_the_group_is_accepted(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", registered_with("sales"))
+    assert problems(project) == []
+
+
+def test_one_name_in_two_groups_is_reported_on_both(project: ProjectBuilder) -> None:
+    """The module, service account, and reasoning engine are named after it;
+    two directories would fight over one of each."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    project.write_agent("support/mail-triage")
+    found = problems(project)
+    assert len(found) == 2, found
+    assert found[0].startswith("agents/sales/mail-triage/agent.yaml: name")
+    assert "agents/support/mail-triage" in found[0]
+    assert found[1].startswith("agents/support/mail-triage/agent.yaml: name")
+    assert "agents/sales/mail-triage" in found[1]

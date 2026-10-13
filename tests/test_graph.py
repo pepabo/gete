@@ -221,3 +221,20 @@ def test_the_engine_is_drawn_by_its_name_when_gete_yaml_names_it(
     assert 'GE_sales["Gemini Enterprise<br/>sales"]' in text
     assert "GE_sales --> finance" in text
     assert "my-sales-app_1234567890" not in text
+
+
+def test_an_agent_below_an_engines_directory_hangs_from_that_engine(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"engines": {"sales": "my-sales-app_1234567890"}},
+        }
+    )
+    project.write_agent("sales/finance")
+    text = graph(project)
+    assert 'GE_sales["Gemini Enterprise<br/>sales"]' in text
+    assert "GE_sales --> finance" in text

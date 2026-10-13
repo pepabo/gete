@@ -111,6 +111,18 @@ def _agent_problems(
             f"name {agent.name!r} differs from directory {agent.directory.name!r}; "
             "the module, service account, and archive are named after the directory"
         )
+    # Possible once agents sit in groups: two directories, one name, and both
+    # would claim the module, the service account, and the reasoning engine.
+    twins = [
+        project.display(other.directory)
+        for other in project.agents
+        if other.name == agent.name and other.directory != agent.directory
+    ]
+    if twins:
+        found.append(
+            f"name {agent.name!r} is also {', '.join(twins)}; the module, "
+            "service account, and reasoning engine are named after it"
+        )
     account = f"{agent.name}{SERVICE_ACCOUNT_SUFFIX}"
     if not (
         MIN_SERVICE_ACCOUNT_ID_LENGTH <= len(account) <= MAX_SERVICE_ACCOUNT_ID_LENGTH
@@ -184,11 +196,21 @@ def _agent_problems(
     found.extend(
         f"connections: {message}" for message in elimination_problems(known, registry)
     )
-    if agent.engine is not None:
+    written = agent.registration_engine
+    if written is not None:
         try:
-            project.engine_id(agent.engine)
+            project.engine_id(written)
         except DeclarationError as error:
             found.append(str(error))
+        if agent.group is not None and written != agent.group:
+            # The block an agent moved into a group brought along, and then
+            # edited: the directory is what the tree shows, so it is the one
+            # that counts, and the block has nothing left to say.
+            found.append(
+                f"registration.gemini_enterprise.engine: {written!r} differs from "
+                f"the directory, which lists the agent in {agent.group!r}; an "
+                "agent below an engine's group needs no registration block"
+            )
     declared_shared: Mapping[str, Any] = project.data.get("shared_credentials", {})
     for name in agent.shared_credentials:
         credential = SHARED_CREDENTIALS.get(name)

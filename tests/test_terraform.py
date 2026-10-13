@@ -248,3 +248,25 @@ def test_an_agent_without_the_app_connection_gets_no_key(
     project.write_project(APP_PROJECT)
     project.write_agent("triage")
     assert "GETE_APP_KEY" not in files(project)["triage.tf"]
+
+
+def test_an_agent_below_an_engines_directory_keeps_its_module_and_moves_its_path(
+    project: ProjectBuilder,
+) -> None:
+    """Moving an agent into a group changes agent_directory and nothing else:
+    the module address and the service account stay, so nothing is recreated."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"engines": {"sales": "my-sales-app_1234567890"}},
+        }
+    )
+    project.write_agent("sales/mail-triage")
+    generated = files(project)
+    assert set(generated) == {"mail_triage.tf"}
+    text = generated["mail_triage.tf"]
+    assert 'module "mail_triage" {' in text
+    assert 'name         = "mail-triage"' in text
+    assert 'agent_directory = "${path.module}/../agents/sales/mail-triage"' in text
