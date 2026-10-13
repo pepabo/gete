@@ -262,11 +262,13 @@ def load_project(path: Path) -> Project:
     agents: list[Agent] = []
     problems: list[Problem] = []
     engines = project.engines or {}
-    for directory in _visible_directories(project.agents_dir):
+    for directory in visible_directories(project.agents_dir):
         if (directory / AGENT_FILE).is_file():
             _load_agent(project, directory, None, agents, problems)
+            if directory.name in engines:
+                problems.extend(_agents_below_an_agent(project, directory))
         elif directory.name in engines:
-            for member in _visible_directories(directory):
+            for member in visible_directories(directory):
                 if (member / AGENT_FILE).is_file():
                     _load_agent(project, member, directory.name, agents, problems)
                 else:
@@ -282,7 +284,7 @@ def load_project(path: Path) -> Project:
     return Project(path=path, data=data, agents=tuple(agents), problems=tuple(problems))
 
 
-def _visible_directories(parent: Path) -> list[Path]:
+def visible_directories(parent: Path) -> list[Path]:
     """The directories below parent, in name order; hidden ones are nobody's.
 
     Hidden entries hold tooling (a venv, a VCS directory) and stay out of the
@@ -295,6 +297,26 @@ def _visible_directories(parent: Path) -> list[Path]:
         for path in parent.iterdir()
         if path.is_dir() and not path.name.startswith(".")
     )
+
+
+def _agents_below_an_agent(project: Project, directory: Path) -> list[Problem]:
+    """Agents put below an agent that carries an engine's name.
+
+    The directory holds its own agent.yaml, so it is that agent and not the
+    engine's group, and an agent placed below it would be stepped over
+    without a word: the one thing this loader must not do.
+    """
+    return [
+        Problem(
+            project.display(member),
+            f"below {project.display(directory)}, which holds its own "
+            f"{AGENT_FILE} and so is the agent {directory.name!r}, not the group "
+            f"of the engine {directory.name!r}; an agent and an engine's group "
+            "cannot share a directory",
+        )
+        for member in visible_directories(directory)
+        if (member / AGENT_FILE).is_file()
+    ]
 
 
 def _load_agent(

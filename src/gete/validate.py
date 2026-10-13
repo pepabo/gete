@@ -197,20 +197,21 @@ def _agent_problems(
         f"connections: {message}" for message in elimination_problems(known, registry)
     )
     written = agent.registration_engine
-    if written is not None:
+    if written is not None and agent.group is None:
         try:
             project.engine_id(written)
         except DeclarationError as error:
             found.append(str(error))
-        if agent.group is not None and written != agent.group:
-            # The block an agent moved into a group brought along, and then
-            # edited: the directory is what the tree shows, so it is the one
-            # that counts, and the block has nothing left to say.
-            found.append(
-                f"registration.gemini_enterprise.engine: {written!r} differs from "
-                f"the directory, which lists the agent in {agent.group!r}; an "
-                "agent below an engine's group needs no registration block"
-            )
+    elif written is not None and written != agent.group:
+        # The block an agent moved into a group brought along, and then
+        # edited: the directory is what the tree shows, so it is the one
+        # that counts, and the block has nothing left to say. Whether what
+        # it says is a name or an id makes no difference, so one line.
+        found.append(
+            f"registration.gemini_enterprise.engine: {written!r} differs from "
+            f"the directory, which lists the agent in {agent.group!r}; an "
+            "agent below an engine's group needs no registration block"
+        )
     declared_shared: Mapping[str, Any] = project.data.get("shared_credentials", {})
     for name in agent.shared_credentials:
         credential = SHARED_CREDENTIALS.get(name)

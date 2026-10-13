@@ -6,7 +6,12 @@ from string import Template
 from typing import Any
 
 from gete._yaml import read_yaml
-from gete.declaration import AGENT_FILE, DEFAULT_AGENTS_DIR, PROJECT_FILE
+from gete.declaration import (
+    AGENT_FILE,
+    DEFAULT_AGENTS_DIR,
+    PROJECT_FILE,
+    visible_directories,
+)
 from gete.errors import DeclarationError
 from gete.templates import template_text
 
@@ -47,9 +52,13 @@ def init_agent(root: Path, name: str) -> list[Path]:
     project_file = root / PROJECT_FILE
     if project_file.is_file():
         declared = read_yaml(project_file) or {}
-    directory = root / declared.get("agents_dir", DEFAULT_AGENTS_DIR)
+    agents_dir = Path(declared.get("agents_dir", DEFAULT_AGENTS_DIR))
+    directory = root / agents_dir
+    engines = (declared.get("gemini_enterprise") or {}).get("engines") or {}
+    # An agent and an engine's group cannot share a directory: the loader
+    # reads a directory with agent.yaml as the agent and steps over nothing
+    # below it, so either shape written here would hide agents.
     if groups:
-        engines = (declared.get("gemini_enterprise") or {}).get("engines") or {}
         if groups[0] not in engines:
             named = f" ({', '.join(engines)})" if engines else ""
             raise DeclarationError(
@@ -58,6 +67,20 @@ def init_agent(root: Path, name: str) -> list[Path]:
                 "there first, and agents below that directory are listed in it"
             )
         directory = directory / groups[0]
+        if (directory / AGENT_FILE).is_file():
+            raise DeclarationError(
+                f"{groups[0]!r} is an agent, not the engine's group: "
+                f"{agents_dir / groups[0] / AGENT_FILE} exists, and an agent and "
+                "an engine's group cannot share a directory"
+            )
+    elif name in engines and any(
+        (member / AGENT_FILE).is_file()
+        for member in visible_directories(directory / name)
+    ):
+        raise DeclarationError(
+            f"{name!r} is the engine's group and holds agents; an agent and an "
+            "engine's group cannot share a directory"
+        )
     directory = directory / name
     return [
         path

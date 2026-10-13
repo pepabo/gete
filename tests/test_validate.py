@@ -1226,3 +1226,30 @@ def test_one_name_in_two_groups_is_reported_on_both(project: ProjectBuilder) -> 
     assert "agents/support/mail-triage" in found[0]
     assert found[1].startswith("agents/support/mail-triage/agent.yaml: name")
     assert "agents/sales/mail-triage" in found[1]
+
+
+def test_an_agent_named_after_an_engine_is_not_that_engines_group(
+    project: ProjectBuilder,
+) -> None:
+    """The directory holds its own agent.yaml, so it is an agent; an agent put
+    below it would otherwise be stepped over without a word."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales")
+    project.write_agent("sales/mail-triage")
+    loaded = load_project(project.root / "gete.yaml")
+    assert [agent.name for agent in loaded.agents] == ["sales"]
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sales/mail-triage: ")
+    assert "agents/sales" in found[0] and "'sales'" in found[0]
+
+
+def test_a_grouped_agent_that_writes_the_engines_id_is_reported_once(
+    project: ProjectBuilder,
+) -> None:
+    """One mistake, one line: the block is stale, and that is the whole story."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", registered_with("my-sales-app_1234567890"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert "differs from the directory" in found[0]

@@ -138,3 +138,33 @@ def test_cli_init_says_what_it_wrote_before_refusing_the_group(
     assert (outside_any_project / "gete.yaml").is_file()
     assert "gete.yaml" in result.output
     assert "'sales'" in result.output
+
+
+def test_init_agent_refuses_a_group_whose_directory_is_an_agent(
+    tmp_path: Path,
+) -> None:
+    """agents/sales/agent.yaml makes sales an agent; an agent below it would
+    be stepped over by the loader, so init refuses to write one."""
+    from gete.errors import DeclarationError
+
+    init_project(tmp_path)
+    (tmp_path / "gete.yaml").write_text(NAMED_ENGINES)
+    init_agent(tmp_path, "sales")
+    with pytest.raises(DeclarationError, match="'sales'.*agent"):
+        init_agent(tmp_path, "sales/mail-triage")
+    assert not (tmp_path / "agents" / "sales" / "mail-triage").exists()
+
+
+def test_init_agent_refuses_an_agent_on_top_of_an_engines_group(
+    tmp_path: Path,
+) -> None:
+    """The reverse: agents/sales/ already holds agents, so gete init sales
+    would turn the group into an agent and hide them."""
+    from gete.errors import DeclarationError
+
+    init_project(tmp_path)
+    (tmp_path / "gete.yaml").write_text(NAMED_ENGINES)
+    init_agent(tmp_path, "sales/mail-triage")
+    with pytest.raises(DeclarationError, match="'sales'.*group"):
+        init_agent(tmp_path, "sales")
+    assert not (tmp_path / "agents" / "sales" / "agent.yaml").exists()
