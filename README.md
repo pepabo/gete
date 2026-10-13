@@ -331,8 +331,9 @@ the flow. An authorization server that requires PKCE refuses the code exchange
 without one, and there is no other way to ask for it from a declaration.
 
 `token_prefixes: []` says the service does not announce itself: a token is
-taken as its own once no other connection's prefix matches it. Two such
-connections cannot be told apart, so an agent may hold only one of them.
+taken as its own once no other connection's prefix matches it and it is not
+a JWT, the shape `tokens.format: jwt` below declares. Two such connections
+cannot be told apart, so an agent may hold only one of them.
 Declaring a second one in `gete.yaml` is fine; naming both under one agent's
 `connections` is what `gete validate` refuses.
 

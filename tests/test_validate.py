@@ -386,7 +386,7 @@ def test_a_declared_token_format_may_be_held_beside_a_prefixless_connection(
     project: ProjectBuilder,
 ) -> None:
     """An agent that reads one service and writes to another needs both, and
-    a service whose tokens name their issuer is not the anonymous one."""
+    a connection held to JWTs takes nothing the anonymous one does."""
     project.write_project(
         {
             "version": 1,

@@ -226,7 +226,7 @@ def test_a_declared_token_format_reads_as_the_format_it_declares() -> None:
     connection has to see which of the two it is."""
     entry = prefixless(tokens={"format": "jwt"})
     rows = connections_table(Registry([entry]))
-    assert rows[0]["token_prefixes"] == "(none: jwt naming no issuer but this service)"
+    assert rows[0]["token_prefixes"] == "(none: jwt naming this service or no issuer)"
     assert "jwt" in format_connection(entry)
 
 

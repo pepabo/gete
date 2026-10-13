@@ -591,15 +591,6 @@ def test_an_issuer_shared_with_an_anonymous_connection_confuses_nothing() -> Non
     assert elimination_problems(["declared", "anonymous"], registry) == []
 
 
-def test_an_anonymous_pair_sharing_an_issuer_is_reported_once() -> None:
-    """Neither can be told from the other by anything at all; naming the
-    issuer they share on top of that would say it twice."""
-    one = connection(id="one")
-    two = connection(id="two", hosts=["api.two.example.com"])
-    found = elimination_problems(["one", "two"], Registry([one, two]))
-    assert len(found) == 1, found
-
-
 def test_two_declared_token_formats_are_reported_whatever_their_issuers() -> None:
     """A JWT that names no issuer is taken by either, so a token from one
     authorization passes as the other's even when their services differ."""
@@ -632,8 +623,8 @@ def test_prefixes_next_to_a_declared_token_format_are_reported() -> None:
 
 def test_a_connection_that_accepts_google_issued_jwts_is_reported() -> None:
     """Naming Google's authorization server as one's own host would let ID
-    tokens through the issuer match a declared format makes; the checks must
-    catch the declaration."""
+    tokens through the issuer match that a declared format makes; the checks
+    must catch the declaration."""
     entry = connection(hosts=["accounts.google.com"], **JWT_TOKENS)
     assert any(
         "Google-issued" in problem
