@@ -331,9 +331,10 @@ the flow. An authorization server that requires PKCE refuses the code exchange
 without one, and there is no other way to ask for it from a declaration.
 
 `token_prefixes: []` says the service does not announce itself: a token is
-taken as its own once no other connection's prefix matches it and it is not
-a JWT, the shape `tokens.format: jwt` below declares. Two such connections
-cannot be told apart, so an agent may hold only one of them.
+taken as its own once no other connection's prefix matches it. A JWT is taken
+only if its `iss` claim names the service's own host; one that names no
+issuer is left to a connection declaring `issuer: optional` below. Two such
+connections cannot be told apart, so an agent may hold only one of them.
 Declaring a second one in `gete.yaml` is fine; naming both under one agent's
 `connections` is what `gete validate` refuses.
 
@@ -362,34 +363,56 @@ elimination refuses every token that carries a prefix declared anywhere in
 the project or the catalog, whichever agent holds that connection.
 
 Some services announce themselves without a prefix: their access tokens are
-JWTs. `tokens.format: jwt` says so, and gete holds the connection to it — a
-token that is not a JWT is refused, however little else claims it, and so is
-a JWT whose `iss` claim names any host but the service's own. A JWT that
-names no issuer at all is taken: Zendesk's carry only `exp`. A connection
-that declares neither prefixes nor a format takes no JWT, so the two part by
-shape and an agent may hold one of each:
+JWTs whose `iss` claim names the service's own host. `tokens.format: jwt` says
+so, and gete holds the connection to it — a token that is not such a JWT is
+refused, however little else claims it. In return the connection is no longer
+accepted by elimination, and an agent may hold it next to one that is:
+
+```yaml
+connections:
+  internal-billing:
+    display_name: Internal Billing
+    hosts: [billing.internal.example.com]
+    tokens:
+      format: jwt      # tokens are JWTs whose iss names this service
+    oauth:
+      authorization_url: https://auth.billing.example.com/authorize
+      token_url: https://auth.billing.example.com/token
+      scopes: {}
+```
+
+An agent may then write to `internal-billing` and read `internal-api` above,
+which keeps the one place a token is taken by elimination. What the two may
+not share is an issuer: one authorization server in front of both services
+puts its host in either connection's tokens, and `gete validate` refuses that
+pairing for the same reason it refuses two anonymous connections.
+
+Some providers issue JWTs that name no issuer at all — Zendesk's carry only
+`exp`. Such a token says nothing about whose it is, so neither elimination nor
+the format alone takes it. `issuer: optional` says the connection's tokens may
+name none:
 
 ```yaml
 connections:
   zendesk:
     base_url: https://acme.zendesk.com
     tokens:
-      format: jwt      # tokens are JWTs; any issuer they name is acme.zendesk.com
+      format: jwt
+      issuer: optional   # Zendesk's JWTs name no issuer
 ```
 
-An agent may then read Zendesk and write to `internal-api` above, which keeps
-the one place a token is taken by elimination — even when one authorization
-server stands in front of both, since `internal-api` turns every JWT away.
-What an agent may not hold is two connections that declare the format: a JWT
-naming no issuer would pass as either's, and `gete validate` refuses that
-pairing for the same reason it refuses two anonymous connections.
+A JWT that does name an issuer is still held to the connection's own host.
+An agent may hold Zendesk beside `internal-api` and beside `internal-billing`,
+since neither takes a JWT naming no issuer, but not beside a second connection
+declaring `issuer: optional`: nothing would tell their tokens apart.
 
 Whether a provider issues such tokens can be a setting rather than a promise —
 Zendesk does so only with token expiry turned on — so the declaration belongs
 in `gete.yaml`, not in a catalog entry that would promise it for every
-installation. Without it, every JWT the connection is handed is refused, and
-the log names the declaration to add. It cuts both ways: turn that setting off
-and a token that is not a JWT is refused until the declaration goes with it.
+installation. Without it, every such token the connection is handed is
+refused, and the log names the declaration to add. It cuts both ways: turn
+that setting off and a token that is not a JWT is refused until the
+declaration goes with it.
 
 A service whose root moves with the installation — the tenant in a subdomain,
 or a deployment you host — writes its URLs around `{base_url}`, and the

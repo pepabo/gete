@@ -84,7 +84,7 @@ def test_a_declared_token_format_travels_to_the_runtime(
             "connections": {
                 "zendesk": {
                     "base_url": "https://acme.zendesk.com",
-                    "tokens": {"format": "jwt"},
+                    "tokens": {"format": "jwt", "issuer": "optional"},
                 }
             },
         }
@@ -93,6 +93,7 @@ def test_a_declared_token_format_travels_to_the_runtime(
     loaded = load_project(project.root / "gete.yaml")
     connections = resolve(loaded, loaded.agents[0])["resolved"]["connections"]
     zendesk = Registry.from_documents(connections).get("zendesk")
+    # Without the optional issuer travelling with it, this would be refused.
     assert zendesk.accepts_token(ISSUERLESS_JWT)
     assert not zendesk.accepts_token("a1b2c3d4e5f60718293a4b5c6d7e8f90")
 

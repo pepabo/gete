@@ -1,6 +1,7 @@
 """Every bundled connection must be sound on its own and against the others."""
 
 from importlib.resources import files
+from typing import Any
 
 import pytest
 
@@ -355,7 +356,9 @@ def test_zendesk_promises_no_token_format_for_every_installation() -> None:
     """What arrives depends on whether the installation turned token expiry
     on, so the catalog must not promise a shape; setup says what to declare."""
     assert "tokens" not in CATALOG["zendesk"]
-    assert "tokens.format: jwt" in CATALOG["zendesk"]["setup"]
+    setup = " ".join(CATALOG["zendesk"]["setup"].split())
+    assert "format: jwt" in setup
+    assert "issuer: optional" in setup
 
 
 def test_zendesk_setup_does_not_say_its_jwts_name_the_subdomain() -> None:
@@ -378,23 +381,34 @@ def test_zendesk_records_no_accepted_shape() -> None:
     assert CATALOG["zendesk"]["examples"]["rejects"]
 
 
-def test_zendesk_refuses_an_expiring_token_until_the_format_is_declared() -> None:
-    """Accepting by elimination takes no JWT, so the catalog entry as it
-    stands turns the token away and the log says what to declare."""
-    zendesk = Registry.from_catalog(
-        {"zendesk": {"base_url": "https://acme.zendesk.com"}}
-    ).get("zendesk")
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        None,  # accepted by elimination, which takes no JWT naming no issuer
+        {"format": "jwt"},  # the format alone requires an issuer
+    ],
+)
+def test_zendesk_refuses_an_expiring_token_until_its_issuer_is_optional(
+    tokens: dict[str, Any] | None,
+) -> None:
+    """The catalog entry as it stands turns the token away, and so does the
+    format without the optional issuer; the log says what to declare."""
+    override: dict[str, Any] = {"base_url": "https://acme.zendesk.com"}
+    if tokens is not None:
+        override["tokens"] = tokens
+    zendesk = Registry.from_catalog({"zendesk": override}).get("zendesk")
     assert not zendesk.accepts_token(ZENDESK_EXPIRING_TOKEN)
 
 
 def test_an_installation_may_declare_that_zendesk_issues_jwts() -> None:
-    """With the format declared Zendesk takes its expiring tokens, and sits
-    beside a connection whose tokens announce themselves no way at all."""
+    """With the format and the optional issuer declared Zendesk takes its
+    expiring tokens, and sits beside a connection whose tokens announce
+    themselves no way at all."""
     registry = Registry.from_catalog(
         {
             "zendesk": {
                 "base_url": "https://acme.zendesk.com",
-                "tokens": {"format": "jwt"},
+                "tokens": {"format": "jwt", "issuer": "optional"},
             }
         }
     )

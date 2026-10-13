@@ -405,11 +405,12 @@ def test_a_declared_token_format_may_be_held_beside_a_prefixless_connection(
     assert problems(project) == []
 
 
-def test_a_declared_format_may_share_an_issuer_with_a_prefixless_connection(
+def test_a_declared_format_beside_a_connection_of_the_same_issuer_is_refused(
     project: ProjectBuilder,
 ) -> None:
-    """The prefixless connection takes no JWT, so one authorization server in
-    front of both services cannot put a token in the wrong one's hands."""
+    """One authorization server standing in front of both services puts its
+    host in either connection's tokens, and the declaration then says nothing
+    the other's token does not say as well."""
     project.write_project(
         {
             "version": 1,
@@ -429,10 +430,38 @@ def test_a_declared_format_may_share_an_issuer_with_a_prefixless_connection(
     project.write_agent(
         "mail-triage", {"connections": ["internal-api", "internal-billing"]}
     )
+    found = problems(project)
+    assert any("auth.internal.example.com" in problem for problem in found), found
+
+
+ZENDESK_ISSUERLESS: dict[str, Any] = {
+    "base_url": "https://acme.zendesk.com",
+    "tokens": {"format": "jwt", "issuer": "optional"},
+}
+
+
+def test_zendesk_may_sit_beside_a_service_whose_jwts_name_their_issuer(
+    project: ProjectBuilder,
+) -> None:
+    """Only Zendesk takes a JWT naming no issuer, and only the other takes one
+    naming its own authorization server, so neither token passes as the
+    other's."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": {**INTERNAL_API, "tokens": {"format": "jwt"}},
+                "zendesk": ZENDESK_ISSUERLESS,
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
     assert problems(project) == []
 
 
-def test_two_declared_formats_on_one_agent_are_reported(
+def test_two_optional_issuers_on_one_agent_are_reported(
     project: ProjectBuilder,
 ) -> None:
     """A JWT that names no issuer is taken by either, whichever service each is."""
@@ -442,22 +471,22 @@ def test_two_declared_formats_on_one_agent_are_reported(
             "project": "example-project",
             "location": "us-central1",
             "connections": {
-                "internal-api": {**INTERNAL_API, "tokens": {"format": "jwt"}},
-                "zendesk": {
-                    "base_url": "https://acme.zendesk.com",
-                    "tokens": {"format": "jwt"},
+                "internal-api": {
+                    **INTERNAL_API,
+                    "tokens": {"format": "jwt", "issuer": "optional"},
                 },
+                "zendesk": ZENDESK_ISSUERLESS,
             },
         }
     )
     project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
     found = problems(project)
     assert any(
-        "tokens.format" in p and "internal-api" in p and "zendesk" in p for p in found
+        "tokens.issuer" in p and "internal-api" in p and "zendesk" in p for p in found
     ), found
 
 
-def test_zendesk_declared_as_jwt_may_be_held_beside_notion_mcp(
+def test_zendesk_declared_issuerless_may_be_held_beside_notion_mcp(
     project: ProjectBuilder,
 ) -> None:
     """Zendesk's JWTs and Notion MCP's opaque tokens part by shape, so one
@@ -467,12 +496,7 @@ def test_zendesk_declared_as_jwt_may_be_held_beside_notion_mcp(
             "version": 1,
             "project": "example-project",
             "location": "us-central1",
-            "connections": {
-                "zendesk": {
-                    "base_url": "https://acme.zendesk.com",
-                    "tokens": {"format": "jwt"},
-                },
-            },
+            "connections": {"zendesk": ZENDESK_ISSUERLESS},
         }
     )
     project.write_agent("mail-triage", {"connections": ["zendesk", "notion-mcp"]})
