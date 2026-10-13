@@ -70,7 +70,7 @@ covers pointing it at a mirror.
 
 | Command | What it does | Touches GCP |
 |---|---|---|
-| `gete init <name>` | Scaffold an agent (and the project if there is none) | no |
+| `gete init [<engine>/]<name>` | Scaffold an agent (and the project if there is none); below an engine's directory when one is given | no |
 | `gete validate [--check-secrets] [--import-check]` | Schemas and rules; optionally secrets' versions and a deployment-shaped import | `--check-secrets` reads |
 | `gete run <name>` | Local conversation; tokens from `GETE_TOKEN_<CONNECTION>` | calls the model |
 | `gete graph [name...]` | Mermaid diagram of agents, engines, tools, connections | no |
@@ -167,6 +167,30 @@ refuses a name no engine carries, and refuses an id even when it is right,
 since accepting both would let an id copied from the agent next door land on
 the wrong engine unnoticed. Each id is written once, so a rebuilt engine is
 one line, and `gete graph` and `gete register` say the name.
+
+With the engines named, the tree itself can say where each agent is listed.
+A directory below `agents/` that carries an engine's name holds the agents
+listed in that engine, and they declare no `registration` block:
+
+```
+agents/
+  sales/
+    partner-review/agent.yaml    listed in sales
+    mail-triage/agent.yaml       listed in sales
+  support/
+    ticket-digest/agent.yaml     listed in support
+  local-only/agent.yaml          listed nowhere, as before
+```
+
+`gete init sales/partner-review` starts an agent there. The name still
+matches the agent's own directory, so the module address, service account,
+and archive do not change when an agent moves into a group: the generated
+module call points at the new path, and nothing is recreated. Groups go one
+level deep. A directory below `agents/` with no `agent.yaml` that names no
+engine is reported by `validate` rather than stepped over, since a misspelt
+engine would otherwise drop every agent below it from the project, and the
+next apply would destroy them. A `registration` block inside a group is
+accepted while it agrees with the directory, and reported once it does not.
 
 ### Tools from an OpenAPI description
 

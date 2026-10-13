@@ -562,3 +562,20 @@ def test_an_archive_refuses_a_declaration_pruning_cannot_keep(
     (directory / "specs" / "service.yaml").write_text(POINTED_OPENAPI_SPEC)
     with pytest.raises(DeclarationError, match="pruned"):
         build_archive(directory)
+
+
+def test_an_agent_below_an_engines_directory_is_packed_from_there(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"engines": {"sales": "my-sales-app_1234567890"}},
+        }
+    )
+    directory = project.write_agent("sales/mail-triage")
+    result = build_archive(directory)
+    resolved = yaml.safe_load(members(result)[RESOLVED_FILE])
+    assert resolved["name"] == "mail-triage"

@@ -58,6 +58,9 @@ class Agent:
 
     directory: Path
     data: Mapping[str, Any]
+    # The engine whose directory the agent sits in, agents/<engine>/<name>.
+    # None for an agent directly below agents_dir.
+    group: str | None = None
 
     @property
     def path(self) -> Path:
@@ -129,8 +132,8 @@ class Agent:
         return path.read_text(encoding="utf-8") if path else self.instruction
 
     @property
-    def engine(self) -> str | None:
-        """What registration.gemini_enterprise.engine says, or None when unlisted.
+    def registration_engine(self) -> str | None:
+        """What registration.gemini_enterprise.engine says, or None when absent.
 
         A name from gemini_enterprise.engines when gete.yaml declares them,
         the engine's id otherwise; Project.engine_id tells which.
@@ -138,6 +141,17 @@ class Agent:
         registration: Mapping[str, Any] = self.data.get("registration", {})
         engine = registration.get("gemini_enterprise", {}).get("engine")
         return str(engine) if engine else None
+
+    @property
+    def engine(self) -> str | None:
+        """The engine the agent is listed in, or None when unlisted.
+
+        The group's engine for an agent below agents/<engine>/, what the
+        registration block says otherwise. The directory is what the tree
+        shows, so it wins over a block that disagrees; validate reports the
+        disagreement.
+        """
+        return self.group or self.registration_engine
 
     @property
     def source(self) -> Path | None:
@@ -162,8 +176,9 @@ class Project:
     path: Path
     data: Mapping[str, Any]
     agents: tuple[Agent, ...]
-    # Agents whose agent.yaml did not pass the schema. They are reported and
-    # left out of agents, so the rules never see an unexpected shape.
+    # Agents whose agent.yaml did not pass the schema, and directories that
+    # are neither an agent nor an engine's group. They are reported and left
+    # out of agents, so the rules never see an unexpected shape.
     problems: tuple[Problem, ...] = ()
 
     @property
@@ -230,30 +245,111 @@ def find_project_file(start: Path) -> Path:
 
 
 def load_project(path: Path) -> Project:
-    """Read gete.yaml and every agents/*/agent.yaml below it.
+    """Read gete.yaml and the agents below it.
 
-    gete.yaml must pass its schema; nothing can be checked without it. Agents
-    that fail theirs are collected as problems rather than raised, so one broken
-    agent does not hide the state of the others.
+    An agent is agents/<name>/agent.yaml, or agents/<engine>/<name>/agent.yaml
+    once gete.yaml names the engines: the directory then says where the agent
+    is listed. gete.yaml must pass its schema; nothing can be checked without
+    it. Agents that fail theirs are collected as problems rather than raised,
+    so one broken agent does not hide the state of the others. A directory
+    that is neither is a problem too, not something to step over: skipped
+    quietly, a misspelt engine would take every agent below it out of the
+    project, and the next apply would destroy them.
     """
     data = read_yaml(path)
     validate_document("gete", data, source=path)
     project = Project(path=path, data=data, agents=())
     agents: list[Agent] = []
     problems: list[Problem] = []
-    if project.agents_dir.is_dir():
-        for directory in sorted(project.agents_dir.iterdir()):
-            agent_file = directory / AGENT_FILE
-            if not agent_file.is_file():
-                continue
-            agent_data = read_yaml(agent_file)
-            found = schema_problems("agent", agent_data)
-            if found:
-                source = project.display(agent_file)
-                problems.extend(Problem(source, message) for message in found)
-                continue
-            agents.append(Agent(directory=directory, data=agent_data))
+    engines = project.engines or {}
+    for directory in visible_directories(project.agents_dir):
+        if (directory / AGENT_FILE).is_file():
+            _load_agent(project, directory, None, agents, problems)
+            if directory.name in engines:
+                problems.extend(_agents_below_an_agent(project, directory))
+        elif directory.name in engines:
+            for member in visible_directories(directory):
+                if (member / AGENT_FILE).is_file():
+                    _load_agent(project, member, directory.name, agents, problems)
+                else:
+                    problems.append(
+                        Problem(
+                            project.display(member),
+                            f"no {AGENT_FILE}; a directory below an engine's "
+                            "group is an agent, and groups do not nest",
+                        )
+                    )
+        else:
+            problems.append(Problem(project.display(directory), _not_a_group(project)))
     return Project(path=path, data=data, agents=tuple(agents), problems=tuple(problems))
+
+
+def visible_directories(parent: Path) -> list[Path]:
+    """The directories below parent, in name order; hidden ones are nobody's.
+
+    Hidden entries hold tooling (a venv, a VCS directory) and stay out of the
+    archive for the same reason, so they are not reported as strays either.
+    """
+    if not parent.is_dir():
+        return []
+    return sorted(
+        path
+        for path in parent.iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    )
+
+
+def _agents_below_an_agent(project: Project, directory: Path) -> list[Problem]:
+    """Agents put below an agent that carries an engine's name.
+
+    The directory holds its own agent.yaml, so it is that agent and not the
+    engine's group, and an agent placed below it would be stepped over
+    without a word: the one thing this loader must not do.
+    """
+    return [
+        Problem(
+            project.display(member),
+            f"below {project.display(directory)}, which holds its own "
+            f"{AGENT_FILE} and so is the agent {directory.name!r}, not the group "
+            f"of the engine {directory.name!r}; an agent and an engine's group "
+            "cannot share a directory",
+        )
+        for member in visible_directories(directory)
+        if (member / AGENT_FILE).is_file()
+    ]
+
+
+def _load_agent(
+    project: Project,
+    directory: Path,
+    group: str | None,
+    agents: list[Agent],
+    problems: list[Problem],
+) -> None:
+    agent_file = directory / AGENT_FILE
+    agent_data = read_yaml(agent_file)
+    found = schema_problems("agent", agent_data)
+    if found:
+        source = project.display(agent_file)
+        problems.extend(Problem(source, message) for message in found)
+        return
+    agents.append(Agent(directory=directory, data=agent_data, group=group))
+
+
+def _not_a_group(project: Project) -> str:
+    """Why a directory without agent.yaml is not read as an engine's group."""
+    if project.engines is None:
+        return (
+            f"no {AGENT_FILE}, and {PROJECT_FILE} names no engines; a directory "
+            "here is an agent, or an engine's group of agents once "
+            "gemini_enterprise.engines names the engine"
+        )
+    names = ", ".join(project.engines)
+    return (
+        f"no {AGENT_FILE}, and no engine of that name under "
+        f"gemini_enterprise.engines in {PROJECT_FILE} ({names}); a directory "
+        "here is an agent, or an engine's group of agents"
+    )
 
 
 def resolve(project: Project, agent: Agent) -> dict[str, Any]:
