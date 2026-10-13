@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.3.1](https://github.com/pepabo/gete/compare/v0.3.0...v0.3.1) - 2026-10-13
+
+- Group agents by engine in the directory tree by @haruotsu in https://github.com/pepabo/gete/pull/88
+
 ## [v0.2.24](https://github.com/pepabo/gete/compare/v0.2.23...v0.2.24) - 2026-10-08
 
 - Name the Gemini Enterprise engines once in gete.yaml by @haruotsu in https://github.com/pepabo/gete/pull/86
