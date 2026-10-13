@@ -97,7 +97,9 @@ def elimination_problems(
             f"{', '.join(connection.id for connection in anonymous)} declare "
             "neither token_prefixes nor tokens.format; only one of an agent's "
             "connections may accept tokens by elimination, or a token from one "
-            "of them would be accepted as another's"
+            "of them would be accepted as another's. Declare tokens.format: jwt "
+            "on one whose tokens are JWTs, with issuer: optional if they never "
+            "name an issuer"
         )
     issuerless = [
         connection for connection in connections if _takes_issuerless(connection)

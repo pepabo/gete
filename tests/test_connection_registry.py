@@ -599,6 +599,18 @@ def test_two_prefixless_connections_are_reported_as_one_pairing() -> None:
     assert len(found) == 1
 
 
+def test_two_prefixless_connections_are_told_what_declaration_parts_them() -> None:
+    """A provider whose tokens are JWTs leaves elimination by declaring the
+    format, and one whose JWTs name no issuer needs the optional issuer
+    beside it; the report names both, or an operator adding the format alone
+    would see every token refused at runtime before learning of the second."""
+    freee = connection(id="freee", token_prefixes=[])
+    internal = connection(id="internal", token_prefixes=[])
+    found = elimination_problems(["internal", "freee"], Registry([freee, internal]))
+    assert "tokens.format: jwt" in found[0], found
+    assert "issuer: optional" in found[0], found
+
+
 def test_a_prefixless_connection_is_no_problem_on_its_own() -> None:
     """The registry holds all of them; only what one agent holds can collide."""
     freee = connection(id="freee", token_prefixes=[])
@@ -740,11 +752,14 @@ def test_prefixes_next_to_a_declared_token_format_are_reported() -> None:
     assert any("tokens" in problem for problem in problems), problems
 
 
-def test_a_connection_that_accepts_google_issued_jwts_is_reported() -> None:
+@pytest.mark.parametrize("tokens", [{}, JWT_TOKENS])
+def test_a_connection_that_accepts_google_issued_jwts_is_reported(
+    tokens: dict[str, Any],
+) -> None:
     """Naming Google's authorization server as one's own host would let ID
-    tokens through the issuer match that a declared format makes; the checks
-    must catch the declaration."""
-    entry = connection(hosts=["accounts.google.com"], **JWT_TOKENS)
+    tokens through the issuer match, which elimination and a declared format
+    both make; the checks must catch the declaration either way."""
+    entry = connection(hosts=["accounts.google.com"], **tokens)
     assert any(
         "Google-issued" in problem
         for problem in connection_problems(entry, Registry([entry]))
