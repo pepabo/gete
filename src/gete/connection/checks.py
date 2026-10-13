@@ -58,12 +58,11 @@ def elimination_problems(
     gete ships as well, and declaring a service of your own must not depend on
     which of those announce themselves.
 
-    A declared format announces the service in every token, so it does not
-    take that one place - unless one issuer stands behind two of the
-    connections judging tokens by issuer, which is the same confusion by
-    another route. An anonymous connection is one of those: it takes a JWT
-    naming its own authorization server as readily as a declaring one does,
-    so a shared issuer confuses the two whichever of them declared.
+    A declared format is the other half of that split: a connection held to
+    tokens.format: jwt takes only JWTs, and one accepting by elimination
+    takes none, so an agent may hold one of each. Two declaring ones are
+    the anonymous pair again: a JWT whose claims name no issuer, as
+    Zendesk's do, is taken by either, so no issuer tells them apart.
 
     Prefixes that overlap are that confusion among the connections that do
     announce themselves: a token carrying the shared prefix passes as
@@ -89,28 +88,15 @@ def elimination_problems(
             "connections may accept tokens by elimination, or a token from one "
             "of them would be accepted as another's"
         )
-    # A prefix decides on its own and before any issuer does, so a connection
-    # held to one judges no token by who issued it, and shares an issuer with
-    # nothing.
-    by_issuer = [
-        connection
-        for connection in connections
-        if connection.token_format is not None or not connection.token_prefixes
+    declared = [
+        connection for connection in connections if connection.token_format is not None
     ]
-    for index, connection in enumerate(by_issuer):
-        for other in by_issuer[index + 1 :]:
-            if connection.token_format is None and other.token_format is None:
-                # Already refused above, by everything the pair fails to say
-                # about itself rather than by the one issuer they happen to
-                # share; naming it here would say it twice.
-                continue
-            shared = connection.issuer_hosts & other.issuer_hosts
-            if shared:
-                problems.append(
-                    f"{connection.id}, {other.id} both accept tokens issued by "
-                    f"{', '.join(sorted(shared))}; a token from one of them "
-                    "would be accepted as the other's"
-                )
+    if len(declared) >= 2:
+        problems.append(
+            f"{', '.join(connection.id for connection in declared)} declare "
+            "tokens.format; only one of an agent's connections may, because a "
+            "JWT that names no issuer would be accepted as any of theirs"
+        )
     # A declared format decides before any prefix is read, so a connection
     # held to one takes no token for its prefix.
     by_prefix = [

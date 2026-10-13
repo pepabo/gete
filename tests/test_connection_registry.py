@@ -99,42 +99,22 @@ def test_google_issued_jwts_are_never_accepted(catalog: Registry) -> None:
             assert not entry.accepts_token(jwt_with({"iss": issuer})), entry.id
 
 
-def test_a_jwt_naming_no_issuer_is_accepted_by_elimination() -> None:
-    """Zendesk issues JWTs whose claims name no issuer. They say as little
-    about their origin as an opaque token, so they are judged like one."""
-    alone = Registry([connection()]).get("example")
-    assert alone.accepts_token(jwt_with({"exp": 0}))
-
-
-def test_a_jwt_naming_the_connections_own_service_is_accepted() -> None:
-    """The issuer of a service's tokens is its authorization server, which
-    may live beside the API rather than on it; both count as the service."""
-    alone = Registry([connection()]).get("example")
-    assert alone.accepts_token(jwt_with({"iss": "https://api.example.com"}))
-    assert alone.accepts_token(jwt_with({"iss": "api.example.com"}))
-    assert alone.accepts_token(jwt_with({"iss": "https://auth.example.com"}))
-
-
-def test_a_jwt_naming_the_installation_root_is_accepted() -> None:
-    entry = Connection.from_mapping({**ROOTED, "base_url": "https://acme.example.com"})
-    assert entry.accepts_token(jwt_with({"iss": "https://acme.example.com"}))
-
-
 @pytest.mark.parametrize(
-    "issuer",
+    "claims",
     [
-        "https://accounts.google.com",  # Google ID token
-        "agent@project.iam.gserviceaccount.com",  # service account token
-        "https://idp.example.org",  # some other service's authorization server
-        "https://api.example.com.evil.example",  # suffix must not pass as a match
-        5,  # RFC 7519 wants a string; anything else names nothing
-        None,  # present but null is just as far from a string
-        "https://[",  # names no host; must be refused, not raise
+        {"exp": 0},  # Zendesk's, with token expiry turned on
+        {"iss": "https://api.example.com"},  # naming the connection's own service
+        {"iss": "https://auth.example.com"},
+        {"iss": "https://idp.example.org"},
     ],
 )
-def test_a_jwt_naming_any_other_issuer_is_refused(issuer: Any) -> None:
+def test_a_connection_accepting_by_elimination_takes_no_jwt(claims: Any) -> None:
+    """A JWT is the shape tokens.format: jwt declares. Elimination takes what
+    announces itself no way at all, so the two shapes part between the
+    connections and an agent can hold one of each."""
     alone = Registry([connection()]).get("example")
-    assert not alone.accepts_token(jwt_with({"iss": issuer}))
+    assert not alone.accepts_token(jwt_with(claims))
+    assert alone.accepts_token("a1b2c3d4e5f60718293a4b5c6d7e8f90")
 
 
 def test_prefixless_connection_alone_still_refuses_google_access_tokens() -> None:
@@ -151,11 +131,17 @@ JWT_TOKENS: dict[str, Any] = {"tokens": {"format": "jwt"}}
 
 
 def test_a_declared_jwt_format_accepts_a_token_the_service_issued() -> None:
-    """The declaration says the tokens are JWTs of this service's own making,
-    and the issuer is what says so."""
+    """An issuer the claims name has to be the connection's own service."""
     entry = Registry([connection(**JWT_TOKENS)]).get("example")
     assert entry.accepts_token(jwt_with({"iss": "https://auth.example.com"}))
     assert entry.accepts_token(jwt_with({"iss": "api.example.com"}))
+
+
+def test_a_declared_jwt_format_accepts_a_jwt_that_names_no_issuer() -> None:
+    """Zendesk's JWTs carry only exp. The declaration promises the shape, and
+    claims that name nobody break no part of it."""
+    entry = Registry([connection(**JWT_TOKENS)]).get("example")
+    assert entry.accepts_token(jwt_with({"exp": 0}))
 
 
 def test_a_declared_jwt_format_refuses_a_token_that_is_not_a_jwt() -> None:
@@ -171,10 +157,12 @@ def test_a_declared_jwt_format_refuses_a_token_that_is_not_a_jwt() -> None:
 @pytest.mark.parametrize(
     "claims",
     [
-        {"exp": 0},  # a JWT that names no issuer says nothing about its origin
         {"iss": "https://idp.example.org"},
         {"iss": "https://accounts.google.com"},
-        {"iss": None},
+        {"iss": None},  # present but null names nothing a host could match
+        {"iss": 5},
+        {"iss": "https://api.example.com.evil.example"},
+        {"iss": "https://["},
     ],
 )
 def test_a_declared_jwt_format_refuses_a_jwt_from_anywhere_else(claims: Any) -> None:
@@ -581,20 +569,16 @@ def test_a_declared_token_format_is_not_an_acceptance_by_elimination() -> None:
     assert elimination_problems(["zendesk", "internal"], registry) == []
 
 
-def test_a_shared_issuer_confuses_a_declared_format_and_an_anonymous_one() -> None:
-    """The anonymous connection takes a JWT naming its own authorization
-    server too, so one issuer serving both is the same confusion as two
-    declaring connections sharing one - the declaration says nothing the
-    other's token does not say as well."""
+def test_an_issuer_shared_with_an_anonymous_connection_confuses_nothing() -> None:
+    """The anonymous connection takes no JWT at all, so whatever issuer the
+    claims name, the token can only be the declaring connection's."""
     declared = connection(id="declared", **JWT_TOKENS)
     anonymous = connection(id="anonymous", hosts=["api.other.example.com"])
     registry = Registry([declared, anonymous])
     token = jwt_with({"iss": "https://auth.example.com"})
     assert registry.get("declared").accepts_token(token)
-    assert registry.get("anonymous").accepts_token(token)
-    found = elimination_problems(["declared", "anonymous"], registry)
-    assert len(found) == 1, found
-    assert "auth.example.com" in found[0], found
+    assert not registry.get("anonymous").accepts_token(token)
+    assert elimination_problems(["declared", "anonymous"], registry) == []
 
 
 def test_an_anonymous_pair_sharing_an_issuer_is_reported_once() -> None:
@@ -606,8 +590,9 @@ def test_an_anonymous_pair_sharing_an_issuer_is_reported_once() -> None:
     assert len(found) == 1, found
 
 
-def test_two_declared_token_formats_from_different_services_never_collide() -> None:
-    """Each takes only what its own issuer named; neither reaches the other's."""
+def test_two_declared_token_formats_are_reported_whatever_their_issuers() -> None:
+    """A JWT that names no issuer is taken by either, so a token from one
+    authorization passes as the other's even when their services differ."""
     one = connection(id="one", **JWT_TOKENS)
     two = connection(
         id="two",
@@ -619,17 +604,13 @@ def test_two_declared_token_formats_from_different_services_never_collide() -> N
         },
         **JWT_TOKENS,
     )
-    assert elimination_problems(["one", "two"], Registry([one, two])) == []
-
-
-def test_two_declared_token_formats_issued_by_one_host_are_reported() -> None:
-    """Both would accept a JWT that names the shared issuer, so a token from
-    either authorization passes as the other's."""
-    api = connection(id="api", **JWT_TOKENS)
-    mcp = connection(id="mcp", hosts=["mcp.example.com"], **JWT_TOKENS)
-    found = elimination_problems(["api", "mcp"], Registry([api, mcp]))
-    assert [p for p in found if "api" in p and "mcp" in p] == found
-    assert len(found) == 1
+    registry = Registry([one, two])
+    issuerless = jwt_with({"exp": 0})
+    assert registry.get("one").accepts_token(issuerless)
+    assert registry.get("two").accepts_token(issuerless)
+    found = elimination_problems(["one", "two"], registry)
+    assert len(found) == 1, found
+    assert "one, two" in found[0] and "tokens.format" in found[0], found
 
 
 def test_prefixes_next_to_a_declared_token_format_are_reported() -> None:
@@ -641,8 +622,9 @@ def test_prefixes_next_to_a_declared_token_format_are_reported() -> None:
 
 def test_a_connection_that_accepts_google_issued_jwts_is_reported() -> None:
     """Naming Google's authorization server as one's own host would let ID
-    tokens through the issuer match; the checks must catch the declaration."""
-    entry = connection(hosts=["accounts.google.com"])
+    tokens through the issuer match a declared format makes; the checks must
+    catch the declaration."""
+    entry = connection(hosts=["accounts.google.com"], **JWT_TOKENS)
     assert any(
         "Google-issued" in problem
         for problem in connection_problems(entry, Registry([entry]))

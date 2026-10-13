@@ -27,8 +27,8 @@ GOOGLE_ISSUED_JWT = (
 )
 
 
-# Claims: {"exp": 0}. A JWT that names no issuer says as little about its
-# origin as an opaque token.
+# Claims: {"exp": 0}, as Zendesk's JWTs carry. The shape tokens.format: jwt
+# declares, whatever little the claims say.
 JWT_WITHOUT_ISSUER = "eyJhbGciOiJFZERTQSJ9.eyJleHAiOjB9.sig"
 # A connection whose tokens are JWTs of its own making, as an installation
 # declares one whose provider issues them.
@@ -145,17 +145,17 @@ def test_describe_token_names_the_prefix_not_the_value() -> None:
     assert GITHUB_TOKEN not in describe_token(GITHUB, GITHUB_TOKEN)
 
 
-def test_describe_token_says_why_a_jwt_was_refused_without_repeating_it() -> None:
-    """A prefixless connection declares no shapes, so the shape message would
-    leave an issuer refusal looking like a mystery."""
-    assert (
-        describe_token(FREEE, GOOGLE_ISSUED_JWT)
-        == "a JWT whose issuer does not name this service"
+def test_describe_token_says_a_jwt_belongs_to_a_declaring_connection() -> None:
+    """A connection accepting by elimination takes no JWT, so the operator
+    reading the log has to be told the fix: declare the format on it."""
+    expected = (
+        "a JWT, which freee does not take: it declares neither token_prefixes "
+        "nor tokens.format; declare connections.freee.tokens.format: jwt if "
+        "its tokens are JWTs"
     )
-    assert (
-        describe_token(FREEE, "eyJhbGciOiJSUzI1NiJ9.x.sig")
-        == "a JWT whose claims cannot be read"
-    )
+    assert describe_token(FREEE, JWT_WITHOUT_ISSUER) == expected
+    assert describe_token(FREEE, GOOGLE_ISSUED_JWT) == expected
+    assert describe_token(FREEE, "eyJhbGciOiJSUzI1NiJ9.x.sig") == expected
     # A declared prefix is the whole judgment; the JWT is described no further.
     assert (
         describe_token(GITHUB, GOOGLE_ISSUED_JWT)
@@ -164,16 +164,19 @@ def test_describe_token_says_why_a_jwt_was_refused_without_repeating_it() -> Non
 
 
 def test_describe_token_says_a_declared_format_was_not_met() -> None:
-    """The connection promised JWTs of its own making. An operator who turned
-    the provider's expiring-token setting off sees every token refused, and
-    the message has to say which promise the token missed."""
+    """The connection promised JWTs, and an issuer they name has to be its
+    own. The message says which half of the promise the token missed."""
+    assert DECLARED.accepts_token(JWT_WITHOUT_ISSUER)
     assert (
         describe_token(DECLARED, FREEE_TOKEN) == "not the jwt this connection declares"
     )
-    assert describe_token(DECLARED, JWT_WITHOUT_ISSUER) == "a JWT that names no issuer"
     assert (
         describe_token(DECLARED, GOOGLE_ISSUED_JWT)
         == "a JWT whose issuer does not name this service"
+    )
+    assert (
+        describe_token(DECLARED, "eyJhbGciOiJSUzI1NiJ9.x.sig")
+        == "a JWT whose claims cannot be read"
     )
     assert FREEE_TOKEN not in describe_token(DECLARED, FREEE_TOKEN)
 

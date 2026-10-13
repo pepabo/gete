@@ -61,7 +61,7 @@
       }
     },
     "token_prefixes": {
-      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination, unless tokens.format says what they look like; an agent may declare only one connection that announces itself neither way. Connections may share a prefix, as two installations of one service do; an agent may not declare two whose prefixes overlap.",
+      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination, unless tokens.format says what they look like; a connection accepting by elimination takes no JWT, and an agent may declare only one connection that announces itself neither way. Connections may share a prefix, as two installations of one service do; an agent may not declare two whose prefixes overlap.",
       "type": "array",
       "uniqueItems": true,
       "items": {
@@ -78,7 +78,7 @@
       ],
       "properties": {
         "format": {
-          "description": "jwt: the tokens are JWTs whose iss claim names the connection's own service. Nothing else is a format that says whose token it is.",
+          "description": "jwt: the tokens are JWTs, and an iss claim, where the claims carry one, names the connection's own service. A JWT that names no issuer is accepted. An agent may declare only one connection with this format.",
           "enum": [
             "jwt"
           ]

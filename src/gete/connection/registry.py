@@ -21,7 +21,8 @@ from gete.schema import validate_document
 # A JWT has three dot-separated segments (two dots) and its base64url header
 # starts with "eyJ". Google ID tokens and service account tokens are JWTs,
 # but so are other services' access tokens, so the shape convicts nothing
-# on its own: what a JWT names as its issuer is what is judged.
+# on its own: a connection that declares the shape judges what a JWT names
+# as its issuer, and one accepting by elimination takes no JWT at all.
 _JWT_DOTS = 2
 _JWT_HEADER_PREFIX = "eyJ"
 
@@ -65,8 +66,8 @@ def missing_base_url(connection_id: str) -> str:
 
 
 def looks_like_jwt(token: str) -> bool:
-    """True for anything shaped like a JWT. Shape alone convicts nothing:
-    what the claims name as their issuer is what accepts_token judges."""
+    """True for anything shaped like a JWT, whether its claims can be read
+    or not: the shape is what decides which connection may judge it."""
     return token.count(".") >= _JWT_DOTS or token.startswith(_JWT_HEADER_PREFIX)
 
 
@@ -216,9 +217,9 @@ class Connection:
     redirect_hosts: frozenset[str] = frozenset()
     token_prefixes: tuple[str, ...] = ()
     # The format the service commits to issuing, JWT_FORMAT or None. A
-    # connection that declares one takes nothing else, so it announces itself
-    # as surely as a prefix does and is not accepted by elimination; one this
-    # gete cannot judge takes nothing at all.
+    # connection that declares one takes nothing else, and one accepting by
+    # elimination takes nothing of that shape, so the two never share a
+    # token; one this gete cannot judge takes nothing at all.
     token_format: str | None = None
     # Prefixes declared by every other connection in the registry, filled in by
     # Registry. A connection without prefixes of its own accepts a token only
@@ -327,10 +328,10 @@ class Connection:
         however little else claims it. A declared prefix decides next: Google
         issues ya29.c.<payload> access tokens that carry two dots, and a shape
         heuristic must not overrule a prefix the catalog vouches for. With
-        neither, a JWT is judged by the issuer its claims name - Google ID
-        tokens and service account tokens always name Google's - and a JWT
-        that names none says as little as an opaque token, so it is judged
-        like one. One that cannot be read is refused rather than guessed about.
+        neither, the connection takes what announces itself no way at all,
+        and a JWT is not that: it is the shape tokens.format: jwt declares,
+        so the two kinds of connection part over it and one agent can hold
+        one of each.
         """
         if not token:
             return False
@@ -341,34 +342,29 @@ class Connection:
             return self.token_format == JWT_FORMAT and self._issued_here_jwt(token)
         if self.token_prefixes:
             return token.startswith(self.token_prefixes)
-        if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
+        if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX) or looks_like_jwt(token):
             return False
-        if looks_like_jwt(token):
-            claims = jwt_claims(token)
-            if claims is None:
-                return False
-            if "iss" in claims:
-                issuer = claims["iss"]
-                return isinstance(issuer, str) and self.issued_here(issuer)
         # The token does not announce itself. All that can be said is that
         # it is not some other service's.
         return not any(token.startswith(prefix) for prefix in self.foreign_prefixes)
 
     def _issued_here_jwt(self, token: str) -> bool:
-        """Whether the token is a JWT this connection's own service issued.
+        """Whether the token keeps the promise tokens.format: jwt makes.
 
-        What a connection declaring the format holds every token to. A token
-        of any other shape, one whose claims cannot be read, and one that
-        names no issuer are all refused alike: none of them is what was
-        promised, and the promise is the only reason the connection may sit
-        beside another that accepts tokens by elimination.
+        A JWT whose claims can be read, and which names no issuer but this
+        connection's own service. Claims that name none are kept: Zendesk's
+        carry only exp. Google's ID tokens and service account tokens always
+        name theirs, which is never the connection's own, so they still fall
+        out without a list of Google's issuers.
         """
         if not looks_like_jwt(token):
             return False
         claims = jwt_claims(token)
         if claims is None:
             return False
-        issuer = claims.get("iss")
+        if "iss" not in claims:
+            return True
+        issuer = claims["iss"]
         return isinstance(issuer, str) and self.issued_here(issuer)
 
     @property
