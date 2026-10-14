@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from gete.connection.registry import (
     GOOGLE_ACCESS_TOKEN_PREFIX,
+    JWT_FORMAT,
     Connection,
     OAuth,
     Registry,
@@ -41,7 +42,11 @@ _GOOGLE_ISSUED_JWT_EXAMPLES = (
     "eyJhbGciOiJSUzI1NiJ9."
     "eyJpc3MiOiJhZ2VudEBwcm9qZWN0LmlhbS5nc2VydmljZWFjY291bnQuY29tIn0.sig",
 )
-_GOOGLE_ACCESS_TOKEN_EXAMPLE = GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB"
+# Both shapes Google issues: the second carries two dots, as a JWT does.
+_GOOGLE_ACCESS_TOKEN_EXAMPLES = (
+    GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB",
+    GOOGLE_ACCESS_TOKEN_PREFIX + "c.b0Aaekm1K",
+)
 
 
 def elimination_problems(
@@ -65,6 +70,11 @@ def elimination_problems(
     naming its own authorization server as readily as a declaring one does,
     so a shared issuer confuses the two whichever of them declared.
 
+    A JWT that names no issuer, as Zendesk's do, is taken only by a
+    connection declaring tokens.issuer: optional. Nothing tells two of those
+    apart, so an agent may hold one, the way it may hold one anonymous
+    connection; neither of the others takes such a token.
+
     Prefixes that overlap are that confusion among the connections that do
     announce themselves: a token carrying the shared prefix passes as
     either's. A service that is run in more than one place - hosted by its
@@ -87,7 +97,19 @@ def elimination_problems(
             f"{', '.join(connection.id for connection in anonymous)} declare "
             "neither token_prefixes nor tokens.format; only one of an agent's "
             "connections may accept tokens by elimination, or a token from one "
-            "of them would be accepted as another's"
+            "of them would be accepted as another's. Declare tokens.format: jwt "
+            "on one whose tokens are JWTs, with issuer: optional if they never "
+            "name an issuer"
+        )
+    issuerless = [
+        connection for connection in connections if _takes_issuerless(connection)
+    ]
+    if len(issuerless) >= 2:
+        problems.append(
+            f"{', '.join(connection.id for connection in issuerless)} declare "
+            "tokens.issuer: optional; only one of an agent's connections may "
+            "accept JWTs that name no issuer, or a token from one of them would "
+            "be accepted as another's"
         )
     # A prefix decides on its own and before any issuer does, so a connection
     # held to one judges no token by who issued it, and shares an issuer with
@@ -126,6 +148,11 @@ def elimination_problems(
                     "one of them would be accepted as the other's"
                 )
     return problems
+
+
+def _takes_issuerless(connection: Connection) -> bool:
+    """Whether the connection accepts a JWT that names no issuer."""
+    return connection.token_format == JWT_FORMAT and connection.issuer_optional
 
 
 def _overlapping_prefixes(connection: Connection, other: Connection) -> list[str]:
@@ -202,7 +229,9 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
         prefix.startswith(GOOGLE_ACCESS_TOKEN_PREFIX)
         for prefix in connection.token_prefixes
     )
-    if not claims_google and connection.accepts_token(_GOOGLE_ACCESS_TOKEN_EXAMPLE):
+    if not claims_google and any(
+        connection.accepts_token(example) for example in _GOOGLE_ACCESS_TOKEN_EXAMPLES
+    ):
         problems.append("a Google access token is accepted")
     # The MCP server is spoken to with the user's token, so its URL must sit
     # where hosts lets the token go - path scoping included.

@@ -1,6 +1,7 @@
 """Every bundled connection must be sound on its own and against the others."""
 
 from importlib.resources import files
+from typing import Any
 
 import pytest
 
@@ -346,31 +347,74 @@ def test_zendesk_says_what_a_person_has_to_do_before_authorizing() -> None:
     assert "redirect URI" in setup
 
 
+# Claims: {"exp": 0}. What Zendesk issues with token expiry turned on: a JWT
+# whose claims name no issuer.
+ZENDESK_EXPIRING_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjB9.sig"
+
+
 def test_zendesk_promises_no_token_format_for_every_installation() -> None:
-    """Zendesk issues JWTs of its own only with token expiry turned on, which
-    is the installation's setting; the catalog must not promise it."""
+    """What arrives depends on whether the installation turned token expiry
+    on, so the catalog must not promise a shape; setup says what to declare."""
     assert "tokens" not in CATALOG["zendesk"]
-    assert "tokens.format" in CATALOG["zendesk"]["setup"]
+    setup = " ".join(CATALOG["zendesk"]["setup"].split())
+    assert "format: jwt" in setup
+    assert "issuer: optional" in setup
 
 
-def test_zendesk_records_no_accepted_shape_because_it_has_two() -> None:
-    """An accepted example would fix one of the shapes, and contradict the
-    installation that has the other. What is refused is refused either way."""
+def test_zendesk_setup_does_not_say_its_jwts_name_the_subdomain() -> None:
+    """They carry only exp; a setup promising an issuer sends an operator
+    after the wrong cause when every token is refused."""
+    setup = " ".join(CATALOG["zendesk"]["setup"].split())
+    assert "issued by the subdomain" not in setup
+    assert "only exp" in setup
+
+
+def test_zendesk_is_not_verified_until_an_authorization_goes_through() -> None:
+    assert "verified" not in CATALOG["zendesk"]
+
+
+def test_zendesk_records_no_accepted_shape() -> None:
+    """Without a declaration only an opaque token could be accepted, and no
+    one has seen Zendesk issue one; an example would be a claim this cannot
+    keep. What is refused is refused either way."""
     assert "accepts" not in CATALOG["zendesk"]["examples"]
     assert CATALOG["zendesk"]["examples"]["rejects"]
 
 
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        None,  # accepted by elimination, which takes no JWT naming no issuer
+        {"format": "jwt"},  # the format alone requires an issuer
+    ],
+)
+def test_zendesk_refuses_an_expiring_token_until_its_issuer_is_optional(
+    tokens: dict[str, Any] | None,
+) -> None:
+    """The catalog entry as it stands turns the token away, and so does the
+    format without the optional issuer; the log says what to declare."""
+    override: dict[str, Any] = {"base_url": "https://acme.zendesk.com"}
+    if tokens is not None:
+        override["tokens"] = tokens
+    zendesk = Registry.from_catalog({"zendesk": override}).get("zendesk")
+    assert not zendesk.accepts_token(ZENDESK_EXPIRING_TOKEN)
+
+
 def test_an_installation_may_declare_that_zendesk_issues_jwts() -> None:
-    """With expiry on the tokens name the subdomain, and Zendesk stops being
-    the one connection an agent may hold by elimination."""
+    """With the format and the optional issuer declared Zendesk takes its
+    expiring tokens, and sits beside a connection whose tokens announce
+    themselves no way at all."""
     registry = Registry.from_catalog(
         {
             "zendesk": {
                 "base_url": "https://acme.zendesk.com",
-                "tokens": {"format": "jwt"},
+                "tokens": {"format": "jwt", "issuer": "optional"},
             }
         }
     )
     zendesk = registry.get("zendesk")
+    assert zendesk.accepts_token(ZENDESK_EXPIRING_TOKEN)
+    assert not registry.get("notion-mcp").accepts_token(ZENDESK_EXPIRING_TOKEN)
     assert connection_problems(zendesk, registry) == []
     assert elimination_problems(["zendesk", "freee"], registry) == []
+    assert elimination_problems(["zendesk", "notion-mcp"], registry) == []

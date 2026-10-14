@@ -34,6 +34,11 @@ GOOGLE_ACCESS_TOKEN_PREFIX = "ya29."
 # names itself in every token, which is what a prefix would otherwise do.
 JWT_FORMAT = "jwt"
 
+# What tokens.issuer says of a JWT format whose tokens name no issuer at all,
+# as Zendesk's do. Anything else - the default, or a value this gete cannot
+# read - holds every JWT to naming the connection's own service.
+ISSUER_OPTIONAL = "optional"
+
 # Stands for the root of a service that differs per installation, wherever the
 # connection's URLs are written around it. A definition meant to be shared
 # cannot spell a tenant's host, and a stand-in host would be a name a stranger
@@ -220,6 +225,10 @@ class Connection:
     # as surely as a prefix does and is not accepted by elimination; one this
     # gete cannot judge takes nothing at all.
     token_format: str | None = None
+    # Whether a JWT that names no issuer keeps the format's promise. Such a
+    # token says nothing about whose it is, so only the connection that
+    # declares it takes one, and validate lets an agent hold one such.
+    issuer_optional: bool = False
     # Prefixes declared by every other connection in the registry, filled in by
     # Registry. A connection without prefixes of its own accepts a token only
     # if none of these match, so a bare from_mapping() connection judges more
@@ -267,6 +276,7 @@ class Connection:
             redirect_hosts=frozenset(data.get("redirect_hosts", ())),
             token_prefixes=tuple(data.get("token_prefixes", ())),
             token_format=data.get("tokens", {}).get("format"),
+            issuer_optional=data.get("tokens", {}).get("issuer") == ISSUER_OPTIONAL,
             base_url=base_url,
             docs=data.get("docs"),
             oauth_client=data.get("oauth_client"),
@@ -328,9 +338,11 @@ class Connection:
         issues ya29.c.<payload> access tokens that carry two dots, and a shape
         heuristic must not overrule a prefix the catalog vouches for. With
         neither, a JWT is judged by the issuer its claims name - Google ID
-        tokens and service account tokens always name Google's - and a JWT
-        that names none says as little as an opaque token, so it is judged
-        like one. One that cannot be read is refused rather than guessed about.
+        tokens and service account tokens always name Google's - and one that
+        names none is refused: it says nothing about whose it is, and only a
+        connection declaring tokens.issuer: optional takes it, so the two
+        never share a token. One that cannot be read is refused rather than
+        guessed about.
         """
         if not token:
             return False
@@ -338,37 +350,36 @@ class Connection:
             # A resolved declaration outlives the gete that wrote it, and a
             # format this one cannot judge is not one it may fall back from:
             # elimination would accept what the declaration meant to narrow.
-            return self.token_format == JWT_FORMAT and self._issued_here_jwt(token)
+            return self.token_format == JWT_FORMAT and self._issued_here_jwt(
+                token, issuerless=self.issuer_optional
+            )
         if self.token_prefixes:
             return token.startswith(self.token_prefixes)
         if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
             return False
         if looks_like_jwt(token):
-            claims = jwt_claims(token)
-            if claims is None:
-                return False
-            if "iss" in claims:
-                issuer = claims["iss"]
-                return isinstance(issuer, str) and self.issued_here(issuer)
+            return self._issued_here_jwt(token, issuerless=False)
         # The token does not announce itself. All that can be said is that
         # it is not some other service's.
         return not any(token.startswith(prefix) for prefix in self.foreign_prefixes)
 
-    def _issued_here_jwt(self, token: str) -> bool:
+    def _issued_here_jwt(self, token: str, *, issuerless: bool) -> bool:
         """Whether the token is a JWT this connection's own service issued.
 
-        What a connection declaring the format holds every token to. A token
-        of any other shape, one whose claims cannot be read, and one that
-        names no issuer are all refused alike: none of them is what was
-        promised, and the promise is the only reason the connection may sit
-        beside another that accepts tokens by elimination.
+        Its claims have to be readable and name this service as the issuer,
+        or - where issuerless is allowed - name no issuer at all. Google's
+        ya29.c.<payload> access tokens carry two dots as well, and are
+        refused for the prefix they announce rather than for a middle
+        segment that happens not to decode.
         """
-        if not looks_like_jwt(token):
+        if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX) or not looks_like_jwt(token):
             return False
         claims = jwt_claims(token)
         if claims is None:
             return False
-        issuer = claims.get("iss")
+        if "iss" not in claims:
+            return issuerless
+        issuer = claims["iss"]
         return isinstance(issuer, str) and self.issued_here(issuer)
 
     @property

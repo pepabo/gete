@@ -7,14 +7,13 @@ docs: https://developer.zendesk.com/api-reference/
 # until the installation sets connections.zendesk.base_url in its gete.yaml;
 # hosts stays empty because the only host comes from that root.
 # Zendesk announces no prefix, and what its access tokens look like is the
-# installation's own setting rather than the service's promise: with token
-# expiry turned on they are JWTs issued by the subdomain, and without it they
-# are JWTs whose claims name no issuer, which says as little about their
-# origin as an opaque token. The catalog cannot promise either, so tokens are
-# accepted by elimination here - and an agent may hold only one connection of
-# that kind. An installation that has expiry on says so with
-# connections.zendesk.tokens.format: jwt in its gete.yaml, and then this
-# connection no longer takes that place.
+# installation's own setting rather than the service's promise. With token
+# expiry turned on they arrive as JWTs whose claims carry only exp and name no
+# issuer. With it off, their shape has not been confirmed. Neither elimination
+# nor the jwt format alone takes a JWT that names no issuer, so an
+# installation that has expiry on declares
+# connections.zendesk.tokens: {format: jwt, issuer: optional} in its
+# gete.yaml; the catalog cannot promise that for every installation.
 token_prefixes: []
 
 oauth:
@@ -46,18 +45,30 @@ setup: |
   fails afterwards.
 
   Zendesk can be set to issue access tokens that expire. Those tokens are
-  JWTs issued by the subdomain, and an installation that has the setting on
-  may declare connections.zendesk.tokens.format: jwt in its gete.yaml, which
-  frees an agent to hold Zendesk beside another connection whose tokens
-  announce themselves no way at all. The declaration is held to: turn the
-  setting off again and every Zendesk token is refused until it is removed.
+  JWTs whose claims carry only exp: they name no issuer. Such a token is
+  taken only by a connection that says its tokens may name none, so an
+  installation that has the setting on declares, in its gete.yaml:
 
-# No accepted example: which of the two shapes arrives is the installation's
-# setting, and an entry fixing one of them would contradict an installation
-# that has the other - the declared one most of all, whose accepted tokens
-# name a subdomain the catalog cannot know. What is refused is refused either
-# way. verified is absent because no authorization has been taken through
-# Gemini Enterprise yet.
+    connections:
+      zendesk:
+        tokens:
+          format: jwt
+          issuer: optional
+
+  Until it does, every token is refused and the log says what to declare.
+  The declaration also frees an agent to hold Zendesk beside a connection
+  whose tokens announce themselves no way at all, or beside one whose JWTs
+  name their own issuer. An agent may hold only one connection that
+  declares issuer: optional. The declaration is held to: turn the setting
+  off again and a token that is not a JWT is refused until the declaration
+  is removed. What arrives with the setting off has not been confirmed.
+
+# No accepted example: without the declaration only a token that is not a JWT
+# could be accepted, and what Zendesk issues with expiry off has not been
+# confirmed, so an example would be a claim this cannot keep. Nor is the
+# expiring token a rejected one: the examples are checked against the entry an
+# installation declares the format on too, and that entry takes it. verified is
+# absent because no authorization has been taken through Gemini Enterprise yet.
 examples:
   rejects:
     - "ya29.a0AfH6SMB" # Google access token

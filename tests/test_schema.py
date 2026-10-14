@@ -654,13 +654,27 @@ def test_connection_may_declare_that_its_tokens_are_jwts() -> None:
     )
 
 
+@pytest.mark.parametrize("issuer", ["required", "optional"])
+def test_connection_may_say_whether_its_jwts_name_an_issuer(issuer: str) -> None:
+    """Zendesk's JWTs name none; an installation says so, or holds every
+    token to naming its own service, which is the default."""
+    validate_document(
+        "connection",
+        {**CONNECTION, "tokens": {"format": "jwt", "issuer": issuer}},
+        source="c.yaml",
+    )
+
+
 @pytest.mark.parametrize(
     "tokens",
     [
         {"format": "opaque"},  # the only format that promises anything is jwt
         {"format": "JWT"},
         {},  # a tokens block that declares nothing
+        # The issuer is the connection's hosts; a second list would be a
+        # second ceiling to keep in step with the first.
         {"format": "jwt", "issuer": "https://auth.example.com"},
+        {"issuer": "optional"},  # whether a JWT names an issuer needs a JWT
     ],
 )
 def test_connection_token_format_is_one_declared_shape(tokens: dict[str, Any]) -> None:

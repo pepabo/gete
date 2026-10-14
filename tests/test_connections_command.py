@@ -226,9 +226,16 @@ def test_a_declared_token_format_reads_as_the_format_it_declares() -> None:
     connection has to see which of the two it is."""
     entry = prefixless(tokens={"format": "jwt"})
     rows = connections_table(Registry([entry]))
-    assert "jwt" in rows[0]["token_prefixes"]
-    assert "elimination" not in rows[0]["token_prefixes"]
+    assert rows[0]["token_prefixes"] == "(none: jwt naming this service)"
     assert "jwt" in format_connection(entry)
+
+
+def test_an_optional_issuer_reads_as_taking_jwts_that_name_none() -> None:
+    """An agent may hold only one such connection, so the person preparing
+    it has to see that it is one."""
+    entry = prefixless(tokens={"format": "jwt", "issuer": "optional"})
+    rows = connections_table(Registry([entry]))
+    assert rows[0]["token_prefixes"] == "(none: jwt naming this service or no issuer)"
 
 
 def test_an_app_connection_is_described_by_its_app_not_an_oauth_client() -> None:

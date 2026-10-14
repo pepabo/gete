@@ -61,7 +61,7 @@
       }
     },
     "token_prefixes": {
-      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination, unless tokens.format says what they look like; an agent may declare only one connection that announces itself neither way. Connections may share a prefix, as two installations of one service do; an agent may not declare two whose prefixes overlap.",
+      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination, unless tokens.format says what they look like; a connection accepting by elimination takes no JWT that names no issuer, and an agent may declare only one connection that announces itself neither way. Connections may share a prefix, as two installations of one service do; an agent may not declare two whose prefixes overlap.",
       "type": "array",
       "uniqueItems": true,
       "items": {
@@ -81,6 +81,13 @@
           "description": "jwt: the tokens are JWTs whose iss claim names the connection's own service. Nothing else is a format that says whose token it is.",
           "enum": [
             "jwt"
+          ]
+        },
+        "issuer": {
+          "description": "required (the default): every JWT names the connection's own service as its issuer. optional: a JWT that names no issuer at all is accepted as well, as Zendesk's are; one that names an issuer is still held to it. Such a token says nothing about whose it is, so an agent may hold only one connection that declares optional.",
+          "enum": [
+            "required",
+            "optional"
           ]
         }
       }

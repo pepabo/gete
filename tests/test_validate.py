@@ -434,6 +434,75 @@ def test_a_declared_format_beside_a_connection_of_the_same_issuer_is_refused(
     assert any("auth.internal.example.com" in problem for problem in found), found
 
 
+ZENDESK_ISSUERLESS: dict[str, Any] = {
+    "base_url": "https://acme.zendesk.com",
+    "tokens": {"format": "jwt", "issuer": "optional"},
+}
+
+
+def test_zendesk_may_sit_beside_a_service_whose_jwts_name_their_issuer(
+    project: ProjectBuilder,
+) -> None:
+    """Only Zendesk takes a JWT naming no issuer, and only the other takes one
+    naming its own authorization server, so neither token passes as the
+    other's."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": {**INTERNAL_API, "tokens": {"format": "jwt"}},
+                "zendesk": ZENDESK_ISSUERLESS,
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
+    assert problems(project) == []
+
+
+def test_two_optional_issuers_on_one_agent_are_reported(
+    project: ProjectBuilder,
+) -> None:
+    """A JWT that names no issuer is taken by either, whichever service each is."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": {
+                    **INTERNAL_API,
+                    "tokens": {"format": "jwt", "issuer": "optional"},
+                },
+                "zendesk": ZENDESK_ISSUERLESS,
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
+    found = problems(project)
+    assert any(
+        "tokens.issuer" in p and "internal-api" in p and "zendesk" in p for p in found
+    ), found
+
+
+def test_zendesk_declared_issuerless_may_be_held_beside_notion_mcp(
+    project: ProjectBuilder,
+) -> None:
+    """Zendesk's JWTs and Notion MCP's opaque tokens part by shape, so one
+    agent can search the one and write to the other."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"zendesk": ZENDESK_ISSUERLESS},
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "notion-mcp"]})
+    assert problems(project) == []
+
+
 def test_the_catalog_alone_still_leaves_zendesk_accepted_by_elimination(
     project: ProjectBuilder,
 ) -> None:
