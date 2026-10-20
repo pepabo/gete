@@ -243,6 +243,16 @@ def _agent_problems(
     requirements = agent.requirements
     if requirements is not None and not requirements.is_file():
         found.append(f"requirements: {project.display(requirements)} does not exist")
+    model = agent.data["model"]
+    if not isinstance(model, str):
+        from gete.runtime.model import gemini_class
+
+        # Agent Engine would take the archive and fail on the first turn.
+        if gemini_class(model["id"]) is None:
+            found.append(
+                f"model.id: {model['id']!r} is not a Gemini model; only a "
+                "Gemini model's client can be pointed at a location"
+            )
     for index, tool in enumerate(agent.tools):
         found.extend(
             f"tools[{index}]: {message}"

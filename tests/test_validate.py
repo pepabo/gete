@@ -288,6 +288,27 @@ def test_known_builtin_tool_passes(project: ProjectBuilder) -> None:
     assert problems(project) == []
 
 
+def test_a_gemini_model_may_name_its_location(project: ProjectBuilder) -> None:
+    project.write_agent(
+        "mail-triage",
+        {"model": {"id": "gemini-3-flash-preview", "location": "global"}},
+    )
+    assert problems(project) == []
+
+
+@pytest.mark.parametrize("model_id", ["claude-sonnet-4@20250514", "no-such-model"])
+def test_a_location_is_refused_for_a_model_that_is_not_gemini(
+    project: ProjectBuilder, model_id: str
+) -> None:
+    """The location reaches the model through Gemini's client and nowhere else."""
+    project.write_agent(
+        "mail-triage", {"model": {"id": model_id, "location": "global"}}
+    )
+    assert any(
+        f"model.id: {model_id!r} is not a Gemini model" in p for p in problems(project)
+    )
+
+
 def test_mcp_host_must_be_allowed_by_its_connection(project: ProjectBuilder) -> None:
     """Otherwise the token would be sent to a host the connection never declared."""
     project.write_agent(

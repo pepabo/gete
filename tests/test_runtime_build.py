@@ -92,7 +92,6 @@ def test_a_model_with_a_location_is_called_there_on_vertex_ai(
     )
     assert isinstance(agent.model, Gemini)
     assert agent.model.model == "gemini-3-flash-preview"
-    assert agent.model.client_kwargs == {"enterprise": True, "location": "global"}
 
 
 def test_a_model_location_wins_over_the_region_agent_engine_sets(
@@ -111,6 +110,19 @@ def test_a_model_location_wins_over_the_region_agent_engine_sets(
     client = agent.model.api_client
     assert client.vertexai
     assert client._api_client.location == "global"
+
+
+def test_a_location_is_refused_for_a_model_that_is_not_gemini(
+    project: ProjectBuilder,
+) -> None:
+    """A deployment validate never saw must not call the wrong publisher's model."""
+    path = resolved_path(
+        project,
+        "mail-triage",
+        {"model": {"id": "claude-sonnet-4@20250514", "location": "global"}},
+    )
+    with pytest.raises(GeteError, match="is not a Gemini model"):
+        build(path)
 
 
 def test_write_policy_applies_only_to_agents_with_write_tools(

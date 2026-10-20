@@ -11,6 +11,7 @@ from gete.declaration import Agent, Resolved, load_resolved, resolved_from_docum
 from gete.policies import applicable, compose_instruction
 from gete.redact import RedactRules
 from gete.runtime.callbacks import bind_tool_call, redact_results, safe_tool_error
+from gete.runtime.model import build_model
 from gete.runtime.tools import build_tools
 from gete.shared_credentials import SHARED_CREDENTIALS
 
@@ -49,7 +50,7 @@ def _build(resolved: Resolved) -> Any:
     return LlmAgent(
         # ADK wants an identifier. The display name lives in the registration.
         name=agent.name.replace("-", "_"),
-        model=_model(agent.data["model"]),
+        model=build_model(agent.data["model"]),
         description=agent.data["description"],
         instruction=compose_instruction(
             resolved.policies, resolved.data, _with_shared_credential_rules(agent)
@@ -64,27 +65,6 @@ def _build(resolved: Resolved) -> Any:
         before_tool_callback=bind_tool_call(authorizations, resolved.registry, rules),
         after_tool_callback=redact_results(rules),
         on_tool_error_callback=safe_tool_error(rules),
-    )
-
-
-def _model(declared: str | Mapping[str, str]) -> Any:
-    """The model as LlmAgent takes it: a plain name, or a Gemini bound to a location.
-
-    A plain name is called in the region the agent runs in, which Agent
-    Engine sets in GOOGLE_CLOUD_LOCATION. A full resource path naming another
-    location does not help - the request still goes to the regional endpoint -
-    so the location has to reach the client itself.
-    """
-    if isinstance(declared, str):
-        return declared
-    from google.adk.models import Gemini
-
-    # client_kwargs rather than a subclass overriding api_client: the field is
-    # what ADK reads when it builds both its generate and its live clients,
-    # so one setting covers both.
-    return Gemini(
-        model=declared["id"],
-        client_kwargs={"enterprise": True, "location": declared["location"]},
     )
 
 

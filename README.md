@@ -150,6 +150,12 @@ Agent Engine sets `GOOGLE_CLOUD_LOCATION` to the agent's region, and a full
 resource path in `model` still goes to that region's endpoint, so the
 location is declared here instead.
 
+The location is handed to the Gemini client, so `validate` refuses it for a
+model ADK does not serve as Gemini. Such a model is always called on Vertex
+AI, including under `gete run`: a `GOOGLE_API_KEY` for the Gemini Developer
+API is not enough there, and the project comes from `GOOGLE_CLOUD_PROJECT`
+and application default credentials.
+
 Tools that do not say `effect: read` count as writes, which is what the
 `has_write_tools` policies key on.
 
