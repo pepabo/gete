@@ -28,33 +28,28 @@
       "minLength": 1
     },
     "model": {
-      "oneOf": [
-        {
-          "description": "Called in the region the agent runs in.",
+      "description": "A model called in the region the agent runs in, as a plain string, or an object naming another location to call it in. Some models are offered only in global, and Agent Engine sets the region itself. The two shapes share one schema rather than a oneOf, so a malformed object is reported by the key at fault, not as the string it is not.",
+      "type": [
+        "string",
+        "object"
+      ],
+      "minLength": 1,
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "location"
+      ],
+      "properties": {
+        "id": {
           "type": "string",
           "minLength": 1
         },
-        {
-          "description": "A model called in a location other than the agent's region. Some models are offered only in global, and Agent Engine sets the region itself. A model called where the agent runs is written as the plain string instead.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "id",
-            "location"
-          ],
-          "properties": {
-            "id": {
-              "type": "string",
-              "minLength": 1
-            },
-            "location": {
-              "description": "Vertex AI location to call the model in, such as global. Becomes part of the endpoint's host name and URL path, so the shape is part of a URL.",
-              "type": "string",
-              "pattern": "^[a-z]+(-[a-z0-9]+)*$"
-            }
-          }
+        "location": {
+          "description": "Vertex AI location to call the model in, such as global. Becomes part of the endpoint's host name and URL path, so the shape is part of a URL.",
+          "type": "string",
+          "pattern": "^[a-z]+(-[a-z0-9]+)*$"
         }
-      ]
+      }
     },
     "instruction": {
       "description": "Path relative to agent.yaml, or the instruction text itself.",
