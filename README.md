@@ -136,6 +136,20 @@ registration:
     engine: my-app_1234567890   # from the console URL; omit to deploy without listing
 ```
 
+A plain `model` is called in the region the agent runs in. A model offered
+only in another Vertex AI location, such as a preview model that lives only
+in `global`, names that location:
+
+```yaml
+model:
+  id: gemini-3-flash-preview
+  location: global
+```
+
+Agent Engine sets `GOOGLE_CLOUD_LOCATION` to the agent's region, and a full
+resource path in `model` still goes to that region's endpoint, so the
+location is declared here instead.
+
 Tools that do not say `effect: read` count as writes, which is what the
 `has_write_tools` policies key on.
 

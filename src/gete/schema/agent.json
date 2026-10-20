@@ -28,8 +28,33 @@
       "minLength": 1
     },
     "model": {
-      "type": "string",
-      "minLength": 1
+      "oneOf": [
+        {
+          "description": "Called in the region the agent runs in.",
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "description": "A model called in a location other than the agent's region. Some models are offered only in global, and Agent Engine sets the region itself. A model called where the agent runs is written as the plain string instead.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "location"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "location": {
+              "description": "Vertex AI location to call the model in, such as global. Becomes part of the endpoint's host name and URL path, so the shape is part of a URL.",
+              "type": "string",
+              "pattern": "^[a-z]+(-[a-z0-9]+)*$"
+            }
+          }
+        }
+      ]
     },
     "instruction": {
       "description": "Path relative to agent.yaml, or the instruction text itself.",

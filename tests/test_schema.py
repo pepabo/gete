@@ -193,6 +193,40 @@ def test_agent_name_must_be_an_rfc1034_label(name: str) -> None:
         validate_document("agent", {**AGENT, "name": name}, source="agent.yaml")
 
 
+def test_a_model_may_name_the_location_it_is_called_in() -> None:
+    validate_document(
+        "agent",
+        {**AGENT, "model": {"id": "gemini-3-flash-preview", "location": "global"}},
+        source="agent.yaml",
+    )
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        {"id": "gemini-3-flash-preview"},
+        {"location": "global"},
+        {"id": "", "location": "global"},
+        {"id": "gemini-3-flash-preview", "location": "global", "region": "us"},
+    ],
+)
+def test_a_model_object_needs_an_id_and_a_location(model: dict[str, Any]) -> None:
+    """A model called where the agent runs is written as the plain string instead."""
+    with pytest.raises(DeclarationError, match="model"):
+        validate_document("agent", {**AGENT, "model": model}, source="agent.yaml")
+
+
+@pytest.mark.parametrize("location", ["Global", "us central1", "../global", "evil.com"])
+def test_a_model_location_must_look_like_a_location(location: str) -> None:
+    """It becomes part of the endpoint's host name and URL path."""
+    with pytest.raises(DeclarationError, match="model"):
+        validate_document(
+            "agent",
+            {**AGENT, "model": {"id": "gemini-3-flash-preview", "location": location}},
+            source="agent.yaml",
+        )
+
+
 def test_connections_must_be_unique() -> None:
     with pytest.raises(DeclarationError, match="connections"):
         validate_document(
