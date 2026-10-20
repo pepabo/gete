@@ -11,6 +11,7 @@ from gete.declaration import Agent, Resolved, load_resolved, resolved_from_docum
 from gete.policies import applicable, compose_instruction
 from gete.redact import RedactRules
 from gete.runtime.callbacks import bind_tool_call, redact_results, safe_tool_error
+from gete.runtime.model import build_model
 from gete.runtime.tools import build_tools
 from gete.shared_credentials import SHARED_CREDENTIALS
 
@@ -49,7 +50,7 @@ def _build(resolved: Resolved) -> Any:
     return LlmAgent(
         # ADK wants an identifier. The display name lives in the registration.
         name=agent.name.replace("-", "_"),
-        model=agent.data["model"],
+        model=build_model(agent.data["model"]),
         description=agent.data["description"],
         instruction=compose_instruction(
             resolved.policies, resolved.data, _with_shared_credential_rules(agent)

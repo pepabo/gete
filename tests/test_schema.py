@@ -1,5 +1,6 @@
 """Shape of the declarations. The JSON Schemas decide what a document may say."""
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -191,6 +192,48 @@ def test_agent_name_must_be_an_rfc1034_label(name: str) -> None:
     """The name becomes a service account and an authorization id; both need a label."""
     with pytest.raises(DeclarationError, match="name"):
         validate_document("agent", {**AGENT, "name": name}, source="agent.yaml")
+
+
+def test_a_model_may_name_the_location_it_is_called_in() -> None:
+    validate_document(
+        "agent",
+        {**AGENT, "model": {"id": "gemini-3-flash-preview", "location": "global"}},
+        source="agent.yaml",
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "says"),
+    [
+        ({"id": "gemini-3-flash-preview"}, "'location' is a required property"),
+        ({"location": "global"}, "'id' is a required property"),
+        ({"id": "", "location": "global"}, "model.id: '' should be non-empty"),
+        (
+            {"id": "gemini-3-flash-preview", "location": "global", "region": "us"},
+            "'region' was unexpected",
+        ),
+    ],
+)
+def test_a_model_object_needs_an_id_and_a_location(
+    model: dict[str, Any], says: str
+) -> None:
+    """A model called where the agent runs is written as the plain string instead.
+
+    The message names the key at fault, not the string the object is not.
+    """
+    with pytest.raises(DeclarationError, match=re.escape(says)):
+        validate_document("agent", {**AGENT, "model": model}, source="agent.yaml")
+
+
+@pytest.mark.parametrize("location", ["Global", "us central1", "../global", "evil.com"])
+def test_a_model_location_must_look_like_a_location(location: str) -> None:
+    """It becomes part of the endpoint's host name and URL path."""
+    with pytest.raises(DeclarationError, match="model"):
+        validate_document(
+            "agent",
+            {**AGENT, "model": {"id": "gemini-3-flash-preview", "location": location}},
+            source="agent.yaml",
+        )
 
 
 def test_connections_must_be_unique() -> None:
