@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.5.1](https://github.com/pepabo/gete/compare/v0.5.0...v0.5.1) - 2026-10-20
+
+- Let an agent's model name the Vertex AI location it is called in by @haruotsu in https://github.com/pepabo/gete/pull/95
+
 ## [v0.4.1](https://github.com/pepabo/gete/compare/v0.4.0...v0.4.1) - 2026-10-14
 
 - Add tokens.issuer: optional for providers whose JWTs name no issuer (Zendesk) by @haruotsu in https://github.com/pepabo/gete/pull/90
