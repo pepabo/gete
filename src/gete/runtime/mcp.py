@@ -103,8 +103,9 @@ class NarrowedMcpTool(McpTool):
         warn: Callable[[str], None] = logger.warning,
     ) -> "NarrowedMcpTool | None":
         """The listed tool with its arguments narrowed, or None and a
-        warning when the server's schema does not declare every fixed one. A
-        listed one it does not declare is logged, and the tool still offered.
+        warning when the server's schema does not declare every fixed one,
+        or requires one that is neither listed nor fixed. A listed one it
+        does not declare is logged, and the tool still offered.
 
         validate cannot see a server's schemas, so a renamed argument shows
         up only here. Offering the tool anyway would send the declared value
@@ -121,14 +122,26 @@ class NarrowedMcpTool(McpTool):
                 f"declares no {', '.join(missing)}, which the declaration fixes"
             )
             return None
+        required = schema.get("required") if isinstance(schema, Mapping) else None
+        unwritable = (
+            [name for name in required if name not in only and name not in fixed]
+            if only is not None and isinstance(required, list)
+            else []
+        )
+        if unwritable:
+            warn(
+                f"mcp tool {listed.name} is not offered: its input schema "
+                f"requires {', '.join(map(str, unwritable))}, which only does "
+                "not list and params does not fix"
+            )
+            return None
         unknown = [name for name in only or () if name not in declared]
         if unknown:
             # Nothing the server takes is opened up by the miss; the model
             # just cannot write what the declaration meant it to.
-            logger.warning(
-                "mcp tool %s: its input schema declares no %s, which only lists",
-                listed.name,
-                ", ".join(unknown),
+            warn(
+                f"mcp tool {listed.name}: its input schema declares no "
+                f"{', '.join(unknown)}, which only lists"
             )
         return cls(listed, fixed=fixed, only=only)
 

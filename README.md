@@ -201,7 +201,9 @@ that is both listed and fixed. Because the schemas are listed live, naming
 what goes out is what keeps a new argument from reaching the model before
 anyone has declared it. An argument `only` names that the server does not
 declare is logged, and the tool is still offered: nothing is opened up by
-the miss.
+the miss. A tool whose schema requires an argument that `only` does not
+list and `params` does not fix is not offered, and the log says which:
+every call would go out without it, and the server would refuse each one.
 
 With more than one engine, name them once in `gete.yaml` and let each agent
 refer to one by name:
