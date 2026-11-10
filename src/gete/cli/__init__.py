@@ -182,7 +182,12 @@ def register(names: tuple[str, ...], notice: Path, reset: tuple[str, ...]) -> No
 @main.command()
 @click.argument("name")
 def init(name: str) -> None:
-    """Create agents/NAME from a template; create gete.yaml too if there is none."""
+    """Create agents/NAME from a template; create gete.yaml too if there is none.
+
+    NAME may be ENGINE/NAME, with ENGINE named in gete.yaml under
+    gemini_enterprise.engines: the agent is then listed in that engine by
+    where it sits, and declares no registration block.
+    """
     from gete.scaffold import init_agent, init_project
 
     try:
@@ -194,6 +199,10 @@ def init(name: str) -> None:
     try:
         written.extend(init_agent(root, name))
     except GeteError as error:
+        # The project files are on disk by now; say so, since a refused
+        # group is fixed by editing the gete.yaml just written.
+        for path in written:
+            click.echo(str(path))
         click.echo(str(error), err=True)
         sys.exit(1)
     for path in written:
@@ -261,17 +270,18 @@ def run(name: str) -> None:
         find_agent,
         initial_state,
         missing_tokens,
+        user_authorized,
     )
 
     try:
         project = load_project(find_project_file(Path.cwd()))
         agent = build_local_agent(project, name)
-        declared = find_agent(project, name)
+        authorized = user_authorized(project, find_agent(project, name))
     except GeteError as error:
         click.echo(str(error), err=True)
         sys.exit(1)
-    state = initial_state(name, declared.connections, os.environ)
-    missing = missing_tokens(name, declared.connections, state)
+    state = initial_state(name, authorized, os.environ)
+    missing = missing_tokens(name, authorized, state)
     if missing:
         click.echo(
             f"no token for {', '.join(missing)}; set GETE_TOKEN_<CONNECTION>", err=True

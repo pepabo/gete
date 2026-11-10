@@ -12,6 +12,7 @@ from functools import cache
 from typing import Any
 
 from gete.connection.registry import (
+    GOOGLE_ACCESS_TOKEN_PREFIX,
     JWT_FORMAT,
     Connection,
     Registry,
@@ -101,26 +102,38 @@ def describe_token(connection: Connection, token: str) -> str:
     """Which declared shape the token has, without repeating any of it.
 
     A connection without prefixes declares no shapes, so a refused JWT is
-    described by what refused it - claims that cannot be read, or an issuer
-    that does not name this service - or the shape message would leave the
-    refusal looking like a mystery. A connection that declares a token format
-    is refusing against a promise, and the promise is named: an operator who
-    turned the provider's expiring-token setting off has every token refused
-    at once, and nothing else in the log would say why. Read in the order
+    described by what refused it - claims that cannot be read, an issuer
+    that does not name this service, or no issuer at all - or the shape
+    message would leave the refusal looking like a mystery. A JWT naming no
+    issuer is taken only where tokens.issuer: optional is declared, and the
+    message names that declaration: a provider whose JWTs never name one has
+    every token refused at once, and nothing else in the log would say why.
+    A Google access token carries two dots as a JWT does, and is described
+    by the shapes it misses rather than as a JWT. Read in the order
     accepts_token decides in, so the message names the rule that actually
     refused the token.
     """
     if connection.token_format is not None:
-        return _unmet_format(connection.token_format, token)
+        return _unmet_format(connection, token)
     for prefix in connection.token_prefixes:
         if token.startswith(prefix):
             return f"starts with {prefix}"
-    if connection.token_prefixes:
+    if (
+        connection.token_prefixes
+        or token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX)
+        or not looks_like_jwt(token)
+    ):
         return NO_DECLARED_SHAPE
-    return _refused_jwt(token) or NO_DECLARED_SHAPE
+    return _refused_jwt(
+        token,
+        issuerless=(
+            f"declare connections.{connection.id}.tokens.format: jwt with "
+            "issuer: optional if its tokens never name one"
+        ),
+    )
 
 
-def _unmet_format(token_format: str, token: str) -> str:
+def _unmet_format(connection: Connection, token: str) -> str:
     """Which part of the declared format the token missed.
 
     A format this gete cannot judge refuses every token alike, so it is the
@@ -128,24 +141,29 @@ def _unmet_format(token_format: str, token: str) -> str:
     issuer was wrong would go looking at a token that may be exactly right,
     when what refused it is a declaration newer than the gete reading it.
     """
+    token_format = connection.token_format
     if token_format != JWT_FORMAT:
         return f"declared as {token_format}, which this gete cannot judge"
-    if not looks_like_jwt(token):
+    if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX) or not looks_like_jwt(token):
         return f"not the {token_format} this connection declares"
-    return _refused_jwt(token) or "a JWT that names no issuer"
+    return _refused_jwt(
+        token,
+        issuerless=(
+            f"declare connections.{connection.id}.tokens.issuer: optional if "
+            "its tokens never name one"
+        ),
+    )
 
 
-def _refused_jwt(token: str) -> str | None:
-    """Why a JWT-shaped token is not taken for this service's, or None when
-    nothing about the JWT itself says so."""
-    if not looks_like_jwt(token):
-        return None
+def _refused_jwt(token: str, *, issuerless: str) -> str:
+    """Why a JWT-shaped token was refused; issuerless is the declaration
+    that would take one naming no issuer."""
     claims = jwt_claims(token)
     if claims is None:
         return "a JWT whose claims cannot be read"
-    if "iss" in claims:
-        return "a JWT whose issuer does not name this service"
-    return None
+    if "iss" not in claims:
+        return f"a JWT that names no issuer; {issuerless}"
+    return "a JWT whose issuer does not name this service"
 
 
 def usable_token(connection: Connection, key: str, state: Any) -> str | None:

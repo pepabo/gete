@@ -34,6 +34,7 @@ from typing import Any, Self
 
 import httpx
 
+from gete.connection.github_app import AppTokenUnavailable, installation_tokens
 from gete.connection.registry import Connection
 from gete.connection.runtime import caller_token, resolve_connection
 from gete.errors import GeteError, UserFacingError
@@ -371,7 +372,10 @@ class ConnectionClient:
             await response.aclose()
             _check_redirect(connection, target)
             headers = (
-                {**self._headers, **self._authorization(connection, target, state)}
+                {
+                    **self._headers,
+                    **await self._authorization(connection, target, state),
+                }
                 if connection.allows(target)
                 # Off the connection's own hosts nothing of ours travels: not
                 # the token, and not the constants that name this service.
@@ -392,9 +396,17 @@ class ConnectionClient:
     def _connection(self) -> Connection:
         return resolve_connection(self._target)
 
-    def _authorization(
+    async def _authorization(
         self, connection: Connection, url: str, state: Any
     ) -> dict[str, str]:
+        if connection.app is not None:
+            try:
+                issued = await installation_tokens(connection).token()
+            except AppTokenUnavailable as error:
+                # Not a reauthorization: there is nothing for the user to
+                # approve, and the reason was written to be shown.
+                raise AuthorizationRefused(str(error)) from None
+            return {"Authorization": f"Bearer {issued}"}
         token = caller_token(connection, state)
         if token is None:
             # The user sees a re-authorization prompt; operators would not.
@@ -429,7 +441,7 @@ class ConnectionClient:
         # is put in last, so nothing can displace it.
         sent = httpx.Headers(self._headers)
         sent.update(_refuse_masking_headers(headers or {}))
-        sent.update(self._authorization(connection, url, state))
+        sent.update(await self._authorization(connection, url, state))
         # A GET can be sent again because sending it again changes nothing.
         # Anything else may already have been applied by the time the answer
         # went missing, so only a refusal the service made before acting - a
@@ -457,6 +469,11 @@ class ConnectionClient:
 
             if response.status_code == 401:
                 await response.aclose()
+                if connection.app is not None:
+                    # An issued token refused before its time would refuse
+                    # every request until it expired; the next one is issued
+                    # afresh.
+                    installation_tokens(connection).forget()
                 # There is no way to refresh; authorization is Gemini Enterprise's job.
                 logger.warning(
                     "token for %s was rejected url=%s", connection.id, _loggable(url)

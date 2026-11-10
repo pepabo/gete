@@ -7,7 +7,11 @@ from urllib.parse import urlsplit
 
 from gete._yaml import read_yaml
 from gete.connection import Registry
-from gete.connection.checks import connection_problems, elimination_problems
+from gete.connection.checks import (
+    app_problems,
+    connection_problems,
+    elimination_problems,
+)
 from gete.connection.registry import missing_base_url
 from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
@@ -34,6 +38,7 @@ def validate_project(project: Project) -> list[Problem]:
     found: list[Problem] = list(project.problems)
     registry = _registry(project, found)
     found.extend(_policy_problems(project))
+    found.extend(_engine_problems(project))
     for agent in project.agents:
         found.extend(_agent_problems(project, agent, registry))
     return found
@@ -80,6 +85,22 @@ def _policy_problems(project: Project) -> list[Problem]:
     return found
 
 
+def _engine_problems(project: Project) -> list[Problem]:
+    """Two names for one engine: the block exists to make that copy visible."""
+    names_by_id: dict[str, list[str]] = {}
+    for name, engine in (project.engines or {}).items():
+        names_by_id.setdefault(engine, []).append(name)
+    return [
+        Problem(
+            project.display(project.path),
+            f"gemini_enterprise.engines: {', '.join(names)} name the same "
+            f"engine, {engine}",
+        )
+        for engine, names in names_by_id.items()
+        if len(names) > 1
+    ]
+
+
 def _agent_problems(
     project: Project, agent: Agent, registry: Registry
 ) -> list[Problem]:
@@ -89,6 +110,18 @@ def _agent_problems(
         found.append(
             f"name {agent.name!r} differs from directory {agent.directory.name!r}; "
             "the module, service account, and archive are named after the directory"
+        )
+    # Possible once agents sit in groups: two directories, one name, and both
+    # would claim the module, the service account, and the reasoning engine.
+    twins = [
+        project.display(other.directory)
+        for other in project.agents
+        if other.name == agent.name and other.directory != agent.directory
+    ]
+    if twins:
+        found.append(
+            f"name {agent.name!r} is also {', '.join(twins)}; the module, "
+            "service account, and reasoning engine are named after it"
         )
     account = f"{agent.name}{SERVICE_ACCOUNT_SUFFIX}"
     if not (
@@ -117,7 +150,27 @@ def _agent_problems(
             found.append(f"connections: {error}")
             continue
         known.add(connection_id)
-        menu = connection.oauth.optional_scopes
+        if connection.app is not None:
+            found.extend(
+                f"connections: {message}" for message in app_problems(connection)
+            )
+            if connection_id in agent.scope_selections:
+                found.append(
+                    f"connections: {connection_id} issues its own tokens and "
+                    "offers no scopes to select; what they may do is "
+                    f"connections.{connection_id}.app.permissions in gete.yaml"
+                )
+            for block, values in (("env", agent.env), ("secret_env", agent.secret_env)):
+                if connection.app_key_env in values:
+                    # Delivered from gete.yaml; an agent pointing the variable
+                    # elsewhere would issue tokens as an App of its choosing.
+                    found.append(
+                        f"runtime.agent_engine.{block}: {connection.app_key_env} "
+                        f"is delivered from connections.{connection_id}.app."
+                        "private_key_secret in gete.yaml; the agent does not set it"
+                    )
+            continue
+        menu = connection.oauth.optional_scopes if connection.oauth else {}
         outside = [
             scope
             for scope in agent.scope_selections.get(connection_id, ())
@@ -143,6 +196,22 @@ def _agent_problems(
     found.extend(
         f"connections: {message}" for message in elimination_problems(known, registry)
     )
+    written = agent.registration_engine
+    if written is not None and agent.group is None:
+        try:
+            project.engine_id(written)
+        except DeclarationError as error:
+            found.append(str(error))
+    elif written is not None and written != agent.group:
+        # The block an agent moved into a group brought along, and then
+        # edited: the directory is what the tree shows, so it is the one
+        # that counts, and the block has nothing left to say. Whether what
+        # it says is a name or an id makes no difference, so one line.
+        found.append(
+            f"registration.gemini_enterprise.engine: {written!r} differs from "
+            f"the directory, which lists the agent in {agent.group!r}; an "
+            "agent below an engine's group needs no registration block"
+        )
     declared_shared: Mapping[str, Any] = project.data.get("shared_credentials", {})
     for name in agent.shared_credentials:
         credential = SHARED_CREDENTIALS.get(name)
@@ -174,6 +243,16 @@ def _agent_problems(
     requirements = agent.requirements
     if requirements is not None and not requirements.is_file():
         found.append(f"requirements: {project.display(requirements)} does not exist")
+    model = agent.data["model"]
+    if not isinstance(model, str):
+        from gete.runtime.model import gemini_class
+
+        # Agent Engine would take the archive and fail on the first turn.
+        if gemini_class(model["id"]) is None:
+            found.append(
+                f"model.id: {model['id']!r} is not a Gemini model; only a "
+                "Gemini model's client can be pointed at a location"
+            )
     for index, tool in enumerate(agent.tools):
         found.extend(
             f"tools[{index}]: {message}"
@@ -320,6 +399,13 @@ def _mcp_problems(
         ]
     url: str = mcp["url"]
     connection = registry.get(connection_id)
+    if connection.app is not None:
+        # The MCP toolset attaches a token it reads synchronously, and an
+        # issued token is fetched by gete's own client when a request is made.
+        return [
+            f"mcp: connection {connection_id!r} issues its own tokens, which "
+            "only openapi blocks and gete's client send"
+        ]
     if not connection.allows(url):
         hosts = ", ".join(sorted(connection.hosts))
         return [

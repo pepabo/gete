@@ -8,7 +8,9 @@ starter_prompts:
   - Summarize the text I paste in three bullet points.
 
 # Without a registration block the agent is deployed to Agent Engine but not
-# listed in Gemini Enterprise. Add the engine id from the console URL to list it:
+# listed in Gemini Enterprise. To list it, add the engine id from the console
+# URL, or its name once gete.yaml names the engines under
+# gemini_enterprise.engines:
 # registration:
 #   gemini_enterprise:
 #     engine: my-app_1234567890

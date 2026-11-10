@@ -213,3 +213,60 @@ def test_without_the_project_entry_nothing_is_injected(
     """validate reports it; the generated call must not invent a secret name."""
     project.write_agent("poster", {"shared_credentials": ["slack_post"]})
     assert "SLACK_BOT_TOKEN" not in files(project)["poster.tf"]
+
+
+APP_PROJECT: dict[str, Any] = {
+    "version": 1,
+    "project": "example-project",
+    "location": "us-central1",
+    "connections": {
+        "github-app": {
+            "app": {
+                "app_id": "123",
+                "private_key_secret": "ge-github-app-private-key",
+                "repositories": ["example-org/requests"],
+                "permissions": {"issues": "read"},
+            }
+        }
+    },
+}
+
+
+def test_an_app_connections_private_key_is_wired_into_secret_env(
+    project: ProjectBuilder,
+) -> None:
+    """Named once in gete.yaml, delivered to every agent holding the connection."""
+    project.write_project(APP_PROJECT)
+    project.write_agent("triage", {"connections": ["github-app"]})
+    text = files(project)["triage.tf"]
+    assert 'GETE_APP_KEY_GITHUB_APP = "ge-github-app-private-key"' in text
+
+
+def test_an_agent_without_the_app_connection_gets_no_key(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(APP_PROJECT)
+    project.write_agent("triage")
+    assert "GETE_APP_KEY" not in files(project)["triage.tf"]
+
+
+def test_an_agent_below_an_engines_directory_keeps_its_module_and_moves_its_path(
+    project: ProjectBuilder,
+) -> None:
+    """Moving an agent into a group changes agent_directory and nothing else:
+    the module address and the service account stay, so nothing is recreated."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"engines": {"sales": "my-sales-app_1234567890"}},
+        }
+    )
+    project.write_agent("sales/mail-triage")
+    generated = files(project)
+    assert set(generated) == {"mail_triage.tf"}
+    text = generated["mail_triage.tf"]
+    assert 'module "mail_triage" {' in text
+    assert 'name         = "mail-triage"' in text
+    assert 'agent_directory = "${path.module}/../agents/sales/mail-triage"' in text

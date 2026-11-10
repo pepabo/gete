@@ -2,13 +2,24 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:gete:schema:connection",
   "title": "connection",
-  "description": "An external service: where user tokens may be sent, what they look like, and how users authorize.",
+  "description": "An external service: where tokens may be sent, what they look like, and where they come from - a user's authorization (oauth) or a GitHub App gete issues for (app).",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "id",
-    "display_name",
-    "oauth"
+    "display_name"
+  ],
+  "oneOf": [
+    {
+      "required": [
+        "oauth"
+      ]
+    },
+    {
+      "required": [
+        "app"
+      ]
+    }
   ],
   "properties": {
     "id": {
@@ -50,7 +61,7 @@
       }
     },
     "token_prefixes": {
-      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination, unless tokens.format says what they look like; an agent may declare only one connection that announces itself neither way.",
+      "description": "Prefixes of issued tokens. Empty means the service does not announce itself and tokens are accepted by elimination, unless tokens.format says what they look like; a connection accepting by elimination takes no JWT that names no issuer, and an agent may declare only one connection that announces itself neither way. Connections may share a prefix, as two installations of one service do; an agent may not declare two whose prefixes overlap.",
       "type": "array",
       "uniqueItems": true,
       "items": {
@@ -70,6 +81,13 @@
           "description": "jwt: the tokens are JWTs whose iss claim names the connection's own service. Nothing else is a format that says whose token it is.",
           "enum": [
             "jwt"
+          ]
+        },
+        "issuer": {
+          "description": "required (the default): every JWT names the connection's own service as its issuer. optional: a JWT that names no issuer at all is accepted as well, as Zendesk's are; one that names an issuer is still held to it. Such a token says nothing about whose it is, so an agent may hold only one connection that declares optional.",
+          "enum": [
+            "required",
+            "optional"
           ]
         }
       }
@@ -118,6 +136,52 @@
           "type": "object",
           "additionalProperties": {
             "type": "string"
+          }
+        }
+      }
+    },
+    "app": {
+      "description": "A GitHub App gete issues installation tokens for, in place of a user's authorization. No Gemini Enterprise authorization is created; the private key is delivered to the deployment like secret_env, and every token is narrowed to repositories and permissions. A catalog entry leaves these open and the installation fills them in.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "app_id": {
+          "description": "The App's numeric ID, from its settings page. Quoted or not; YAML reads a bare one as a number.",
+          "type": [
+            "string",
+            "integer"
+          ],
+          "pattern": "^[0-9]+$",
+          "minimum": 1
+        },
+        "private_key_secret": {
+          "description": "Secret Manager secret holding the App's private key (PEM). The latest version is used.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "repositories": {
+          "description": "owner/name of every repository a token may reach, all under one owner: a token is issued by one installation, and an installation belongs to one account.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$"
+          }
+        },
+        "permissions": {
+          "description": "Permission to access level, the ceiling of every token issued. Required rather than defaulted: left out, a token would carry everything the installation was granted.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z_]+$"
+          },
+          "additionalProperties": {
+            "enum": [
+              "read",
+              "write",
+              "admin"
+            ]
           }
         }
       }

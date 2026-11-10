@@ -34,6 +34,11 @@ GOOGLE_ACCESS_TOKEN_PREFIX = "ya29."
 # names itself in every token, which is what a prefix would otherwise do.
 JWT_FORMAT = "jwt"
 
+# What tokens.issuer says of a JWT format whose tokens name no issuer at all,
+# as Zendesk's do. Anything else - the default, or a value this gete cannot
+# read - holds every JWT to naming the connection's own service.
+ISSUER_OPTIONAL = "optional"
+
 # Stands for the root of a service that differs per installation, wherever the
 # connection's URLs are written around it. A definition meant to be shared
 # cannot spell a tenant's host, and a stand-in host would be a name a stranger
@@ -139,6 +144,39 @@ class OAuth:
         )
 
 
+# Where the deployment finds an app connection's private key: the secret named
+# in gete.yaml is delivered under this name plus the connection id, the way
+# secret_env delivers any other.
+APP_KEY_ENV_PREFIX = "GETE_APP_KEY_"
+
+
+@dataclass(frozen=True)
+class App:
+    """A GitHub App gete issues installation tokens for.
+
+    Every field may be missing: a catalog entry cannot know which App an
+    installation registered, and validate refuses the gap where an agent
+    picks the connection up, the way it refuses an open base_url.
+    repositories and permissions are the ceiling of every token issued.
+    """
+
+    app_id: str | None = None
+    private_key_secret: str | None = None
+    repositories: tuple[str, ...] = ()
+    permissions: Mapping[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, Any]) -> "App":
+        app_id = data.get("app_id")
+        secret = data.get("private_key_secret")
+        return cls(
+            app_id=None if app_id is None else str(app_id),
+            private_key_secret=None if secret is None else str(secret),
+            repositories=tuple(data.get("repositories", ())),
+            permissions=dict(data.get("permissions", {})),
+        )
+
+
 def _stays_below(path: str, prefix: str) -> bool:
     """Whether the request path stays below the prefix however a server reads it.
 
@@ -173,7 +211,10 @@ class Connection:
 
     id: str
     display_name: str
-    oauth: OAuth
+    # Exactly one of the two: a user's authorization forwarded by Gemini
+    # Enterprise, or an App gete issues tokens for itself.
+    oauth: OAuth | None = None
+    app: App | None = None
     hosts: frozenset[str] = frozenset()
     # Hosts a download may be redirected to, declared one by one; the token
     # never travels to them. Empty means downloads stay on hosts.
@@ -184,10 +225,19 @@ class Connection:
     # as surely as a prefix does and is not accepted by elimination; one this
     # gete cannot judge takes nothing at all.
     token_format: str | None = None
+    # Whether a JWT that names no issuer keeps the format's promise. Such a
+    # token says nothing about whose it is, so only the connection that
+    # declares it takes one, and validate lets an agent hold one such.
+    issuer_optional: bool = False
     # Prefixes declared by every other connection in the registry, filled in by
     # Registry. A connection without prefixes of its own accepts a token only
     # if none of these match, so a bare from_mapping() connection judges more
     # leniently than the same connection taken from a Registry.
+    # Not narrowed to the connections one agent holds, the way the rules on
+    # what an agent may hold together are: elimination is the weakest way to
+    # accept a token, and one announcing itself as another known service's is
+    # not this connection's whichever agent it reached. A connection whose
+    # tokens do carry such a prefix declares it.
     foreign_prefixes: tuple[str, ...] = ()
     base_url: str | None = None
     docs: str | None = None
@@ -218,11 +268,15 @@ class Connection:
         return cls(
             id=data["id"],
             display_name=data["display_name"],
-            oauth=OAuth.from_mapping(data["oauth"], base_url),
+            oauth=(
+                OAuth.from_mapping(data["oauth"], base_url) if "oauth" in data else None
+            ),
+            app=App.from_mapping(data["app"]) if "app" in data else None,
             hosts=frozenset(hosts),
             redirect_hosts=frozenset(data.get("redirect_hosts", ())),
             token_prefixes=tuple(data.get("token_prefixes", ())),
             token_format=data.get("tokens", {}).get("format"),
+            issuer_optional=data.get("tokens", {}).get("issuer") == ISSUER_OPTIONAL,
             base_url=base_url,
             docs=data.get("docs"),
             oauth_client=data.get("oauth_client"),
@@ -249,12 +303,18 @@ class Connection:
         """
         return any(
             url is not None and BASE_URL in url
-            for url in (
-                self.oauth.authorization_url,
-                self.oauth.token_url,
-                self.mcp_url,
-            )
+            for url in (*self._oauth_urls(), self.mcp_url)
         )
+
+    def _oauth_urls(self) -> tuple[str, ...]:
+        if self.oauth is None:
+            return ()
+        return (self.oauth.authorization_url, self.oauth.token_url)
+
+    @property
+    def app_key_env(self) -> str:
+        """The environment variable the App's private key is delivered in."""
+        return APP_KEY_ENV_PREFIX + self.id.upper().replace("-", "_")
 
     @property
     def secret_prefix(self) -> str:
@@ -278,9 +338,11 @@ class Connection:
         issues ya29.c.<payload> access tokens that carry two dots, and a shape
         heuristic must not overrule a prefix the catalog vouches for. With
         neither, a JWT is judged by the issuer its claims name - Google ID
-        tokens and service account tokens always name Google's - and a JWT
-        that names none says as little as an opaque token, so it is judged
-        like one. One that cannot be read is refused rather than guessed about.
+        tokens and service account tokens always name Google's - and one that
+        names none is refused: it says nothing about whose it is, and only a
+        connection declaring tokens.issuer: optional takes it, so the two
+        never share a token. One that cannot be read is refused rather than
+        guessed about.
         """
         if not token:
             return False
@@ -288,37 +350,36 @@ class Connection:
             # A resolved declaration outlives the gete that wrote it, and a
             # format this one cannot judge is not one it may fall back from:
             # elimination would accept what the declaration meant to narrow.
-            return self.token_format == JWT_FORMAT and self._issued_here_jwt(token)
+            return self.token_format == JWT_FORMAT and self._issued_here_jwt(
+                token, issuerless=self.issuer_optional
+            )
         if self.token_prefixes:
             return token.startswith(self.token_prefixes)
         if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX):
             return False
         if looks_like_jwt(token):
-            claims = jwt_claims(token)
-            if claims is None:
-                return False
-            if "iss" in claims:
-                issuer = claims["iss"]
-                return isinstance(issuer, str) and self.issued_here(issuer)
+            return self._issued_here_jwt(token, issuerless=False)
         # The token does not announce itself. All that can be said is that
         # it is not some other service's.
         return not any(token.startswith(prefix) for prefix in self.foreign_prefixes)
 
-    def _issued_here_jwt(self, token: str) -> bool:
+    def _issued_here_jwt(self, token: str, *, issuerless: bool) -> bool:
         """Whether the token is a JWT this connection's own service issued.
 
-        What a connection declaring the format holds every token to. A token
-        of any other shape, one whose claims cannot be read, and one that
-        names no issuer are all refused alike: none of them is what was
-        promised, and the promise is the only reason the connection may sit
-        beside another that accepts tokens by elimination.
+        Its claims have to be readable and name this service as the issuer,
+        or - where issuerless is allowed - name no issuer at all. Google's
+        ya29.c.<payload> access tokens carry two dots as well, and are
+        refused for the prefix they announce rather than for a middle
+        segment that happens not to decode.
         """
-        if not looks_like_jwt(token):
+        if token.startswith(GOOGLE_ACCESS_TOKEN_PREFIX) or not looks_like_jwt(token):
             return False
         claims = jwt_claims(token)
         if claims is None:
             return False
-        issuer = claims.get("iss")
+        if "iss" not in claims:
+            return issuerless
+        issuer = claims["iss"]
         return isinstance(issuer, str) and self.issued_here(issuer)
 
     @property
@@ -334,7 +395,7 @@ class Connection:
         own = {entry.partition("/")[0] for entry in self.hosts}
         own.update(
             host
-            for url in (self.oauth.authorization_url, self.oauth.token_url)
+            for url in self._oauth_urls()
             if (host := urlsplit(url).hostname) is not None
         )
         return frozenset(own)
@@ -410,6 +471,13 @@ class Connection:
         """
         if self.rejected is not None:
             return self.rejected
+        if self.app is not None:
+            # Nobody approved anything, so there is no authorization to reset;
+            # what can be wrong is the App's installation or its grant.
+            return (
+                f"{self.display_name} refused the token issued for it. Ask the "
+                "operator to check the App's installation and permissions."
+            )
         return (
             f"{self.display_name} refused the authorization. Approving again in "
             "Gemini Enterprise will not help; ask the operator to reset the "

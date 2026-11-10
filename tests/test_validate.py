@@ -288,6 +288,27 @@ def test_known_builtin_tool_passes(project: ProjectBuilder) -> None:
     assert problems(project) == []
 
 
+def test_a_gemini_model_may_name_its_location(project: ProjectBuilder) -> None:
+    project.write_agent(
+        "mail-triage",
+        {"model": {"id": "gemini-3-flash-preview", "location": "global"}},
+    )
+    assert problems(project) == []
+
+
+@pytest.mark.parametrize("model_id", ["claude-sonnet-4@20250514", "no-such-model"])
+def test_a_location_is_refused_for_a_model_that_is_not_gemini(
+    project: ProjectBuilder, model_id: str
+) -> None:
+    """The location reaches the model through Gemini's client and nowhere else."""
+    project.write_agent(
+        "mail-triage", {"model": {"id": model_id, "location": "global"}}
+    )
+    assert any(
+        f"model.id: {model_id!r} is not a Gemini model" in p for p in problems(project)
+    )
+
+
 def test_mcp_host_must_be_allowed_by_its_connection(project: ProjectBuilder) -> None:
     """Otherwise the token would be sent to a host the connection never declared."""
     project.write_agent(
@@ -434,6 +455,75 @@ def test_a_declared_format_beside_a_connection_of_the_same_issuer_is_refused(
     assert any("auth.internal.example.com" in problem for problem in found), found
 
 
+ZENDESK_ISSUERLESS: dict[str, Any] = {
+    "base_url": "https://acme.zendesk.com",
+    "tokens": {"format": "jwt", "issuer": "optional"},
+}
+
+
+def test_zendesk_may_sit_beside_a_service_whose_jwts_name_their_issuer(
+    project: ProjectBuilder,
+) -> None:
+    """Only Zendesk takes a JWT naming no issuer, and only the other takes one
+    naming its own authorization server, so neither token passes as the
+    other's."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": {**INTERNAL_API, "tokens": {"format": "jwt"}},
+                "zendesk": ZENDESK_ISSUERLESS,
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
+    assert problems(project) == []
+
+
+def test_two_optional_issuers_on_one_agent_are_reported(
+    project: ProjectBuilder,
+) -> None:
+    """A JWT that names no issuer is taken by either, whichever service each is."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "internal-api": {
+                    **INTERNAL_API,
+                    "tokens": {"format": "jwt", "issuer": "optional"},
+                },
+                "zendesk": ZENDESK_ISSUERLESS,
+            },
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "internal-api"]})
+    found = problems(project)
+    assert any(
+        "tokens.issuer" in p and "internal-api" in p and "zendesk" in p for p in found
+    ), found
+
+
+def test_zendesk_declared_issuerless_may_be_held_beside_notion_mcp(
+    project: ProjectBuilder,
+) -> None:
+    """Zendesk's JWTs and Notion MCP's opaque tokens part by shape, so one
+    agent can search the one and write to the other."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"zendesk": ZENDESK_ISSUERLESS},
+        }
+    )
+    project.write_agent("mail-triage", {"connections": ["zendesk", "notion-mcp"]})
+    assert problems(project) == []
+
+
 def test_the_catalog_alone_still_leaves_zendesk_accepted_by_elimination(
     project: ProjectBuilder,
 ) -> None:
@@ -464,18 +554,60 @@ def test_prefixless_connections_on_separate_agents_are_accepted(
     assert problems(project) == []
 
 
+# GitHub Enterprise Server is the same product on an installation's own host,
+# so a GitHub App there issues tokens shaped like the ones github.com issues.
+GITHUB_ENTERPRISE_SERVER: dict[str, Any] = {
+    "display_name": "GitHub Enterprise Server",
+    "base_url": "https://ghe.example.com/api/v3",
+    "token_prefixes": ["ghu_"],
+    "oauth": {
+        "authorization_url": "https://ghe.example.com/login/oauth/authorize",
+        "token_url": "https://ghe.example.com/login/oauth/access_token",
+        "scopes": {},
+    },
+}
+
+
+def write_github_enterprise_server(project: ProjectBuilder) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"github-ghes": GITHUB_ENTERPRISE_SERVER},
+        }
+    )
+
+
+def test_a_second_instance_of_a_catalog_service_is_accepted(
+    project: ProjectBuilder,
+) -> None:
+    """Its tokens carry the catalog entry's prefix, and an agent holding only
+    one of the two has nothing to mistake them for."""
+    write_github_enterprise_server(project)
+    project.write_agent("code-search", {"connections": ["github"]})
+    project.write_agent("ghes-search", {"connections": ["github-ghes"]})
+    assert problems(project) == []
+
+
+def test_overlapping_prefixes_on_one_agent_are_reported_at_the_agent(
+    project: ProjectBuilder,
+) -> None:
+    """Either authorization's token would be accepted as the other's, and it
+    is the agent's declaration that has to change, not gete.yaml."""
+    write_github_enterprise_server(project)
+    project.write_agent("code-search", {"connections": ["github", "github-ghes"]})
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/code-search/agent.yaml: connections: "), found
+    assert "github, github-ghes" in found[0] and "'ghu_'" in found[0], found
+
+
 def test_agent_schema_errors_are_reported_with_their_file(
     project: ProjectBuilder,
 ) -> None:
     project.write_agent("mail-triage", {"modle": "typo"})
     assert any("agent.yaml" in p and "modle" in p for p in problems(project))
-
-
-def test_agents_without_declaration_are_skipped(project: ProjectBuilder) -> None:
-    """A stray directory under agents/ is not an agent."""
-    (project.agents_dir / "notes").mkdir()
-    project.write_agent("mail-triage")
-    assert problems(project) == []
 
 
 def test_duplicate_policy_names_are_reported(project: ProjectBuilder) -> None:
@@ -847,3 +979,367 @@ def test_openapi_operations_are_held_against_the_description(
     )
     found = problems(project)
     assert any("Nope" in p for p in found), found
+
+
+GITHUB_APP = {
+    "app_id": "123",
+    "private_key_secret": "ge-github-app-private-key",
+    "repositories": ["example-org/requests"],
+    "permissions": {"issues": "read"},
+}
+
+
+def write_github_app(project: ProjectBuilder, **app: Any) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {"github-app": {"app": {**GITHUB_APP, **app}}},
+        }
+    )
+
+
+def test_a_configured_github_app_passes(project: ProjectBuilder) -> None:
+    write_github_app(project)
+    project.write_agent("triage", {"connections": ["github-app"]})
+    assert problems(project) == []
+
+
+@pytest.mark.parametrize(
+    "missing", ["app_id", "private_key_secret", "repositories", "permissions"]
+)
+def test_an_app_the_installation_did_not_fill_in_is_refused(
+    project: ProjectBuilder, missing: str
+) -> None:
+    """The catalog cannot know which App; without one there is nothing to
+    issue with, and without the limits a token would carry everything."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": {
+                "github-app": {
+                    "app": {k: v for k, v in GITHUB_APP.items() if k != missing}
+                }
+            },
+        }
+    )
+    project.write_agent("triage", {"connections": ["github-app"]})
+    found = problems(project)
+    assert any(f"app.{missing}" in p and "gete.yaml" in p for p in found), found
+
+
+def test_an_app_id_written_as_a_bare_number_passes(project: ProjectBuilder) -> None:
+    """YAML reads an unquoted App ID as a number; it names the same App."""
+    write_github_app(project, app_id=123)
+    project.write_agent("triage", {"connections": ["github-app"]})
+    assert problems(project) == []
+
+
+def test_app_repositories_under_more_than_one_owner_are_refused(
+    project: ProjectBuilder,
+) -> None:
+    """A token comes from one installation, and an installation belongs to one
+    account; the repositories of a second owner could never be reached."""
+    write_github_app(project, repositories=["example-org/a", "other-org/b"])
+    project.write_agent("triage", {"connections": ["github-app"]})
+    found = problems(project)
+    assert any("example-org" in p and "other-org" in p for p in found), found
+
+
+def test_an_app_connection_selects_no_scopes(project: ProjectBuilder) -> None:
+    write_github_app(project)
+    project.write_agent(
+        "triage", {"connections": [{"id": "github-app", "scopes": ["repo"]}]}
+    )
+    found = problems(project)
+    assert any("github-app" in p and "scopes" in p for p in found), found
+
+
+def test_an_app_connection_does_not_back_an_mcp_block(
+    project: ProjectBuilder,
+) -> None:
+    """Its tokens are issued per request by gete's own client, which the MCP
+    toolset does not go through."""
+    write_github_app(project)
+    project.write_agent(
+        "triage",
+        {
+            "connections": ["github-app"],
+            "tools": [
+                {
+                    "mcp": {
+                        "url": "https://api.github.com/mcp",
+                        "connection": "github-app",
+                        "effect": "read",
+                    }
+                }
+            ],
+        },
+    )
+    found = problems(project)
+    assert any("mcp" in p and "github-app" in p for p in found), found
+
+
+@pytest.mark.parametrize("block", ["env", "secret_env"])
+def test_the_agent_cannot_claim_the_app_key_variable_itself(
+    project: ProjectBuilder, block: str
+) -> None:
+    """The key is delivered from gete.yaml; an agent setting the variable
+    would issue tokens as an App of its own choosing."""
+    write_github_app(project)
+    project.write_agent(
+        "triage",
+        {
+            "connections": ["github-app"],
+            "runtime": {
+                "agent_engine": {block: {"GETE_APP_KEY_GITHUB_APP": "elsewhere"}}
+            },
+        },
+    )
+    found = problems(project)
+    assert any("GETE_APP_KEY_GITHUB_APP" in p for p in found), found
+
+
+def test_an_openapi_block_reads_through_an_app_connection(
+    project: ProjectBuilder,
+) -> None:
+    write_github_app(project)
+    write_openapi_agent(
+        project,
+        {
+            "spec": "./spec.yaml",
+            "connection": "github-app",
+            "operations": ["ListThings"],
+            "effect": "read",
+        },
+        connections=["github-app"],
+    )
+    assert problems(project) == []
+
+
+# Engines named once in gete.yaml; agents refer to one by name.
+NAMED_ENGINES: dict[str, Any] = {
+    "version": 1,
+    "project": "example-project",
+    "location": "us-central1",
+    "gemini_enterprise": {
+        "engines": {"sales": "my-sales-app_1234567890", "support": "app_2"}
+    },
+}
+
+
+def registered_with(engine: str) -> dict[str, Any]:
+    return {"registration": {"gemini_enterprise": {"engine": engine}}}
+
+
+def test_an_agent_registers_with_an_engine_by_its_name(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage", registered_with("sales"))
+    assert problems(project) == []
+
+
+def test_a_name_no_engine_carries_is_refused_and_the_names_are_listed(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage", registered_with("sale"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert "registration.gemini_enterprise.engine" in found[0]
+    assert "'sale'" in found[0]
+    assert "sales, support" in found[0]
+
+
+def test_once_engines_are_named_an_id_is_refused_even_a_right_one(
+    project: ProjectBuilder,
+) -> None:
+    """Accepting both would let an id copied from the agent next door land on
+    the wrong engine unnoticed, which naming the engines exists to stop."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage", registered_with("my-sales-app_1234567890"))
+    found = problems(project)
+    assert any("my-sales-app_1234567890" in p and "by name" in p for p in found), found
+
+
+def test_without_named_engines_an_agent_still_gives_the_id(
+    project: ProjectBuilder,
+) -> None:
+    project.write_agent("mail-triage", registered_with("my-sales-app_1234567890"))
+    assert problems(project) == []
+
+
+def test_an_agent_without_a_registration_is_fine_whether_engines_are_named_or_not(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("mail-triage")
+    assert problems(project) == []
+
+
+def test_two_names_for_one_engine_are_reported(project: ProjectBuilder) -> None:
+    """The second name is the copy-paste the block exists to make visible."""
+    project.write_project(
+        {
+            **NAMED_ENGINES,
+            "gemini_enterprise": {"engines": {"sales": "app_1", "support": "app_1"}},
+        }
+    )
+    project.write_agent("mail-triage", registered_with("sales"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("gete.yaml: gemini_enterprise.engines")
+    assert "sales" in found[0] and "support" in found[0] and "app_1" in found[0]
+
+
+# --- agents grouped by engine: agents/<engine>/<name>
+
+
+def test_an_agent_below_an_engines_directory_is_listed_in_that_engine(
+    project: ProjectBuilder,
+) -> None:
+    """The directory says where the agent is listed; no registration block."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    loaded = load_project(project.root / "gete.yaml")
+    assert [agent.name for agent in loaded.agents] == ["mail-triage"]
+    assert loaded.agents[0].directory == project.agents_dir / "sales" / "mail-triage"
+    assert loaded.agents[0].engine == "sales"
+    assert problems(project) == []
+
+
+def test_top_level_agents_and_groups_coexist_in_path_order(
+    project: ProjectBuilder,
+) -> None:
+    """An agent listed nowhere stays directly below agents/, as before."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("support/a-agent")
+    project.write_agent("local-only")
+    project.write_agent("sales/z-agent")
+    project.write_agent("sales/b-agent")
+    loaded = load_project(project.root / "gete.yaml")
+    assert [(agent.name, agent.engine) for agent in loaded.agents] == [
+        ("local-only", None),
+        ("b-agent", "sales"),
+        ("z-agent", "sales"),
+        ("a-agent", "support"),
+    ]
+    assert problems(project) == []
+
+
+def test_a_directory_that_is_neither_an_agent_nor_an_engine_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    """Stepped over quietly, a misspelt engine would drop every agent below
+    it, and the next apply would destroy them."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sale/mail-triage")
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sale: no agent.yaml")
+    assert "sales, support" in found[0]
+
+
+def test_without_named_engines_a_directory_without_agent_yaml_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    (project.agents_dir / "notes").mkdir()
+    project.write_agent("mail-triage")
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/notes: no agent.yaml")
+    assert "gemini_enterprise.engines" in found[0]
+
+
+def test_groups_do_not_nest(project: ProjectBuilder) -> None:
+    """One level is enough; deeper, a typo in a path would open a new level."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    (project.agents_dir / "sales" / "docs").mkdir()
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sales/docs: no agent.yaml")
+
+
+def test_hidden_directories_are_not_strays(project: ProjectBuilder) -> None:
+    """A venv or a VCS directory below agents/ is tooling, not a declaration."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    (project.agents_dir / ".venv").mkdir()
+    (project.agents_dir / "sales" / ".cache").mkdir()
+    assert problems(project) == []
+
+
+def test_a_grouped_agent_that_fails_the_schema_is_reported_with_its_file(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", {"modle": "typo"})
+    found = problems(project)
+    assert any(p.startswith("agents/sales/mail-triage/agent.yaml") for p in found)
+    assert any("modle" in p for p in found)
+
+
+def test_a_registration_that_disagrees_with_the_group_is_reported(
+    project: ProjectBuilder,
+) -> None:
+    """The block is the stale copy an agent moved into a group leaves behind."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", registered_with("support"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sales/mail-triage/agent.yaml: registration")
+    assert "'support'" in found[0] and "sales" in found[0]
+
+
+def test_a_registration_that_agrees_with_the_group_is_accepted(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", registered_with("sales"))
+    assert problems(project) == []
+
+
+def test_one_name_in_two_groups_is_reported_on_both(project: ProjectBuilder) -> None:
+    """The module, service account, and reasoning engine are named after it;
+    two directories would fight over one of each."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage")
+    project.write_agent("support/mail-triage")
+    found = problems(project)
+    assert len(found) == 2, found
+    assert found[0].startswith("agents/sales/mail-triage/agent.yaml: name")
+    assert "agents/support/mail-triage" in found[0]
+    assert found[1].startswith("agents/support/mail-triage/agent.yaml: name")
+    assert "agents/sales/mail-triage" in found[1]
+
+
+def test_an_agent_named_after_an_engine_is_not_that_engines_group(
+    project: ProjectBuilder,
+) -> None:
+    """The directory holds its own agent.yaml, so it is an agent; an agent put
+    below it would otherwise be stepped over without a word."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales")
+    project.write_agent("sales/mail-triage")
+    loaded = load_project(project.root / "gete.yaml")
+    assert [agent.name for agent in loaded.agents] == ["sales"]
+    found = problems(project)
+    assert len(found) == 1, found
+    assert found[0].startswith("agents/sales/mail-triage: ")
+    assert "agents/sales" in found[0] and "'sales'" in found[0]
+
+
+def test_a_grouped_agent_that_writes_the_engines_id_is_reported_once(
+    project: ProjectBuilder,
+) -> None:
+    """One mistake, one line: the block is stale, and that is the whole story."""
+    project.write_project(NAMED_ENGINES)
+    project.write_agent("sales/mail-triage", registered_with("my-sales-app_1234567890"))
+    found = problems(project)
+    assert len(found) == 1, found
+    assert "differs from the directory" in found[0]

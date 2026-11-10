@@ -3,9 +3,15 @@
 import re
 from pathlib import Path
 from string import Template
+from typing import Any
 
 from gete._yaml import read_yaml
-from gete.declaration import AGENT_FILE, DEFAULT_AGENTS_DIR, PROJECT_FILE
+from gete.declaration import (
+    AGENT_FILE,
+    DEFAULT_AGENTS_DIR,
+    PROJECT_FILE,
+    visible_directories,
+)
 from gete.errors import DeclarationError
 from gete.templates import template_text
 
@@ -26,17 +32,56 @@ def init_project(root: Path) -> list[Path]:
 
 
 def init_agent(root: Path, name: str) -> list[Path]:
-    """Write agents/<name>/agent.yaml and instruction.md unless they exist."""
+    """Write agents/<name>/agent.yaml and instruction.md unless they exist.
+
+    <engine>/<name> puts the agent below the engine's directory, where it is
+    listed in that engine. The engine has to be named in gete.yaml already:
+    validate would refuse the directory otherwise, and a scaffold that fails
+    its own validator teaches the wrong shape.
+    """
+    *groups, name = name.split("/")
+    if len(groups) > 1:
+        raise DeclarationError(
+            f"{'/'.join(groups)!r}: agents group one level deep, as <engine>/<name>"
+        )
     if len(name) > 63 or not _LABEL.match(name):
         raise DeclarationError(
             f"{name!r} is not a valid agent name: lowercase letters, digits, hyphens"
         )
-    agents_dir = root / DEFAULT_AGENTS_DIR
+    declared: dict[str, Any] = {}
     project_file = root / PROJECT_FILE
     if project_file.is_file():
         declared = read_yaml(project_file) or {}
-        agents_dir = root / declared.get("agents_dir", DEFAULT_AGENTS_DIR)
-    directory = agents_dir / name
+    agents_dir = Path(declared.get("agents_dir", DEFAULT_AGENTS_DIR))
+    directory = root / agents_dir
+    engines = (declared.get("gemini_enterprise") or {}).get("engines") or {}
+    # An agent and an engine's group cannot share a directory: the loader
+    # reads a directory with agent.yaml as the agent and steps over nothing
+    # below it, so either shape written here would hide agents.
+    if groups:
+        if groups[0] not in engines:
+            named = f" ({', '.join(engines)})" if engines else ""
+            raise DeclarationError(
+                f"{groups[0]!r} is not an engine named under "
+                f"gemini_enterprise.engines in {PROJECT_FILE}{named}; name it "
+                "there first, and agents below that directory are listed in it"
+            )
+        directory = directory / groups[0]
+        if (directory / AGENT_FILE).is_file():
+            raise DeclarationError(
+                f"{groups[0]!r} is an agent, not the engine's group: "
+                f"{agents_dir / groups[0] / AGENT_FILE} exists, and an agent and "
+                "an engine's group cannot share a directory"
+            )
+    elif name in engines and any(
+        (member / AGENT_FILE).is_file()
+        for member in visible_directories(directory / name)
+    ):
+        raise DeclarationError(
+            f"{name!r} is the engine's group and holds agents; an agent and an "
+            "engine's group cannot share a directory"
+        )
+    directory = directory / name
     return [
         path
         for path, text in (

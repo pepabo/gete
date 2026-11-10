@@ -39,6 +39,19 @@
           "description": "Where Gemini Enterprise holds the engine, usually global. Becomes a path segment of every Discovery Engine URL.",
           "type": "string",
           "pattern": "^[a-z]+(-[a-z0-9]+)*$"
+        },
+        "engines": {
+          "description": "The engines by name, each the id from the console URL. Once declared, every agent's registration.gemini_enterprise.engine is one of these names and nothing else: an id written there is refused, so one copied from the agent next door cannot land on the wrong engine unnoticed. Each id is written once, so a rebuilt engine is one line here.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "description": "Id of the engine. Spliced into the Discovery Engine URL path, so a slash would address another resource.",
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          }
         }
       }
     },

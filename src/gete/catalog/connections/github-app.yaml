@@ -1,0 +1,42 @@
+id: github-app
+display_name: GitHub App
+docs: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation
+
+# Tokens are issued by gete from the App's private key, not handed over by
+# Gemini Enterprise, so nobody authorizes anything. The root is both where
+# tokens are issued and where they are sent. GitHub Enterprise Server serves
+# the API from a root of its own; setting base_url in gete.yaml replaces this
+# one, and api.github.com is then no longer a host the token may go to.
+base_url: https://api.github.com
+# ghs_ is an installation access token, the only kind this connection issues.
+token_prefixes:
+  - ghs_
+
+# Which App, where its key lives, and what every token is narrowed to differ
+# per installation; gete.yaml fills them in.
+app: {}
+
+setup: |
+  Create a GitHub App (or pick an existing one) and install it on the
+  account that owns the repositories.
+
+  - Grant the App no more than the permissions the agents need; a token
+    can be narrowed below the installation's grant, never above it.
+  - Generate a private key and store the PEM in Secret Manager under the
+    name given as app.private_key_secret. The key never appears in a
+    declaration.
+  - In gete.yaml, set app.app_id, app.private_key_secret,
+    app.repositories (owner/name, all under one owner), and
+    app.permissions. Every token gete issues is limited to them.
+
+  Anyone who can call an agent holding this connection acts as the App
+  within that limit, whatever they could reach on GitHub themselves.
+
+examples:
+  accepts:
+    - "ghs_16C7e42F292c6912E7710c838347Ae178B4a"
+  rejects:
+    - "ya29.a0AfH6SMB" # Google access token
+    - "eyJhbGciOiJSUzI1NiJ9.e30.sig" # JWT
+    - "gho_16C7e42F292c6912E7710c838347Ae178B4a" # a user's OAuth token
+    - "ghu_16C7e42F292c6912E7710c838347Ae178B4a" # a user-to-server token

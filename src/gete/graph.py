@@ -1,12 +1,14 @@
 """gete graph: Mermaid drawn from the declarations; no second diagram to go stale."""
 
 import re
-from collections.abc import Mapping
-from typing import Any
 from urllib.parse import urlsplit
 
 from gete.connection import Registry
-from gete.declaration import Agent, Project
+from gete.declaration import Project
+from gete.errors import GeteError
+
+# Marks what acts with a credential the agent holds rather than the caller's.
+BOT = " (bot)"
 
 
 def label(text: str) -> str:
@@ -34,7 +36,7 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
         if names and agent.name not in names:
             continue
         node = _ident(agent.name)
-        engine = _engine(agent)
+        engine = agent.engine
         if engine and engine not in engines:
             engines.add(engine)
             lines.append(
@@ -58,7 +60,9 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
                 connection = tool["mcp"].get("connection")
                 if connection:
                     connected.add(connection)
-                    lines.append(f"  {node} -. {connection} .-> {tool_node}")
+                    lines.append(
+                        f"  {node} -. {_via(registry, connection)} .-> {tool_node}"
+                    )
             elif "openapi" in tool:
                 count = len(tool["openapi"]["operations"])
                 noun = "operation" if count == 1 else "operations"
@@ -67,28 +71,41 @@ def mermaid(project: Project, names: list[str] | None = None) -> str:
                 )
                 connection = tool["openapi"]["connection"]
                 connected.add(connection)
-                lines.append(f"  {node} -. {connection} .-> {tool_node}")
+                lines.append(
+                    f"  {node} -. {_via(registry, connection)} .-> {tool_node}"
+                )
         for name in agent.shared_credentials:
             # Marked as the bot it is: the diagram must not read as if these
             # tools acted with the caller's authorization.
             lines.append(
-                f'  {node} --> {node}_shared_{_ident(name)}["{label(name)} (bot)"]'
+                f'  {node} --> {node}_shared_{_ident(name)}["{label(name)}{BOT}"]'
             )
         for connection_id in agent.connections:
             if connection_id in connected:
                 continue
-            display = registry.get(connection_id, include_retired=True).display_name
+            connection = registry.get(connection_id, include_retired=True)
+            display = connection.display_name
+            if connection.app is not None:
+                display += BOT
             lines.append(
-                f"  {node} -. {connection_id} .-> "
+                f"  {node} -. {_via(registry, connection_id)} .-> "
                 f'conn_{_ident(connection_id)}[("{label(display)}")]'
             )
     return "\n".join(lines) + "\n"
 
 
-def _engine(agent: Agent) -> str | None:
-    registration: Mapping[str, Any] = agent.data.get("registration", {})
-    engine = registration.get("gemini_enterprise", {}).get("engine")
-    return str(engine) if engine else None
+def _via(registry: Registry, connection_id: str) -> str:
+    """The edge label: the connection, marked when it acts as an App.
+
+    An app connection reaches GitHub with the App's token whoever calls, so
+    the diagram must not read as if it carried the caller's authorization.
+    """
+    try:
+        connection = registry.get(connection_id, include_retired=True)
+    except GeteError:
+        # validate reports the unknown id; the diagram still draws the rest.
+        return connection_id
+    return connection_id + (BOT if connection.app is not None else "")
 
 
 def _ident(text: str) -> str:

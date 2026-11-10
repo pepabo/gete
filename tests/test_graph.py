@@ -133,3 +133,108 @@ def test_openapi_tools_appear_with_their_connection(project: ProjectBuilder) -> 
     text = graph(project)
     assert 'desk --> desk_tool_0[("openapi<br/>2 operations")]' in text
     assert "desk -. freee .-> desk_tool_0" in text
+
+
+GITHUB_APP_CONNECTION: dict[str, Any] = {
+    "github-app": {
+        "app": {
+            "app_id": "123",
+            "private_key_secret": "ge-github-app-private-key",
+            "repositories": ["example-org/requests"],
+            "permissions": {"issues": "read"},
+        }
+    }
+}
+
+
+def test_an_app_connection_is_drawn_as_the_bot_it_acts_as(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": GITHUB_APP_CONNECTION,
+        }
+    )
+    project.write_agent(
+        "triage",
+        {
+            "connections": ["github-app"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": "./specs/github.yaml",
+                        "connection": "github-app",
+                        "operations": ["GetIssue"],
+                        "effect": "read",
+                    }
+                }
+            ],
+        },
+    )
+    text = graph(project)
+    assert "triage -. github-app (bot) .-> triage_tool_0" in text
+
+
+def test_an_app_connection_no_tool_uses_is_still_drawn_as_a_bot(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "connections": GITHUB_APP_CONNECTION,
+        }
+    )
+    project.write_agent("triage", {"connections": ["github-app"]})
+    text = graph(project)
+    assert '[("GitHub App (bot)")]' in text
+
+
+def test_a_user_authorized_connection_is_not_drawn_as_a_bot(
+    project: ProjectBuilder,
+) -> None:
+    project.write_agent("finance", {"connections": ["freee"]})
+    assert "bot" not in graph(project)
+
+
+def test_the_engine_is_drawn_by_its_name_when_gete_yaml_names_it(
+    project: ProjectBuilder,
+) -> None:
+    """The id is what naming the engines takes out of sight; the diagram
+    follows suit, and the node is a plain identifier again."""
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"engines": {"sales": "my-sales-app_1234567890"}},
+        }
+    )
+    project.write_agent(
+        "finance", {"registration": {"gemini_enterprise": {"engine": "sales"}}}
+    )
+    text = graph(project)
+    assert 'GE_sales["Gemini Enterprise<br/>sales"]' in text
+    assert "GE_sales --> finance" in text
+    assert "my-sales-app_1234567890" not in text
+
+
+def test_an_agent_below_an_engines_directory_hangs_from_that_engine(
+    project: ProjectBuilder,
+) -> None:
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "gemini_enterprise": {"engines": {"sales": "my-sales-app_1234567890"}},
+        }
+    )
+    project.write_agent("sales/finance")
+    text = graph(project)
+    assert 'GE_sales["Gemini Enterprise<br/>sales"]' in text
+    assert "GE_sales --> finance" in text

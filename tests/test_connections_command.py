@@ -226,6 +226,44 @@ def test_a_declared_token_format_reads_as_the_format_it_declares() -> None:
     connection has to see which of the two it is."""
     entry = prefixless(tokens={"format": "jwt"})
     rows = connections_table(Registry([entry]))
-    assert "jwt" in rows[0]["token_prefixes"]
-    assert "elimination" not in rows[0]["token_prefixes"]
+    assert rows[0]["token_prefixes"] == "(none: jwt naming this service)"
     assert "jwt" in format_connection(entry)
+
+
+def test_an_optional_issuer_reads_as_taking_jwts_that_name_none() -> None:
+    """An agent may hold only one such connection, so the person preparing
+    it has to see that it is one."""
+    entry = prefixless(tokens={"format": "jwt", "issuer": "optional"})
+    rows = connections_table(Registry([entry]))
+    assert rows[0]["token_prefixes"] == "(none: jwt naming this service or no issuer)"
+
+
+def test_an_app_connection_is_described_by_its_app_not_an_oauth_client() -> None:
+    """Nobody registers an OAuth client for it; what a person prepares is the
+    App, its key, and the limit every token is narrowed to."""
+    registry = Registry.from_catalog(
+        {
+            "github-app": {
+                "app": {
+                    "app_id": "123",
+                    "private_key_secret": "ge-github-app-private-key",
+                    "repositories": ["example-org/requests"],
+                    "permissions": {"issues": "read"},
+                }
+            }
+        }
+    )
+    output = format_connection(registry.get("github-app"))
+    assert "123" in output
+    assert "ge-github-app-private-key" in output
+    assert "GETE_APP_KEY_GITHUB_APP" in output
+    assert "example-org/requests" in output
+    assert "issues: read" in output
+    assert "redirect uri" not in output
+    assert "client id" not in output
+
+
+def test_the_catalogs_app_connection_says_what_is_still_open() -> None:
+    output = format_connection(Registry.from_catalog().get("github-app"))
+    assert "app id" in output
+    assert "(none)" in output

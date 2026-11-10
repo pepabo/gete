@@ -1,5 +1,29 @@
 # Changelog
 
+## [v0.5.1](https://github.com/pepabo/gete/compare/v0.5.0...v0.5.1) - 2026-10-20
+
+- Let an agent's model name the Vertex AI location it is called in by @haruotsu in https://github.com/pepabo/gete/pull/95
+
+## [v0.4.1](https://github.com/pepabo/gete/compare/v0.4.0...v0.4.1) - 2026-10-14
+
+- Add tokens.issuer: optional for providers whose JWTs name no issuer (Zendesk) by @haruotsu in https://github.com/pepabo/gete/pull/90
+
+## [v0.3.1](https://github.com/pepabo/gete/compare/v0.3.0...v0.3.1) - 2026-10-13
+
+- Group agents by engine in the directory tree by @haruotsu in https://github.com/pepabo/gete/pull/88
+
+## [v0.2.24](https://github.com/pepabo/gete/compare/v0.2.23...v0.2.24) - 2026-10-08
+
+- Name the Gemini Enterprise engines once in gete.yaml by @haruotsu in https://github.com/pepabo/gete/pull/86
+
+## [v0.2.23](https://github.com/pepabo/gete/compare/v0.2.22...v0.2.23) - 2026-09-30
+
+- Add a github-app connection whose tokens gete issues itself by @haruotsu in https://github.com/pepabo/gete/pull/83
+
+## [v0.2.22](https://github.com/pepabo/gete/compare/v0.2.21...v0.2.22) - 2026-09-30
+
+- Check token prefix overlap per agent, not across the registry by @haruotsu in https://github.com/pepabo/gete/pull/81
+
 ## [v0.2.21](https://github.com/pepabo/gete/compare/v0.2.20...v0.2.21) - 2026-09-15
 
 - Bump Songmu/tagpr from 1.20.2 to 1.20.3 by @dependabot[bot] in https://github.com/pepabo/gete/pull/70

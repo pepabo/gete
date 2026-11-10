@@ -1,5 +1,6 @@
 """Shape of the declarations. The JSON Schemas decide what a document may say."""
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,49 @@ def test_gemini_enterprise_location_must_look_like_a_region(location: str) -> No
         )
 
 
+def test_gemini_enterprise_engines_are_named_once_in_gete_yaml() -> None:
+    validate_document(
+        "gete",
+        {
+            **GETE,
+            "gemini_enterprise": {
+                "engines": {"sales": "my-sales-app_1234567890", "support": "app_2"}
+            },
+        },
+        source="gete.yaml",
+    )
+
+
+@pytest.mark.parametrize("name", ["Sales", "my_sales", "-sales", "sales.eu", ""])
+def test_an_engine_name_is_shaped_like_a_connection_id(name: str) -> None:
+    """One shape for every short name a declaration refers to by."""
+    with pytest.raises(DeclarationError, match="engines"):
+        validate_document(
+            "gete",
+            {**GETE, "gemini_enterprise": {"engines": {name: "app_1"}}},
+            source="gete.yaml",
+        )
+
+
+@pytest.mark.parametrize("engine", ["../../../authorizations", "app 1", "app/1", ""])
+def test_a_named_engines_id_must_still_be_an_identifier(engine: str) -> None:
+    """The id goes into the Discovery Engine URL path wherever it is written."""
+    with pytest.raises(DeclarationError, match="engines"):
+        validate_document(
+            "gete",
+            {**GETE, "gemini_enterprise": {"engines": {"sales": engine}}},
+            source="gete.yaml",
+        )
+
+
+def test_an_empty_engines_block_is_refused() -> None:
+    """Declared but naming nothing, it would refuse every agent's engine."""
+    with pytest.raises(DeclarationError, match="engines"):
+        validate_document(
+            "gete", {**GETE, "gemini_enterprise": {"engines": {}}}, source="gete.yaml"
+        )
+
+
 def test_registration_engine_accepts_a_console_id() -> None:
     validate_document(
         "agent",
@@ -148,6 +192,48 @@ def test_agent_name_must_be_an_rfc1034_label(name: str) -> None:
     """The name becomes a service account and an authorization id; both need a label."""
     with pytest.raises(DeclarationError, match="name"):
         validate_document("agent", {**AGENT, "name": name}, source="agent.yaml")
+
+
+def test_a_model_may_name_the_location_it_is_called_in() -> None:
+    validate_document(
+        "agent",
+        {**AGENT, "model": {"id": "gemini-3-flash-preview", "location": "global"}},
+        source="agent.yaml",
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "says"),
+    [
+        ({"id": "gemini-3-flash-preview"}, "'location' is a required property"),
+        ({"location": "global"}, "'id' is a required property"),
+        ({"id": "", "location": "global"}, "model.id: '' should be non-empty"),
+        (
+            {"id": "gemini-3-flash-preview", "location": "global", "region": "us"},
+            "'region' was unexpected",
+        ),
+    ],
+)
+def test_a_model_object_needs_an_id_and_a_location(
+    model: dict[str, Any], says: str
+) -> None:
+    """A model called where the agent runs is written as the plain string instead.
+
+    The message names the key at fault, not the string the object is not.
+    """
+    with pytest.raises(DeclarationError, match=re.escape(says)):
+        validate_document("agent", {**AGENT, "model": model}, source="agent.yaml")
+
+
+@pytest.mark.parametrize("location", ["Global", "us central1", "../global", "evil.com"])
+def test_a_model_location_must_look_like_a_location(location: str) -> None:
+    """It becomes part of the endpoint's host name and URL path."""
+    with pytest.raises(DeclarationError, match="model"):
+        validate_document(
+            "agent",
+            {**AGENT, "model": {"id": "gemini-3-flash-preview", "location": location}},
+            source="agent.yaml",
+        )
 
 
 def test_connections_must_be_unique() -> None:
@@ -611,13 +697,27 @@ def test_connection_may_declare_that_its_tokens_are_jwts() -> None:
     )
 
 
+@pytest.mark.parametrize("issuer", ["required", "optional"])
+def test_connection_may_say_whether_its_jwts_name_an_issuer(issuer: str) -> None:
+    """Zendesk's JWTs name none; an installation says so, or holds every
+    token to naming its own service, which is the default."""
+    validate_document(
+        "connection",
+        {**CONNECTION, "tokens": {"format": "jwt", "issuer": issuer}},
+        source="c.yaml",
+    )
+
+
 @pytest.mark.parametrize(
     "tokens",
     [
         {"format": "opaque"},  # the only format that promises anything is jwt
         {"format": "JWT"},
         {},  # a tokens block that declares nothing
+        # The issuer is the connection's hosts; a second list would be a
+        # second ceiling to keep in step with the first.
         {"format": "jwt", "issuer": "https://auth.example.com"},
+        {"issuer": "optional"},  # whether a JWT names an issuer needs a JWT
     ],
 )
 def test_connection_token_format_is_one_declared_shape(tokens: dict[str, Any]) -> None:

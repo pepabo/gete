@@ -1,7 +1,5 @@
 """The resolved declaration: one file that carries everything the runtime needs."""
 
-import base64
-import json
 from pathlib import Path
 
 import yaml
@@ -11,15 +9,9 @@ import gete
 from gete.connection import Registry
 from gete.declaration import load_project, load_resolved, resolve
 
-
-def jwt_issued_by(issuer: str) -> str:
-    """A JWT-shaped token naming this issuer. The signature is never checked."""
-    payload = (
-        base64.urlsafe_b64encode(json.dumps({"iss": issuer}).encode())
-        .rstrip(b"=")
-        .decode()
-    )
-    return f"eyJhbGciOiJSUzI1NiJ9.{payload}.sig"
+# Claims: {"exp": 0}, as Zendesk's JWTs carry with token expiry turned on.
+# The signature is never checked.
+ISSUERLESS_JWT = "eyJhbGciOiJSUzI1NiJ9.eyJleHAiOjB9.sig"
 
 
 def write_project_with_policy(project: ProjectBuilder) -> None:
@@ -92,7 +84,7 @@ def test_a_declared_token_format_travels_to_the_runtime(
             "connections": {
                 "zendesk": {
                     "base_url": "https://acme.zendesk.com",
-                    "tokens": {"format": "jwt"},
+                    "tokens": {"format": "jwt", "issuer": "optional"},
                 }
             },
         }
@@ -101,7 +93,8 @@ def test_a_declared_token_format_travels_to_the_runtime(
     loaded = load_project(project.root / "gete.yaml")
     connections = resolve(loaded, loaded.agents[0])["resolved"]["connections"]
     zendesk = Registry.from_documents(connections).get("zendesk")
-    assert zendesk.accepts_token(jwt_issued_by("https://acme.zendesk.com"))
+    # Without the optional issuer travelling with it, this would be refused.
+    assert zendesk.accepts_token(ISSUERLESS_JWT)
     assert not zendesk.accepts_token("a1b2c3d4e5f60718293a4b5c6d7e8f90")
 
 

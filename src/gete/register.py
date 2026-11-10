@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from gete.connection import Connection, Registry, authorization_id
-from gete.connection.registry import missing_base_url
+from gete.connection.registry import OAuth, missing_base_url
 from gete.declaration import Agent, Project
 from gete.errors import DeclarationError, GeteError
 from gete.gcp import GcpApi, GcpError
@@ -47,6 +47,16 @@ def in_use_by_another(message: str) -> bool:
     return AUTHORIZATION_IN_USE in message
 
 
+def _oauth(connection: Connection) -> OAuth:
+    """The connection's OAuth, which only a connection users authorize has."""
+    if connection.oauth is None:
+        raise DeclarationError(
+            f"connection {connection.id} issues its own tokens; nobody "
+            "authorizes it in Gemini Enterprise"
+        )
+    return connection.oauth
+
+
 def requested_scopes(connection: Connection, selected: Sequence[str]) -> list[str]:
     """The connection's default scopes plus the agent's selection, in that order.
 
@@ -55,14 +65,15 @@ def requested_scopes(connection: Connection, selected: Sequence[str]) -> list[st
     a scope from outside it is refused here too rather than sent to the
     consent screen.
     """
-    menu = connection.oauth.optional_scopes
+    oauth = _oauth(connection)
+    menu = oauth.optional_scopes
     unknown = [scope for scope in selected if scope not in menu]
     if unknown:
         raise DeclarationError(
             f"connection {connection.id}: {', '.join(unknown)} not in "
             "oauth.optional_scopes; an agent selects from the menu only"
         )
-    defaults = list(connection.oauth.scopes)
+    defaults = list(oauth.scopes)
     return defaults + [scope for scope in selected if scope not in defaults]
 
 
@@ -70,7 +81,7 @@ def authorization_uri(
     connection: Connection, client_id: str, selected_scopes: Sequence[str] = ()
 ) -> str:
     """Where the user is sent to consent: the default scopes plus the selection."""
-    oauth = connection.oauth
+    oauth = _oauth(connection)
     if oauth.authorization_query is not None:
         if selected_scopes:
             # The query is used as written; building the selection into it
@@ -117,14 +128,15 @@ def authorization_body(
         # validate refuses this, but register can be run without it, and what
         # would be stored here is the link every user of the agent is sent to.
         raise DeclarationError(f"connection {missing_base_url(connection.id)}")
+    oauth = _oauth(connection)
     name = f"{parent}/authorizations/{authorization_id(agent_name, connection.id)}"
     oauth2: dict[str, Any] = {
         "clientId": client_id,
         "clientSecret": client_secret,
         "authorizationUri": authorization_uri(connection, client_id, selected_scopes),
-        "tokenUri": connection.oauth.token_url,
+        "tokenUri": oauth.token_url,
     }
-    if connection.oauth.pkce:
+    if oauth.pkce:
         # Left out when off rather than sent as false: an update replaces
         # serverSideOauth2 whole, so absent already means off, and every
         # connection that has never heard of PKCE stays as it reads.
@@ -238,8 +250,8 @@ class Registrar:
         for agent in self._project.agents:
             if names and agent.name not in names:
                 continue
-            engine = _engine_id(agent)
-            if engine is None:
+            written = agent.engine
+            if written is None:
                 summary.say(
                     f"{agent.name}: no registration.gemini_enterprise.engine; skipped"
                 )
@@ -249,6 +261,12 @@ class Registrar:
                 identifier for identifier in reset if owners[identifier] == agent.name
             ]
             try:
+                # Resolved before anything is read: a name no engine carries
+                # is the copy-paste the names exist to refuse, and register
+                # can run without validate.
+                engine = self._project.engine_id(written)
+                behind = "" if engine == written else f" ({engine})"
+                summary.say(f"{agent.name}: Gemini Enterprise engine {written}{behind}")
                 self._register(agent, engine, summary, held)
             except GeteError as error:
                 summary.say(f"{agent.name}: cannot register: {error}")
@@ -271,7 +289,7 @@ class Registrar:
             return {}
         declared: dict[str, Agent] = {}
         for agent in self._project.agents:
-            for connection_id in agent.connections:
+            for connection_id in self._authorized(agent):
                 try:
                     declared[authorization_id(agent.name, connection_id)] = agent
                 except ValueError:
@@ -299,9 +317,7 @@ class Registrar:
                     f"the agent is not among {', '.join(names)}"
                 )
         unregistered = sorted(
-            identifier
-            for identifier in reset
-            if _engine_id(declared[identifier]) is None
+            identifier for identifier in reset if declared[identifier].engine is None
         )
         if unregistered:
             raise DeclarationError(
@@ -310,6 +326,27 @@ class Registrar:
                 "so the run skips it"
             )
         return {identifier: declared[identifier].name for identifier in reset}
+
+    def _authorized(self, agent: Agent) -> list[str]:
+        """The agent's connections a user authorizes, in declaration order.
+
+        An app connection is left out: gete issues its tokens from the App's
+        key, so there is no consent screen to send anyone to, no OAuth client
+        to read, and nothing a reset could bring back.
+        """
+        authorized: list[str] = []
+        for connection_id in agent.connections:
+            try:
+                connection = self._registry.get(connection_id, include_retired=True)
+            except GeteError:
+                # Kept, so the agent's own turn fails on the unknown id the
+                # way it always has, rather than a reset of another agent
+                # failing on it here.
+                authorized.append(connection_id)
+                continue
+            if connection.app is None:
+                authorized.append(connection_id)
+        return authorized
 
     @property
     def _parent(self) -> str:
@@ -364,7 +401,7 @@ class Registrar:
                 agent.scope_selections.get(connection_id, ()),
                 summary,
             )
-            for connection_id in agent.connections
+            for connection_id in self._authorized(agent)
         ]
         registered = find_by_reasoning_engine(
             self._gcp.list_all(self._agents_url(engine), "agents"), reasoning_engine
@@ -678,12 +715,6 @@ def _fill(template: str, **values: str) -> str:
             f"the notice template uses {error}, which gete does not fill; "
             f"available: {', '.join(sorted(values))}"
         ) from None
-
-
-def _engine_id(agent: Agent) -> str | None:
-    registration: Mapping[str, Any] = agent.data.get("registration", {})
-    engine = registration.get("gemini_enterprise", {}).get("engine")
-    return str(engine) if engine else None
 
 
 def register_project(

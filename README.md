@@ -70,7 +70,7 @@ covers pointing it at a mirror.
 
 | Command | What it does | Touches GCP |
 |---|---|---|
-| `gete init <name>` | Scaffold an agent (and the project if there is none) | no |
+| `gete init [<engine>/]<name>` | Scaffold an agent (and the project if there is none); below an engine's directory when one is given | no |
 | `gete validate [--check-secrets] [--import-check]` | Schemas and rules; optionally secrets' versions and a deployment-shaped import | `--check-secrets` reads |
 | `gete run <name>` | Local conversation; tokens from `GETE_TOKEN_<CONNECTION>` | calls the model |
 | `gete graph [name...]` | Mermaid diagram of agents, engines, tools, connections | no |
@@ -136,6 +136,26 @@ registration:
     engine: my-app_1234567890   # from the console URL; omit to deploy without listing
 ```
 
+A plain `model` is called in the region the agent runs in. A model offered
+only in another Vertex AI location, such as a preview model that lives only
+in `global`, names that location:
+
+```yaml
+model:
+  id: gemini-3-flash-preview
+  location: global
+```
+
+Agent Engine sets `GOOGLE_CLOUD_LOCATION` to the agent's region, and a full
+resource path in `model` still goes to that region's endpoint, so the
+location is declared here instead.
+
+The location is handed to the Gemini client, so `validate` refuses it for a
+model ADK does not serve as Gemini. Such a model is always called on Vertex
+AI, including under `gete run`: a `GOOGLE_API_KEY` for the Gemini Developer
+API is not enough there, and the project comes from `GOOGLE_CLOUD_PROJECT`
+and application default credentials.
+
 Tools that do not say `effect: read` count as writes, which is what the
 `has_write_tools` policies key on.
 
@@ -143,6 +163,54 @@ Tools that do not say `effect: read` count as writes, which is what the
 writes are split by naming it twice — the same `url` and `connection`, two
 lists of tool names, two effects. Where a server hands out one grant for both,
 that is the only place an agent can say it means to read.
+
+With more than one engine, name them once in `gete.yaml` and let each agent
+refer to one by name:
+
+```yaml
+# gete.yaml
+gemini_enterprise:
+  engines:
+    sales: my-sales-app_1234567890
+    support: my-support-app_1234567891
+```
+
+```yaml
+# agents/partner-review/agent.yaml
+registration:
+  gemini_enterprise:
+    engine: sales
+```
+
+Once the engines are named, every `engine` is one of the names: `validate`
+refuses a name no engine carries, and refuses an id even when it is right,
+since accepting both would let an id copied from the agent next door land on
+the wrong engine unnoticed. Each id is written once, so a rebuilt engine is
+one line, and `gete graph` and `gete register` say the name.
+
+With the engines named, the tree itself can say where each agent is listed.
+A directory below `agents/` that carries an engine's name holds the agents
+listed in that engine, and they declare no `registration` block:
+
+```
+agents/
+  sales/
+    partner-review/agent.yaml    listed in sales
+    mail-triage/agent.yaml       listed in sales
+  support/
+    ticket-digest/agent.yaml     listed in support
+  local-only/agent.yaml          listed nowhere, as before
+```
+
+`gete init sales/partner-review` starts an agent there. The name still
+matches the agent's own directory, so the module address, service account,
+and archive do not change when an agent moves into a group: the generated
+module call points at the new path, and nothing is recreated. Groups go one
+level deep. A directory below `agents/` with no `agent.yaml` that names no
+engine is reported by `validate` rather than stepped over, since a misspelt
+engine would otherwise drop every agent below it from the project, and the
+next apply would destroy them. A `registration` block inside a group is
+accepted while it agrees with the directory, and reported once it does not.
 
 ### Tools from an OpenAPI description
 
@@ -239,7 +307,7 @@ tools:
 ### Connections
 
 `gete connections` lists what ships: `freee`, `freee-mcp`, `google`, `github`,
-`notion-mcp`, `slack-mcp`, and `zendesk`. Add your own or override a catalog
+`github-app`, `notion-mcp`, `slack-mcp`, and `zendesk`. Add your own or override a catalog
 entry in `gete.yaml`:
 
 ```yaml
@@ -283,10 +351,36 @@ the flow. An authorization server that requires PKCE refuses the code exchange
 without one, and there is no other way to ask for it from a declaration.
 
 `token_prefixes: []` says the service does not announce itself: a token is
-taken as its own once no other connection's prefix matches it. Two such
+taken as its own once no other connection's prefix matches it. A JWT is taken
+only if its `iss` claim names the service's own host; one that names no
+issuer is left to a connection declaring `issuer: optional` below. Two such
 connections cannot be told apart, so an agent may hold only one of them.
 Declaring a second one in `gete.yaml` is fine; naming both under one agent's
 `connections` is what `gete validate` refuses.
+
+The same goes for prefixes that overlap. A service that runs in more than one
+place — github.com, and a GitHub Enterprise Server of your own — issues the
+same token shapes from each, so the second one is a connection under its own
+id, with a complete definition and the prefix its tokens carry:
+
+```yaml
+connections:
+  github-ghes:
+    display_name: GitHub Enterprise Server
+    base_url: https://ghe.example.com/api/v3
+    token_prefixes: [ghu_]
+    oauth:
+      authorization_url: https://ghe.example.com/login/oauth/authorize
+      token_url: https://ghe.example.com/login/oauth/access_token
+      scopes: {}
+```
+
+One agent declares `github` and another `github-ghes`, and each token goes
+only to the hosts of the connection it arrived for. An agent naming both is
+refused: a `ghu_` token would pass as either's. Leaving `token_prefixes` empty
+is not a way around declaring the prefix — a connection that accepts tokens by
+elimination refuses every token that carries a prefix declared anywhere in
+the project or the catalog, whichever agent holds that connection.
 
 Some services announce themselves without a prefix: their access tokens are
 JWTs whose `iss` claim names the service's own host. `tokens.format: jwt` says
@@ -296,23 +390,49 @@ accepted by elimination, and an agent may hold it next to one that is:
 
 ```yaml
 connections:
+  internal-billing:
+    display_name: Internal Billing
+    hosts: [billing.internal.example.com]
+    tokens:
+      format: jwt      # tokens are JWTs whose iss names this service
+    oauth:
+      authorization_url: https://auth.billing.example.com/authorize
+      token_url: https://auth.billing.example.com/token
+      scopes: {}
+```
+
+An agent may then write to `internal-billing` and read `internal-api` above,
+which keeps the one place a token is taken by elimination. What the two may
+not share is an issuer: one authorization server in front of both services
+puts its host in either connection's tokens, and `gete validate` refuses that
+pairing for the same reason it refuses two anonymous connections.
+
+Some providers issue JWTs that name no issuer at all — Zendesk's carry only
+`exp`. Such a token says nothing about whose it is, so neither elimination nor
+the format alone takes it. `issuer: optional` says the connection's tokens may
+name none:
+
+```yaml
+connections:
   zendesk:
     base_url: https://acme.zendesk.com
     tokens:
-      format: jwt      # tokens are JWTs issued by acme.zendesk.com, nothing else
+      format: jwt
+      issuer: optional   # Zendesk's JWTs name no issuer
 ```
 
-An agent may then read Zendesk and write to `internal-api` above, which keeps
-the one place a token is taken by elimination. What the two may not share is
-an issuer: one authorization server in front of both services puts its host
-in either connection's tokens, and `gete validate` refuses that pairing for
-the same reason it refuses two anonymous connections.
+A JWT that does name an issuer is still held to the connection's own host.
+An agent may hold Zendesk beside `internal-api` and beside `internal-billing`,
+since neither takes a JWT naming no issuer, but not beside a second connection
+declaring `issuer: optional`: nothing would tell their tokens apart.
 
 Whether a provider issues such tokens can be a setting rather than a promise —
 Zendesk does so only with token expiry turned on — so the declaration belongs
 in `gete.yaml`, not in a catalog entry that would promise it for every
-installation. It cuts both ways: turn that setting off and every token the
-connection is handed is refused until the declaration goes with it.
+installation. Without it, every such token the connection is handed is
+refused, and the log names the declaration to add. It cuts both ways: turn
+that setting off and a token that is not a JWT is refused until the
+declaration goes with it.
 
 A service whose root moves with the installation — the tenant in a subdomain,
 or a deployment you host — writes its URLs around `{base_url}`, and the
@@ -397,6 +517,76 @@ connections:
 
 Adding a connection to the catalog is one YAML file under
 `src/gete/catalog/connections/`; the conformance tests check it.
+
+### Connections gete issues tokens for
+
+Some reads have no user's token behind them either: the agent is meant to
+read the same repositories whoever calls it. `github-app` is a connection whose tokens gete issues itself, from
+a GitHub App's private key, instead of receiving them from Gemini Enterprise.
+Agents use it from `openapi` blocks (and python tools through gete's client)
+exactly like any other connection — `operations`, `params`, `does_not`, and
+the host check all apply as before:
+
+```yaml
+# gete.yaml
+connections:
+  github-app:
+    base_url: https://ghe.example.com/api/v3   # leave out for github.com
+    app:
+      app_id: 123
+      private_key_secret: ge-github-app-private-key
+      # The ceiling of every token issued through this connection
+      repositories: [example-org/requests]
+      permissions: {issues: read}
+
+# agent.yaml
+connections: [github-app]
+tools:
+  - openapi:
+      spec: ./specs/github.yaml
+      connection: github-app
+      effect: read
+      operations: [SearchIssues, GetIssue, ListIssueComments]
+      params:
+        SearchIssues:
+          q: {prefix: "repo:example-org/requests is:issue "}
+```
+
+For such a connection gete:
+
+- signs an RS256 App JWT from `app_id` and the key, backdated a minute and
+  valid for less than ten, and finds the installation through the first of
+  `repositories` the App is installed on
+  (`GET /repos/{owner}/{repo}/installation`);
+- asks for an installation token narrowed to `repositories` and
+  `permissions`, and reuses it in the process until a few minutes before
+  its `expires_at`;
+- creates no Gemini Enterprise authorization and offers no reauthorization
+  tool. A missing key, or GitHub refusing to issue a token, is reported to
+  the user as text;
+- delivers the key like `secret_env`: `private_key_secret` reaches the
+  deployment as `GETE_APP_KEY_GITHUB_APP`, which the agent cannot set
+  itself. The App ID and the ceiling travel in the resolved declaration.
+  `gete run` reads the PEM from the same variable. When the agent is built,
+  before its own modules are imported, gete takes the variable out of the
+  environment and keeps the key to itself;
+- draws the connection in `gete graph` marked `(bot)`, like a shared
+  credential.
+
+`repositories` must share one owner, since a token comes from one
+installation. `permissions` is required: left out, a token would carry
+everything the installation was granted. Whoever can call the agent acts as
+the App within that ceiling, whatever they could reach on GitHub
+themselves, so keep it to what the agent's tools read. `mcp` blocks cannot
+use an app connection yet.
+
+The ceiling binds the tokens gete issues, not the key. Python tools run in
+the same process as gete, and code that goes looking for the key there can
+find it and issue a token with the installation's whole grant. Taking it out
+of the environment keeps it away from tools reading their settings and from
+processes they start; it is not a sandbox. Grant the App itself no more than
+the agents holding the connection may do, and review the python tools of
+those agents as code that holds the key.
 
 ### Shared credentials
 

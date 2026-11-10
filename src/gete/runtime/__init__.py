@@ -5,11 +5,13 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from gete.connection.github_app import hold_app_keys
 from gete.connection.runtime import authorization_id
 from gete.declaration import Agent, Resolved, load_resolved, resolved_from_document
 from gete.policies import applicable, compose_instruction
 from gete.redact import RedactRules
 from gete.runtime.callbacks import bind_tool_call, redact_results, safe_tool_error
+from gete.runtime.model import build_model
 from gete.runtime.tools import build_tools
 from gete.shared_credentials import SHARED_CREDENTIALS
 
@@ -33,6 +35,12 @@ def _build(resolved: Resolved) -> Any:
     from google.adk.agents import LlmAgent
 
     agent = resolved.agent
+    # Before build_tools imports the agent's own modules, so none of them
+    # finds an App's key in the environment.
+    hold_app_keys(
+        resolved.registry.get(connection_id, include_retired=True)
+        for connection_id in agent.connections
+    )
     policies = applicable(resolved.policies, resolved.data)
     rules = RedactRules.from_policies(policies)
     authorizations = {
@@ -42,7 +50,7 @@ def _build(resolved: Resolved) -> Any:
     return LlmAgent(
         # ADK wants an identifier. The display name lives in the registration.
         name=agent.name.replace("-", "_"),
-        model=agent.data["model"],
+        model=build_model(agent.data["model"]),
         description=agent.data["description"],
         instruction=compose_instruction(
             resolved.policies, resolved.data, _with_shared_credential_rules(agent)

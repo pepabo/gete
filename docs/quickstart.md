@@ -212,7 +212,10 @@ registration:
     engine: my-app_1234567890
 ```
 
-Then:
+With several engines, name them once in `gete.yaml` under
+`gemini_enterprise.engines` and write the name here instead, or move the
+agent below `agents/<engine name>/` and leave the block out; the README
+shows both. Then:
 
 ```sh
 gete register

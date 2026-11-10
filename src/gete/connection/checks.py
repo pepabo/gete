@@ -3,7 +3,13 @@
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
-from gete.connection.registry import GOOGLE_ACCESS_TOKEN_PREFIX, Connection, Registry
+from gete.connection.registry import (
+    GOOGLE_ACCESS_TOKEN_PREFIX,
+    JWT_FORMAT,
+    Connection,
+    OAuth,
+    Registry,
+)
 
 # Platform domains under which unrelated parties host services. Hosts are
 # matched exactly, so listing one of these is almost certainly a mistake
@@ -36,7 +42,11 @@ _GOOGLE_ISSUED_JWT_EXAMPLES = (
     "eyJhbGciOiJSUzI1NiJ9."
     "eyJpc3MiOiJhZ2VudEBwcm9qZWN0LmlhbS5nc2VydmljZWFjY291bnQuY29tIn0.sig",
 )
-_GOOGLE_ACCESS_TOKEN_EXAMPLE = GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB"
+# Both shapes Google issues: the second carries two dots, as a JWT does.
+_GOOGLE_ACCESS_TOKEN_EXAMPLES = (
+    GOOGLE_ACCESS_TOKEN_PREFIX + "a0AfH6SMB",
+    GOOGLE_ACCESS_TOKEN_PREFIX + "c.b0Aaekm1K",
+)
 
 
 def elimination_problems(
@@ -59,6 +69,18 @@ def elimination_problems(
     another route. An anonymous connection is one of those: it takes a JWT
     naming its own authorization server as readily as a declaring one does,
     so a shared issuer confuses the two whichever of them declared.
+
+    A JWT that names no issuer, as Zendesk's do, is taken only by a
+    connection declaring tokens.issuer: optional. Nothing tells two of those
+    apart, so an agent may hold one, the way it may hold one anonymous
+    connection; neither of the others takes such a token.
+
+    Prefixes that overlap are that confusion among the connections that do
+    announce themselves: a token carrying the shared prefix passes as
+    either's. A service that is run in more than one place - hosted by its
+    vendor, and again on an installation's own server - issues the same
+    shapes from each, so the registry may hold both under ids of their own.
+    What is refused is one agent holding the two.
     """
     connections = [
         registry.get(connection_id, include_retired=True)
@@ -75,7 +97,19 @@ def elimination_problems(
             f"{', '.join(connection.id for connection in anonymous)} declare "
             "neither token_prefixes nor tokens.format; only one of an agent's "
             "connections may accept tokens by elimination, or a token from one "
-            "of them would be accepted as another's"
+            "of them would be accepted as another's. Declare tokens.format: jwt "
+            "on one whose tokens are JWTs, with issuer: optional if they never "
+            "name an issuer"
+        )
+    issuerless = [
+        connection for connection in connections if _takes_issuerless(connection)
+    ]
+    if len(issuerless) >= 2:
+        problems.append(
+            f"{', '.join(connection.id for connection in issuerless)} declare "
+            "tokens.issuer: optional; only one of an agent's connections may "
+            "accept JWTs that name no issuer, or a token from one of them would "
+            "be accepted as another's"
         )
     # A prefix decides on its own and before any issuer does, so a connection
     # held to one judges no token by who issued it, and shares an issuer with
@@ -99,7 +133,42 @@ def elimination_problems(
                     f"{', '.join(sorted(shared))}; a token from one of them "
                     "would be accepted as the other's"
                 )
+    # A declared format decides before any prefix is read, so a connection
+    # held to one takes no token for its prefix.
+    by_prefix = [
+        connection for connection in connections if connection.token_format is None
+    ]
+    for index, connection in enumerate(by_prefix):
+        for other in by_prefix[index + 1 :]:
+            overlapping = _overlapping_prefixes(connection, other)
+            if overlapping:
+                problems.append(
+                    f"{connection.id}, {other.id} both accept tokens starting "
+                    f"with {', '.join(map(repr, overlapping))}; a token from "
+                    "one of them would be accepted as the other's"
+                )
     return problems
+
+
+def _takes_issuerless(connection: Connection) -> bool:
+    """Whether the connection accepts a JWT that names no issuer."""
+    return connection.token_format == JWT_FORMAT and connection.issuer_optional
+
+
+def _overlapping_prefixes(connection: Connection, other: Connection) -> list[str]:
+    """The prefixes a token can carry and be accepted by both connections.
+
+    Where one prefix extends the other, the longer one is named: both
+    connections accept exactly the tokens that start with it.
+    """
+    overlapping: set[str] = set()
+    for prefix in connection.token_prefixes:
+        for theirs in other.token_prefixes:
+            if prefix.startswith(theirs):
+                overlapping.add(prefix)
+            elif theirs.startswith(prefix):
+                overlapping.add(theirs)
+    return sorted(overlapping)
 
 
 def connection_problems(connection: Connection, registry: Registry) -> list[str]:
@@ -145,27 +214,8 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
             f"tokens: format {connection.token_format} decides on its own; the "
             "token_prefixes declared beside it are never read"
         )
-    for other in registry.all(include_retired=True):
-        if other.id == connection.id:
-            continue
-        for prefix in connection.token_prefixes:
-            for theirs in other.token_prefixes:
-                if prefix.startswith(theirs) or theirs.startswith(prefix):
-                    problems.append(
-                        f"token_prefixes: {prefix!r} overlaps {theirs!r} ({other.id})"
-                    )
-    for scope in sorted(connection.oauth.optional_scopes):
-        if scope in connection.oauth.scopes:
-            problems.append(
-                f"oauth.optional_scopes: {scope} is already a default scope"
-            )
-    if connection.oauth.optional_scopes and connection.oauth.authorization_query:
-        # The verbatim query is the whole authorization URL; a selection
-        # would be accepted and then never reach the consent screen.
-        problems.append(
-            "oauth.optional_scopes: the menu cannot be offered next to a "
-            "verbatim authorization_query, which fixes the scopes"
-        )
+    if connection.oauth is not None:
+        problems.extend(_oauth_problems(connection.oauth))
     for token in connection.examples.accepts:
         if not connection.accepts_token(token):
             problems.append(f"examples.accepts: {token!r} is not accepted")
@@ -179,7 +229,9 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
         prefix.startswith(GOOGLE_ACCESS_TOKEN_PREFIX)
         for prefix in connection.token_prefixes
     )
-    if not claims_google and connection.accepts_token(_GOOGLE_ACCESS_TOKEN_EXAMPLE):
+    if not claims_google and any(
+        connection.accepts_token(example) for example in _GOOGLE_ACCESS_TOKEN_EXAMPLES
+    ):
         problems.append("a Google access token is accepted")
     # The MCP server is spoken to with the user's token, so its URL must sit
     # where hosts lets the token go - path scoping included.
@@ -189,4 +241,53 @@ def connection_problems(connection: Connection, registry: Registry) -> list[str]
         and not connection.allows(connection.mcp_url)
     ):
         problems.append(f"mcp.url: {connection.mcp_url} is not covered by hosts")
+    return problems
+
+
+def _oauth_problems(oauth: OAuth) -> list[str]:
+    problems: list[str] = []
+    for scope in sorted(oauth.optional_scopes):
+        if scope in oauth.scopes:
+            problems.append(
+                f"oauth.optional_scopes: {scope} is already a default scope"
+            )
+    if oauth.optional_scopes and oauth.authorization_query:
+        # The verbatim query is the whole authorization URL; a selection
+        # would be accepted and then never reach the consent screen.
+        problems.append(
+            "oauth.optional_scopes: the menu cannot be offered next to a "
+            "verbatim authorization_query, which fixes the scopes"
+        )
+    return problems
+
+
+def app_problems(connection: Connection) -> list[str]:
+    """What an app connection still lacks before a token can be issued.
+
+    A catalog entry leaves the App open, the way it leaves a moving root
+    open, so the gap is refused where an agent picks the connection up.
+    """
+    app = connection.app
+    if app is None:
+        return []
+    where = f"connections.{connection.id}.app"
+    problems = [
+        f"{connection.id} has no app.{name}; set {where}.{name} in gete.yaml"
+        for name, value in (
+            ("app_id", app.app_id),
+            ("private_key_secret", app.private_key_secret),
+            ("repositories", app.repositories),
+            # Without it a token carries everything the installation was
+            # granted, which is exactly what the ceiling is there to stop.
+            ("permissions", app.permissions),
+        )
+        if not value
+    ]
+    owners = sorted({repository.partition("/")[0] for repository in app.repositories})
+    if len(owners) > 1:
+        problems.append(
+            f"{connection.id}: app.repositories belong to {', '.join(owners)}; a "
+            "token is issued by one installation, and an installation belongs "
+            "to one account"
+        )
     return problems
