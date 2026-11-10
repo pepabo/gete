@@ -83,10 +83,14 @@ class PinnedMcpTool(McpTool):
 
     @classmethod
     def holding(
-        cls, listed: McpTool, values: Mapping[str, Any]
+        cls,
+        listed: McpTool,
+        values: Mapping[str, Any],
+        *,
+        warn: Callable[[str], None] = logger.warning,
     ) -> "PinnedMcpTool | None":
-        """The listed tool with its fixed arguments held, or None and a log
-        line when the server's schema does not declare them all.
+        """The listed tool with its fixed arguments held, or None and a
+        warning when the server's schema does not declare them all.
 
         validate cannot see a server's schemas, so a renamed argument shows
         up only here. Offering the tool anyway would send the declared value
@@ -98,11 +102,9 @@ class PinnedMcpTool(McpTool):
         declared = properties if isinstance(properties, Mapping) else {}
         missing = [name for name in values if name not in declared]
         if missing:
-            logger.warning(
-                "mcp tool %s is not offered: its input schema declares no %s, "
-                "which the declaration fixes",
-                listed.name,
-                ", ".join(missing),
+            warn(
+                f"mcp tool {listed.name} is not offered: its input schema "
+                f"declares no {', '.join(missing)}, which the declaration fixes"
             )
             return None
         return cls(listed, values)
@@ -155,6 +157,7 @@ class GeteMcpToolset(McpToolset):
             tool: {name: fix["value"] for name, fix in arguments.items()}
             for tool, arguments in (params or {}).items()
         }
+        self._warned: set[str] = set()
         provider: Callable[[Any], dict[str, str]] | None = (
             self._authorization_headers if connection is not None else None
         )
@@ -187,7 +190,7 @@ class GeteMcpToolset(McpToolset):
                 continue
             pinned = self._pinned.get(tool.name)
             if pinned:
-                tool = PinnedMcpTool.holding(tool, pinned)
+                tool = PinnedMcpTool.holding(tool, pinned, warn=self._warn_once)
                 if tool is None:
                     continue
             if self.does_not:
@@ -207,6 +210,13 @@ class GeteMcpToolset(McpToolset):
                 tool._require_confirmation = True  # noqa: SLF001
             kept.append(tool)
         return kept
+
+    def _warn_once(self, message: str) -> None:
+        # The tools are listed for every model request; drift that lasts
+        # would otherwise be logged on every turn and bury the rest.
+        if message not in self._warned:
+            self._warned.add(message)
+            logger.warning(message)
 
     def _authorization_headers(self, readonly_context: Any) -> dict[str, str]:
         token = self._token(readonly_context)

@@ -456,30 +456,45 @@ async def test_a_fixed_argument_is_not_shown_to_the_model(
     assert declared["required"] == ["query"]
 
 
+RENAMED = SEARCH.model_copy(
+    update={
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "within": {"type": "string"},
+            },
+        }
+    }
+)
+
+
 async def test_a_tool_whose_schema_lacks_a_fixed_argument_is_not_offered(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A server that renamed the argument would otherwise get a tool whose
     scope nobody holds: the declared value would ride under a name the server
     ignores, and the model would search everywhere."""
-    renamed = SEARCH.model_copy(
-        update={
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "within": {"type": "string"},
-                },
-            }
-        }
-    )
-    listing(monkeypatch, renamed)
+    listing(monkeypatch, RENAMED)
     with caplog.at_level(logging.WARNING):
         assert await toolset(PINNED).get_tools(Context({})) == []
     assert "search" in caplog.text
     assert "scope" in caplog.text
     # Names are declarations; the value may be anything the operator wrote.
     assert FIXED_SCOPE not in caplog.text
+
+
+async def test_a_drifted_tool_is_reported_once_however_often_it_is_listed(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The tools are listed for every model request; one line says it, and a
+    line per turn would bury everything else the agent logs."""
+    listing(monkeypatch, RENAMED)
+    built = toolset(PINNED)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            assert await built.get_tools(Context({})) == []
+    assert len([r for r in caplog.records if "scope" in r.getMessage()]) == 1
 
 
 async def test_the_listed_tool_stays_as_the_server_described_it(
