@@ -370,7 +370,7 @@ def declaration_problems(block: Mapping[str, Any], spec: Any) -> list[str]:
             )
             continue
         found.extend(_operation_problems(operation, effect))
-    for key in ("params", "describe", "only"):
+    for key in ("params", "describe", "only", "omit"):
         for name in block.get(key, {}):
             if name not in selected:
                 found.append(f"{key}: {name!r} is not one of this block's operations")
@@ -388,6 +388,10 @@ def declaration_problems(block: Mapping[str, Any], spec: Any) -> list[str]:
                     spec, operation, exposed, block.get("params", {}).get(name, {})
                 )
             )
+    for name, entries in block.get("omit", {}).items():
+        operation = operations.get(name)
+        if operation is not None and name in selected:
+            found.extend(_omit_problems(spec, operation, entries))
     return found
 
 
@@ -681,6 +685,141 @@ def _only_problems(
                 f"{operation.id} (parameters: {', '.join(known)})"
             )
     return found
+
+
+def _omit_problems(
+    spec: Any, operation: Operation, entries: Iterable[Any]
+) -> list[str]:
+    """The omit paths the success responses rule out.
+
+    Only what is certain is reported. A published response schema routinely
+    leaves out fields the service sends, so a name it does not declare is no
+    evidence of anything; a path through a value it declares as a scalar is.
+    With several success responses, a path is ruled out only by all of them.
+    """
+    schemas = _response_schemas(spec, operation)
+    if not schemas:
+        return []
+    found: list[str] = []
+    for entry in entries:
+        path = str(entry if isinstance(entry, str) else entry["path"])
+        segments = tuple(path.split("."))
+        walks = [_walk_result(spec, schema, segments) for schema in schemas]
+        if all(problem for problem, _ in walks):
+            found.append(
+                f"omit.{operation.id}: {path!r} cannot be in the result; {walks[0][0]}"
+            )
+            continue
+        if isinstance(entry, str):
+            continue
+        types = [leaf.get("type") if leaf is not None else None for _, leaf in walks]
+        if all(declared not in (None, "array") for declared in types):
+            found.append(
+                f"omit.{operation.id}: where_empty filters the elements of an "
+                f"array, and {path!r} is a {types[0]}"
+            )
+            continue
+        key = str(entry["where_empty"])
+        walks = [_walk_result(spec, schema, (*segments, key)) for schema in schemas]
+        if all(problem for problem, _ in walks):
+            found.append(
+                f"omit.{operation.id}: where_empty {key!r} cannot be in the "
+                f"elements of {path!r}; {walks[0][0]}"
+            )
+    return found
+
+
+def _response_schemas(spec: Any, operation: Operation) -> list[Mapping[str, Any]]:
+    """The JSON schemas the operation answers with when it succeeds."""
+    responses = operation.document.get("responses")
+    if not isinstance(responses, Mapping):
+        return []
+    found: list[Mapping[str, Any]] = []
+    for code, response in responses.items():
+        if not re.fullmatch(r"2(\d\d|XX)", str(code)):
+            continue
+        resolved = _resolve(spec, response)
+        content = resolved.get("content") if isinstance(resolved, Mapping) else None
+        if not isinstance(content, Mapping):
+            continue
+        for media, entry in content.items():
+            if media == "application/json" or str(media).endswith("+json"):
+                schema = (
+                    _resolve(spec, entry.get("schema"))
+                    if isinstance(entry, Mapping)
+                    else None
+                )
+                # A JSON answer with no schema may hold anything at all.
+                found.append(schema if isinstance(schema, Mapping) else {})
+    return found
+
+
+# JSON Schema types that hold no properties.
+SCALAR_TYPES = frozenset({"string", "integer", "number", "boolean"})
+
+
+def _walk_result(
+    spec: Any, schema: Mapping[str, Any], segments: tuple[str, ...]
+) -> tuple[str | None, Mapping[str, Any] | None]:
+    """Follow a path into a response schema: why the schema rules it out, or
+    the schema declared at its end. Neither, once the walk leaves what the
+    schema declares - the path may still be there.
+
+    Arrays on the way are stepped through to their items, as the runtime
+    steps through every element; the one at the end is the leaf itself.
+    oneOf and anyOf are not chosen between, so a path below one is never
+    ruled out.
+    """
+    node: Any = schema
+    trail: list[str] = []
+    for segment in segments:
+        holder, stepped = _object_schema(spec, node)
+        if holder is None:
+            return None, None
+        where = repr(".".join(trail)) if trail else "the result"
+        declared = holder.get("type")
+        if declared in SCALAR_TYPES:
+            if stepped:
+                return (
+                    f"{where} holds {declared} elements, which hold no properties",
+                    None,
+                )
+            return f"{where} is a {declared}, which holds no properties", None
+        properties = holder.get("properties")
+        properties = properties if isinstance(properties, Mapping) else {}
+        if segment in properties:
+            node = properties[segment]
+            trail.append(segment)
+            continue
+        if holder.get("additionalProperties") is False:
+            known = ", ".join(sorted(map(str, properties)))
+            return (
+                f"{segment!r} is not a property of {where}, which allows no "
+                f"others (properties: {known})",
+                None,
+            )
+        return None, None
+    leaf = _resolve(spec, node)
+    return None, (_fold_allof(spec, leaf) if isinstance(leaf, Mapping) else None)
+
+
+def _object_schema(spec: Any, node: Any) -> tuple[Mapping[str, Any] | None, bool]:
+    """The schema at node with references followed, allOf folded, and any
+    arrays stepped through to what their elements are; and whether an array
+    was stepped through."""
+    stepped = False
+    # A YAML alias can make an array its own items; the walk stops there.
+    seen: set[int] = set()
+    while True:
+        node = _resolve(spec, node)
+        if not isinstance(node, Mapping) or id(node) in seen:
+            return None, stepped
+        seen.add(id(node))
+        node = _fold_allof(spec, node)
+        if node.get("type") != "array":
+            return node, stepped
+        node = node.get("items")
+        stepped = True
 
 
 def allow_tree(entries: Iterable[str], literal: Iterable[str] = ()) -> dict[str, Any]:

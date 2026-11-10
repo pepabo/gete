@@ -77,6 +77,64 @@ class NestedFix:
     suffix: str = ""
 
 
+@dataclass(frozen=True)
+class Omission:
+    """One part of a result the model is never shown, by a dotted path.
+
+    With where_empty, the path names an array and only the elements whose
+    key holds nothing are dropped; the rest of the array stays.
+    """
+
+    path: tuple[str, ...]
+    where_empty: str | None = None
+
+    @classmethod
+    def from_declaration(cls, entry: str | Mapping[str, Any]) -> "Omission":
+        if isinstance(entry, str):
+            return cls(path=tuple(entry.split(".")))
+        return cls(
+            path=tuple(str(entry["path"]).split(".")),
+            where_empty=str(entry["where_empty"]),
+        )
+
+    def apply(self, value: Any) -> Any:
+        return _omitted(value, self.path, self.where_empty)
+
+
+def _is_empty(value: Any) -> bool:
+    """null, "", [] and {}. false and 0 are answers, not absences."""
+    return value is None or (isinstance(value, str | list | dict) and not value)
+
+
+def _omitted(value: Any, path: tuple[str, ...], where_empty: str | None) -> Any:
+    """The value without what path names; a copy, the answer itself untouched.
+
+    An array anywhere on the way is stepped through, each element walked on
+    its own: results come back as lists of records far more often than as
+    one record.
+    """
+    if isinstance(value, list):
+        return [_omitted(item, path, where_empty) for item in value]
+    if not isinstance(value, dict) or path[0] not in value:
+        return value
+    head, rest = path[0], path[1:]
+    if rest:
+        return {**value, head: _omitted(value[head], rest, where_empty)}
+    if where_empty is None:
+        return {key: item for key, item in value.items() if key != head}
+    elements = value[head]
+    if not isinstance(elements, list):
+        return value
+    return {
+        **value,
+        head: [
+            element
+            for element in elements
+            if not (isinstance(element, dict) and _is_empty(element.get(where_empty)))
+        ],
+    }
+
+
 def _filtered(value: Any, tree: Mapping[str, Any] | None) -> Any:
     """What of the model's value may pass: the tree's subtrees of it.
 
@@ -140,6 +198,7 @@ class OpenApiTool(BaseTool):
         connection: Connection,
         arguments: Iterable[Argument],
         nested_fixes: Iterable[NestedFix] = (),
+        omissions: Iterable[Omission] = (),
         declaration: Any,
         require_confirmation: bool,
         base_url: str | None = None,
@@ -150,6 +209,7 @@ class OpenApiTool(BaseTool):
         self._connection = connection
         self._arguments = tuple(arguments)
         self._nested_fixes = tuple(nested_fixes)
+        self._omissions = tuple(omissions)
         self._declaration = declaration
         self._require_confirmation = require_confirmation
         self._base_url = base_url
@@ -202,8 +262,17 @@ class OpenApiTool(BaseTool):
         if "{" in path:
             raise GeteError(f"{self.name}: a path parameter was not given")
         url = root.rstrip("/") + path
+        answer = await self._send(
+            url, query, body, getattr(tool_context, "state", None)
+        )
+        for omission in self._omissions:
+            answer = omission.apply(answer)
+        return answer
+
+    async def _send(
+        self, url: str, query: dict[str, Any], body: dict[str, Any], state: Any
+    ) -> Any:
         client = shared_client(self._connection.id)
-        state = getattr(tool_context, "state", None)
         if self._method == "get":
             return await client.get_json(url, params=query or None, state=state)
         if self._method == "delete":
@@ -309,6 +378,7 @@ def openapi_toolset(
                 name=str(name),
                 fixes=spec.get("params", {}).get(name, {}),
                 only=spec.get("only", {}).get(name),
+                omit=spec.get("omit", {}).get(name, ()),
                 description=describe.get(name),
                 does_not=does_not,
                 connection=connection,
@@ -362,6 +432,7 @@ def _tool(
     name: str,
     fixes: Mapping[str, Mapping[str, Any]],
     only: Iterable[str] | None = None,
+    omit: Iterable[Any] = (),
     description: str | None,
     does_not: str | None,
     connection: Connection,
@@ -445,6 +516,7 @@ def _tool(
         connection=connection,
         arguments=arguments,
         nested_fixes=nested,
+        omissions=[Omission.from_declaration(entry) for entry in omit],
         declaration=declaration,
         require_confirmation=require_confirmation,
         base_url=base_url,

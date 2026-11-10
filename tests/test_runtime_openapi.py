@@ -126,6 +126,7 @@ def toolset(
     params: dict[str, Any] | None = None,
     only: dict[str, list[str]] | None = None,
     describe: dict[str, str] | None = None,
+    omit: dict[str, list[Any]] | None = None,
     does_not: str | None = None,
     confirm: bool = False,
     confirm_names: list[str] | None = None,
@@ -146,6 +147,8 @@ def toolset(
         spec["only"] = only
     if describe:
         spec["describe"] = describe
+    if omit:
+        spec["omit"] = omit
     if does_not:
         spec["does_not"] = does_not
     return openapi_toolset(
@@ -704,6 +707,165 @@ async def test_a_delete_operation_uses_the_delete_verb(
     assert call["method"] == "DELETE"
     assert call["url"] == "https://acme.example.com/tickets/7"
     assert call["body"] is None
+
+
+async def test_omit_drops_the_named_key_from_the_result(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    client.answer = {"ticket": {"id": 7, "subject": "Help", "fields": [{"id": 1}]}}
+    built = toolset(tmp_path, omit={"ShowTicket": ["ticket.fields"]})
+    result = await run(built, "ShowTicket", {"ticket_id": "7"})
+    assert result == {"ticket": {"id": 7, "subject": "Help"}}
+
+
+async def test_omit_walks_into_every_element_of_an_array_on_the_path(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    client.answer = {
+        "results": [
+            {"id": 1, "custom_fields": [{"id": 10, "value": None}], "fields": []},
+            {"id": 2, "custom_fields": [], "fields": [{"id": 10, "value": None}]},
+        ],
+        "count": 2,
+    }
+    built = toolset(
+        tmp_path,
+        omit={"ListSearchResults": ["results.custom_fields", "results.fields"]},
+    )
+    result = await run(built, "ListSearchResults", {"query": "x"})
+    assert result == {"results": [{"id": 1}, {"id": 2}], "count": 2}
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"error": "RecordNotFound"},
+        {"ticket": None},
+        {"ticket": "not an object"},
+        [{"ticket": {"id": 7}}],
+        "plain text",
+    ],
+)
+async def test_omit_leaves_a_result_without_the_path_as_it_came(
+    tmp_path: Path, client: RecordingClient, answer: Any
+) -> None:
+    """An error body, or a record the service sent in another shape, is not a
+    broken declaration; nothing is there to drop."""
+    client.answer = copy.deepcopy(answer)
+    built = toolset(tmp_path, omit={"ShowTicket": ["ticket.fields"]})
+    assert await run(built, "ShowTicket", {"ticket_id": "7"}) == answer
+
+
+async def test_where_empty_drops_just_the_elements_whose_key_holds_nothing(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    """The fields that carry a value are what a lookup needs; false and 0 are
+    values, and an element that is no object has no key to judge by."""
+    client.answer = {
+        "ticket": {
+            "id": 7,
+            "custom_fields": [
+                {"id": 1, "value": None},
+                {"id": 2, "value": ""},
+                {"id": 3, "value": []},
+                {"id": 4, "value": {}},
+                {"id": 5},
+                {"id": 6, "value": False},
+                {"id": 7, "value": 0},
+                {"id": 8, "value": "blue"},
+                "not an object",
+            ],
+        }
+    }
+    built = toolset(
+        tmp_path,
+        omit={"ShowTicket": [{"path": "ticket.custom_fields", "where_empty": "value"}]},
+    )
+    result = await run(built, "ShowTicket", {"ticket_id": "7"})
+    assert result == {
+        "ticket": {
+            "id": 7,
+            "custom_fields": [
+                {"id": 6, "value": False},
+                {"id": 7, "value": 0},
+                {"id": 8, "value": "blue"},
+                "not an object",
+            ],
+        }
+    }
+
+
+async def test_where_empty_leaves_a_path_that_holds_no_array_as_it_came(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    client.answer = {"ticket": {"custom_fields": {"value": None}}}
+    built = toolset(
+        tmp_path,
+        omit={"ShowTicket": [{"path": "ticket.custom_fields", "where_empty": "value"}]},
+    )
+    result = await run(built, "ShowTicket", {"ticket_id": "7"})
+    assert result == {"ticket": {"custom_fields": {"value": None}}}
+
+
+async def test_omit_on_one_operation_leaves_the_others_results_whole(
+    tmp_path: Path, client: RecordingClient
+) -> None:
+    client.answer = {"ticket": {"id": 7, "fields": [{"id": 1}]}}
+    built = toolset(tmp_path, omit={"ShowTicket": ["ticket.fields"]})
+    result = await run(built, "ListSearchResults", {"query": "x"})
+    assert result == {"ticket": {"id": 7, "fields": [{"id": 1}]}}
+
+
+async def test_redaction_still_covers_what_omit_leaves(
+    project: ProjectBuilder, client: RecordingClient
+) -> None:
+    """Dropping parts of a result is no way around the policies: the agent
+    redacts whatever the tool returns, and omit runs inside the tool."""
+    project.write_policies(
+        "p", [{"name": "mask", "when": "always", "redact": {"keys": ["email"]}}]
+    )
+    project.write_project(
+        {
+            "version": 1,
+            "project": "example-project",
+            "location": "us-central1",
+            "policies": ["./policies/p.yaml"],
+            "connections": {
+                "rooted-api": {k: v for k, v in ROOTED_API.items() if k != "id"}
+            },
+        }
+    )
+    directory = project.write_agent(
+        "mail-triage",
+        {
+            "connections": ["rooted-api"],
+            "tools": [
+                {
+                    "openapi": {
+                        "spec": "./spec.yaml",
+                        "connection": "rooted-api",
+                        "operations": ["ShowTicket"],
+                        "effect": "read",
+                        "omit": {"ShowTicket": ["ticket.fields"]},
+                    }
+                }
+            ],
+        },
+    )
+    (directory / "spec.yaml").write_text(yaml.safe_dump(SPEC, sort_keys=False))
+    loaded = load_project(project.root / "gete.yaml")
+    path = directory / RESOLVED_FILE
+    path.write_text(yaml.safe_dump(resolve(loaded, loaded.agents[0]), sort_keys=False))
+    agent = build(path)
+    client.answer = {
+        "ticket": {"id": 7, "email": "someone@example.com", "fields": [{"id": 1}]}
+    }
+    toolset_built = agent.tools[0]
+    [tool] = await toolset_built.get_tools(context())
+    args = {"ticket_id": "7"}
+    answer = await tool.run_async(args=args, tool_context=context())
+    shown = agent.after_tool_callback(tool, args, context(), answer)
+    assert shown == {"ticket": {"id": 7, "email": "[redacted]"}}
 
 
 async def test_the_callers_state_reaches_the_client(

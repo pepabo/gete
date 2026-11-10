@@ -300,6 +300,138 @@ def test_describe_must_name_a_selected_operation() -> None:
     assert found == ["describe: 'ShowTicket' is not one of this block's operations"]
 
 
+def test_omit_must_name_a_selected_operation() -> None:
+    found = declaration_problems(block(omit={"ShowTicket": ["ticket.fields"]}), SPEC)
+    assert found == ["omit: 'ShowTicket' is not one of this block's operations"]
+
+
+def with_ticket_response(schema: dict[str, Any], **components: Any) -> dict[str, Any]:
+    """SPEC whose ShowTicket answers 200 with the given JSON schema."""
+    spec = json.loads(json.dumps(SPEC))
+    spec["paths"]["/tickets/{ticket_id}"]["get"]["responses"] = {
+        "200": {
+            "description": "ok",
+            "content": {"application/json": {"schema": schema}},
+        }
+    }
+    spec["components"]["schemas"].update(components)
+    return spec
+
+
+TICKET_RESPONSE: dict[str, Any] = {
+    "type": "object",
+    "properties": {"ticket": {"$ref": "#/components/schemas/Ticket"}},
+}
+
+TICKET: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "subject": {"type": "string"},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "custom_fields": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}, "value": {}},
+            },
+        },
+    },
+}
+
+
+def omit_problems(spec: dict[str, Any], *entries: Any) -> list[str]:
+    return declaration_problems(
+        block(operations=["ShowTicket"], omit={"ShowTicket": list(entries)}), spec
+    )
+
+
+def test_an_omit_path_the_response_leaves_undeclared_passes() -> None:
+    """Published response schemas under-declare: a search result typed by
+    the kind of record it is may declare only the fields every kind shares,
+    and the ones to drop are exactly the ones it leaves out."""
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=TICKET)
+    assert omit_problems(spec, "ticket.fields") == []
+
+
+def test_an_omit_path_through_a_declared_scalar_is_refused() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=TICKET)
+    assert omit_problems(spec, "ticket.subject.text") == [
+        "omit.ShowTicket: 'ticket.subject.text' cannot be in the result; "
+        "'ticket.subject' is a string, which holds no properties"
+    ]
+
+
+def test_an_omit_path_a_closed_object_does_not_declare_is_refused() -> None:
+    closed = {**TICKET, "additionalProperties": False}
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=closed)
+    assert omit_problems(spec, "ticket.fields") == [
+        "omit.ShowTicket: 'ticket.fields' cannot be in the result; 'fields' is "
+        "not a property of 'ticket', which allows no others "
+        "(properties: custom_fields, id, subject, tags)"
+    ]
+
+
+def test_an_omit_path_is_followed_through_the_items_of_an_array() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=TICKET)
+    assert omit_problems(spec, "ticket.custom_fields.value") == []
+    assert omit_problems(spec, "ticket.custom_fields.id.x") == [
+        "omit.ShowTicket: 'ticket.custom_fields.id.x' cannot be in the result; "
+        "'ticket.custom_fields.id' is a integer, which holds no properties"
+    ]
+
+
+def test_an_omit_path_below_an_array_of_scalars_is_refused() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=TICKET)
+    assert omit_problems(spec, "ticket.tags.name") == [
+        "omit.ShowTicket: 'ticket.tags.name' cannot be in the result; "
+        "'ticket.tags' holds string elements, which hold no properties"
+    ]
+
+
+def test_where_empty_on_a_path_declared_as_no_array_is_refused() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=TICKET)
+    entry = {"path": "ticket.subject", "where_empty": "value"}
+    assert omit_problems(spec, entry) == [
+        "omit.ShowTicket: where_empty filters the elements of an array, and "
+        "'ticket.subject' is a string"
+    ]
+
+
+def test_where_empty_naming_a_key_the_elements_cannot_hold_is_refused() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=TICKET)
+    sound = {"path": "ticket.custom_fields", "where_empty": "value"}
+    assert omit_problems(spec, sound) == []
+    entry = {"path": "ticket.tags", "where_empty": "value"}
+    assert omit_problems(spec, entry) == [
+        "omit.ShowTicket: where_empty 'value' cannot be in the elements of "
+        "'ticket.tags'; 'ticket.tags' holds string elements, which hold no "
+        "properties"
+    ]
+
+
+def test_an_omit_path_passes_when_no_success_response_declares_json() -> None:
+    assert omit_problems(SPEC, "ticket.subject.text") == []
+
+
+def test_an_omit_path_one_success_response_may_hold_passes() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=TICKET)
+    responses = spec["paths"]["/tickets/{ticket_id}"]["get"]["responses"]
+    responses["2XX"] = {
+        "description": "anything",
+        "content": {"application/json": {"schema": {"type": "object"}}},
+    }
+    assert omit_problems(spec, "ticket.subject.text") == []
+
+
+def test_an_array_that_is_its_own_items_ends_the_walk() -> None:
+    """A YAML alias can build one; the walk must stop, not spin."""
+    endless: dict[str, Any] = {"type": "array"}
+    endless["items"] = endless
+    spec = with_ticket_response(endless)
+    assert omit_problems(spec, "ticket.fields") == []
+
+
 def test_a_fix_naming_no_parameter_of_the_operation_is_reported() -> None:
     found = declaration_problems(
         block(params={"ListSearchResults": {"sort": {"value": "asc"}}}), SPEC
