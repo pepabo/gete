@@ -357,6 +357,25 @@ def test_an_optional_scope_needs_a_non_empty_explanation() -> None:
         {"mcp": {"url": "http://mcp.example.com/mcp"}},
         {"mcp": {"url": "https://mcp.example.com/mcp", "effect": "readonly"}},
         {"mcp": {"url": "https://mcp.example.com/mcp", "allow": []}},
+        # A fixed argument is a value; the model's own text is not wrapped.
+        *(
+            {
+                "mcp": {
+                    "url": "https://mcp.example.com/mcp",
+                    "allow": ["search"],
+                    "params": {"search": fixes},
+                }
+            }
+            for fixes in (
+                {},
+                {"scope": "team-handbook"},
+                {"scope": {}},
+                # A server reads a null as no value; nothing would be fixed.
+                {"scope": {"value": None}},
+                {"scope": {"prefix": "x"}},
+                {"scope": {"value": "x", "suffix": "y"}},
+            )
+        ),
         {"python": {"effect": "read"}},
         {"python": "no_colon_here"},
         # openapi needs the spec, the connection, and a choice of operations.
@@ -413,6 +432,13 @@ def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
                 "effect": "read",
                 "does_not": "Does not create deals",
                 "timeout": 10,
+            }
+        },
+        {
+            "mcp": {
+                "url": "https://mcp.example.com/mcp",
+                "allow": ["search"],
+                "params": {"search": {"scope": {"value": "team-handbook"}}},
             }
         },
         {"python": "my_agent.agent:TOOLS"},

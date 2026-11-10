@@ -15,6 +15,7 @@ from gete.connection.checks import (
 from gete.connection.registry import missing_base_url
 from gete.declaration import Agent, Problem, Project
 from gete.errors import DeclarationError, GeteError
+from gete.mcp import declaration_problems as mcp_declaration_problems
 from gete.openapi import declaration_problems, load_spec
 from gete.policies import duplicate_policy_names
 from gete.schema import problems as schema_problems
@@ -387,6 +388,13 @@ def _openapi_problems(
 
 
 def _mcp_problems(
+    mcp: Mapping[str, Any], registry: Registry, known: set[str]
+) -> list[str]:
+    found = [f"mcp: {message}" for message in mcp_declaration_problems(mcp)]
+    return [*found, *_mcp_connection_problems(mcp, registry, known)]
+
+
+def _mcp_connection_problems(
     mcp: Mapping[str, Any], registry: Registry, known: set[str]
 ) -> list[str]:
     connection_id: str | None = mcp.get("connection")

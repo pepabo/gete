@@ -8,7 +8,8 @@ import pytest
 import yaml
 from conftest import ProjectBuilder
 from google.adk.tools.base_toolset import BaseToolset
-from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool import McpTool, McpToolset
+from mcp.types import Tool as ListedTool
 
 from gete.connection import Registry
 from gete.declaration import RESOLVED_FILE, load_project, resolve
@@ -409,3 +410,133 @@ async def test_an_mcp_tool_without_a_connection_asks_nobody_to_authorize(
         project, "mail-triage", {"tools": [{"mcp": {"url": UNREACHABLE}}]}
     )
     assert not [t for t in build(path).tools if isinstance(t, ReauthorizationToolset)]
+
+
+SEARCH = ListedTool(
+    name="search",
+    description="Search pages.",
+    inputSchema={
+        "type": "object",
+        "properties": {"query": {"type": "string"}, "scope": {"type": "string"}},
+        "required": ["query", "scope"],
+    },
+)
+FIXED_SCOPE = "team-handbook"
+PINNED: dict[str, Any] = {
+    "url": URL,
+    "allow": ["search"],
+    "params": {"search": {"scope": {"value": FIXED_SCOPE}}},
+}
+
+
+def listing(monkeypatch: pytest.MonkeyPatch, *listed: ListedTool) -> None:
+    """The server lists these tools; nothing leaves the process."""
+
+    async def tools(self: Any, readonly_context: Any = None) -> list[Any]:
+        return [McpTool(mcp_tool=tool, mcp_session_manager=None) for tool in listed]
+
+    monkeypatch.setattr(McpToolset, "get_tools", tools)
+
+
+def shown(tool: Any) -> dict[str, Any]:
+    """The arguments the model is shown, read back from the declaration."""
+    declaration = tool._get_declaration()
+    if declaration.parameters_json_schema is not None:
+        return dict(declaration.parameters_json_schema)
+    return dict(declaration.parameters.model_dump(exclude_none=True))
+
+
+async def test_a_fixed_argument_is_not_shown_to_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing(monkeypatch, SEARCH)
+    [tool] = await toolset(PINNED).get_tools(Context({}))
+    declared = shown(tool)
+    assert set(declared["properties"]) == {"query"}
+    assert declared["required"] == ["query"]
+
+
+async def test_a_tool_whose_schema_lacks_a_fixed_argument_is_not_offered(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A server that renamed the argument would otherwise get a tool whose
+    scope nobody holds: the declared value would ride under a name the server
+    ignores, and the model would search everywhere."""
+    renamed = SEARCH.model_copy(
+        update={
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "within": {"type": "string"},
+                },
+            }
+        }
+    )
+    listing(monkeypatch, renamed)
+    with caplog.at_level(logging.WARNING):
+        assert await toolset(PINNED).get_tools(Context({})) == []
+    assert "search" in caplog.text
+    assert "scope" in caplog.text
+    # Names are declarations; the value may be anything the operator wrote.
+    assert FIXED_SCOPE not in caplog.text
+
+
+async def test_the_listed_tool_stays_as_the_server_described_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ADK may cache a listing and build tools from it again; a schema
+    narrowed in place would lose the fixed name, and the next turn would
+    find nothing to fix and offer nothing."""
+    listing(monkeypatch, SEARCH)
+    built = toolset(PINNED)
+    await built.get_tools(Context({}))
+    [again] = await built.get_tools(Context({}))
+    assert SEARCH.inputSchema["required"] == ["query", "scope"]
+    assert set(SEARCH.inputSchema["properties"]) == {"query", "scope"}
+    assert set(shown(again)["properties"]) == {"query"}
+
+
+async def test_a_tool_params_does_not_name_is_offered_as_listed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fetch = ListedTool(
+        name="fetch",
+        description="Fetch a page.",
+        inputSchema={
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+        },
+    )
+    listing(monkeypatch, SEARCH, fetch)
+    tools = await toolset({**PINNED, "allow": ["search", "fetch"]}).get_tools(
+        Context({})
+    )
+    offered = {tool.name: tool for tool in tools}
+    assert set(shown(offered["fetch"])["properties"]) == {"id"}
+    assert shown(offered["fetch"])["required"] == ["id"]
+
+
+async def test_a_fixed_tool_still_carries_does_not_and_its_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing(monkeypatch, SEARCH)
+    built = mcp_toolset(
+        {**PINNED, "does_not": "Does not edit pages."},
+        authorizations={},
+        registry=CATALOG,
+        confirm=False,
+        confirm_names=["search"],
+    )
+    [tool] = await built.get_tools(Context({}))
+    assert tool.description.endswith("Does not: Does not edit pages.")
+    assert await tool.check_require_confirmation({}, Context({})) is True
+
+
+def test_build_refuses_params_for_a_tool_allow_does_not_offer() -> None:
+    """validate refuses it too; the archive that reached the runtime is
+    whatever was packed, and a fix that names no offered tool holds nothing."""
+    misspelt = {**PINNED, "params": {"serach": {"scope": {"value": FIXED_SCOPE}}}}
+    with pytest.raises(DeclarationError, match="'serach' is not one of"):
+        toolset(misspelt)

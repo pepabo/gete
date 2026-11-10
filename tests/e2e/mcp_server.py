@@ -2,7 +2,8 @@
 
 It has no business logic. whoami returns the Authorization header it received,
 which is what the tests need to see: that the user's token, and only the
-user's token, reaches the server on every call.
+user's token, reaches the server on every call. lookup returns the arguments
+it was called with, so a test sees what a declaration fixed.
 
 Run it on its own with: uv run python tests/e2e/mcp_server.py 8765
 """
@@ -25,9 +26,9 @@ def whoami(ctx: Context) -> dict[str, Any]:  # type: ignore[type-arg]
 
 
 @server.tool()
-def lookup(query: str) -> dict[str, Any]:
-    """Look something up."""
-    return {"query": query}
+def lookup(query: str, scope: str = "everywhere") -> dict[str, Any]:
+    """Look something up, below scope."""
+    return {"query": query, "scope": scope}
 
 
 def app() -> Any:

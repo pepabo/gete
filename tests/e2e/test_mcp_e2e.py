@@ -112,3 +112,31 @@ async def test_a_named_tool_is_marked_for_confirmation(server_url: str) -> None:
     tools = {tool.name: tool for tool in await toolset.get_tools(context)}
     assert await tools["lookup"].check_require_confirmation({}, context) is True
     assert await tools["whoami"].check_require_confirmation({}, context) is False
+
+
+async def test_a_fixed_argument_is_sent_over_what_the_model_wrote(
+    server_url: str,
+) -> None:
+    toolset = mcp_toolset(
+        {
+            "url": server_url,
+            "connection": "freee",
+            "allow": ["lookup"],
+            "params": {"lookup": {"scope": {"value": "team-handbook"}}},
+        },
+        authorizations={"freee": "finance-freee"},
+        registry=CATALOG,
+        confirm=False,
+    )
+    context = await tool_context({"finance-freee": TOKEN_A})
+    [lookup] = await toolset.get_tools(context)
+    declaration = lookup._get_declaration()
+    shown = declaration.parameters_json_schema or declaration.parameters.model_dump()
+    assert set(shown["properties"]) == {"query"}
+    answer = await lookup.run_async(
+        args={"query": "leave policy", "scope": "everywhere"}, tool_context=context
+    )
+    assert answer["structuredContent"] == {
+        "query": "leave policy",
+        "scope": "team-handbook",
+    }
