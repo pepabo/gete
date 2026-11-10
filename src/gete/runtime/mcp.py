@@ -100,9 +100,10 @@ class NarrowedMcpTool(McpTool):
         *,
         fixed: Mapping[str, Any],
         only: Iterable[str] | None,
+        warn: Callable[[str], None] = logger.warning,
     ) -> "NarrowedMcpTool | None":
-        """The listed tool with its arguments narrowed, or None and a log
-        line when the server's schema does not declare every fixed one. A
+        """The listed tool with its arguments narrowed, or None and a
+        warning when the server's schema does not declare every fixed one. A
         listed one it does not declare is logged, and the tool still offered.
 
         validate cannot see a server's schemas, so a renamed argument shows
@@ -115,11 +116,9 @@ class NarrowedMcpTool(McpTool):
         declared = properties if isinstance(properties, Mapping) else {}
         missing = [name for name in fixed if name not in declared]
         if missing:
-            logger.warning(
-                "mcp tool %s is not offered: its input schema declares no %s, "
-                "which the declaration fixes",
-                listed.name,
-                ", ".join(missing),
+            warn(
+                f"mcp tool {listed.name} is not offered: its input schema "
+                f"declares no {', '.join(missing)}, which the declaration fixes"
             )
             return None
         unknown = [name for name in only or () if name not in declared]
@@ -184,6 +183,7 @@ class GeteMcpToolset(McpToolset):
             for tool, arguments in (params or {}).items()
         }
         self._only = {tool: tuple(names) for tool, names in (only or {}).items()}
+        self._warned: set[str] = set()
         provider: Callable[[Any], dict[str, str]] | None = (
             self._authorization_headers if connection is not None else None
         )
@@ -219,6 +219,7 @@ class GeteMcpToolset(McpToolset):
                     tool,
                     fixed=self._fixed.get(tool.name, {}),
                     only=self._only.get(tool.name),
+                    warn=self._warn_once,
                 )
                 if tool is None:
                     continue
@@ -239,6 +240,13 @@ class GeteMcpToolset(McpToolset):
                 tool._require_confirmation = True  # noqa: SLF001
             kept.append(tool)
         return kept
+
+    def _warn_once(self, message: str) -> None:
+        # The tools are listed for every model request; drift that lasts
+        # would otherwise be logged on every turn and bury the rest.
+        if message not in self._warned:
+            self._warned.add(message)
+            logger.warning(message)
 
     def _authorization_headers(self, readonly_context: Any) -> dict[str, str]:
         token = self._token(readonly_context)
