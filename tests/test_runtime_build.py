@@ -514,6 +514,15 @@ async def dispatched(agent: Any, called: str) -> Any:
     tools it resolved for the turn, the callback it awaits - so one test
     drives the real thing and fails if any of that moves.
     """
+    return (await dispatched_together(agent, [called]))[0]
+
+
+async def dispatched_together(agent: Any, called: list[str]) -> list[Any]:
+    """What ADK answers function calls the model made in one turn.
+
+    ADK runs calls from one turn concurrently, so this is where calls can
+    interleave. They get ids call-1, call-2, ... in the order given.
+    """
     from google.adk.agents.invocation_context import InvocationContext
     from google.adk.agents.run_config import RunConfig
     from google.adk.flows.llm_flows.functions import handle_function_call_list_async
@@ -539,11 +548,14 @@ async def dispatched(agent: Any, called: str) -> Any:
     assert invocation.canonical_tools_cache is not None
     event = await handle_function_call_list_async(
         invocation,
-        [types.FunctionCall(id="call-1", name=called, args={})],
+        [
+            types.FunctionCall(id=f"call-{number}", name=name, args={})
+            for number, name in enumerate(called, start=1)
+        ],
         request.tools_dict,
     )
     assert event is not None
-    return event.content.parts[0].function_response.response
+    return [part.function_response.response for part in event.content.parts]
 
 
 async def test_adk_answers_a_made_up_name_with_the_tools_it_resolved(
@@ -560,6 +572,43 @@ async def test_adk_answers_a_made_up_name_with_the_tools_it_resolved(
     assert await dispatched(build(path), "lookupp") == {
         "error": "no tool named lookupp; the tools are: lookup, transfer"
     }
+
+
+def write_call_reading_module(directory: Path) -> None:
+    package = directory / "src" / "call_reader"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "tools.py").write_text(
+        "import asyncio\n"
+        "\n"
+        "from gete.request_context import current_tool_call\n"
+        "\n"
+        "async def whose_call() -> dict:\n"
+        '    """Name the call this tool runs in."""\n'
+        "    await asyncio.sleep(0.01)\n"
+        "    call = current_tool_call()\n"
+        '    return {"call": call.tool_context.function_call_id if call else None}\n'
+        "\n"
+        "TOOLS = [whose_call]\n"
+    )
+
+
+async def test_each_call_in_a_turn_sees_only_the_call_adk_bound_it_to(
+    project: ProjectBuilder,
+) -> None:
+    """Through ADK: what the callback binds reaches the tool body, and two
+    calls running together do not see each other's - the user's tokens
+    travel this way to tools that never get a context."""
+    path = resolved_path(
+        project,
+        "mail-triage",
+        {"source": "./src", "tools": [{"python": "call_reader.tools:TOOLS"}]},
+    )
+    write_call_reading_module(path.parent)
+    assert await dispatched_together(build(path), ["whose_call", "whose_call"]) == [
+        {"call": "call-1"},
+        {"call": "call-2"},
+    ]
 
 
 async def test_an_arbitrary_gete_error_is_generic_like_any_other(
