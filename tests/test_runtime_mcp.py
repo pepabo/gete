@@ -540,3 +540,52 @@ def test_build_refuses_params_for_a_tool_allow_does_not_offer() -> None:
     misspelt = {**PINNED, "params": {"serach": {"scope": {"value": FIXED_SCOPE}}}}
     with pytest.raises(DeclarationError, match="'serach' is not one of"):
         toolset(misspelt)
+
+
+WIDE = ListedTool(
+    name="search",
+    description="Search pages.",
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "scope": {"type": "string"},
+            "within": {"type": "string"},
+        },
+        "required": ["query", "within"],
+    },
+)
+LISTED: dict[str, Any] = {
+    "url": URL,
+    "allow": ["search"],
+    "only": {"search": ["query"]},
+}
+
+
+async def test_only_takes_the_unlisted_arguments_out_of_the_declaration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing(monkeypatch, WIDE)
+    [tool] = await toolset(LISTED).get_tools(Context({}))
+    declared = shown(tool)
+    assert set(declared["properties"]) == {"query"}
+    assert declared["required"] == ["query"]
+
+
+async def test_a_listed_argument_the_server_does_not_declare_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A miss opens nothing up, so the tool is still offered; the log says
+    the declaration and the server have drifted apart."""
+    listing(monkeypatch, WIDE)
+    drifted = {**LISTED, "only": {"search": ["query", "keyword"]}}
+    with caplog.at_level(logging.WARNING):
+        [tool] = await toolset(drifted).get_tools(Context({}))
+    assert set(shown(tool)["properties"]) == {"query"}
+    assert "search" in caplog.text
+    assert "keyword" in caplog.text
+
+
+def test_build_refuses_only_for_a_tool_allow_does_not_offer() -> None:
+    with pytest.raises(DeclarationError, match="'serach' is not one of"):
+        toolset({**LISTED, "only": {"serach": ["query"]}})

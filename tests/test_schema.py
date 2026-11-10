@@ -376,6 +376,17 @@ def test_an_optional_scope_needs_a_non_empty_explanation() -> None:
                 {"scope": {"value": "x", "suffix": "y"}},
             )
         ),
+        # An empty only would offer a tool the model can write nothing to.
+        *(
+            {
+                "mcp": {
+                    "url": "https://mcp.example.com/mcp",
+                    "allow": ["search"],
+                    "only": {"search": names},
+                }
+            }
+            for names in ([], "query", [""], ["query", "query"])
+        ),
         {"python": {"effect": "read"}},
         {"python": "no_colon_here"},
         # openapi needs the spec, the connection, and a choice of operations.
@@ -439,6 +450,13 @@ def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
                 "url": "https://mcp.example.com/mcp",
                 "allow": ["search"],
                 "params": {"search": {"scope": {"value": "team-handbook"}}},
+            }
+        },
+        {
+            "mcp": {
+                "url": "https://mcp.example.com/mcp",
+                "allow": ["search"],
+                "only": {"search": ["query"]},
             }
         },
         {"python": "my_agent.agent:TOOLS"},

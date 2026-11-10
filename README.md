@@ -176,6 +176,8 @@ tools:
       params:
         search:
           scope: {value: team-handbook}   # searched within this scope only
+      only:
+        search: [query]                 # and nothing else the server takes
 ```
 
 The argument is taken out of the schema the model is shown, and every call
@@ -188,6 +190,18 @@ packed, so that is where each fixed argument is checked. A tool whose
 schema no longer declares it — renamed on the server, say — is not offered,
 and the log says which tool and argument, rather than the value riding
 under a name the server ignores.
+
+Fixing one argument leaves every other argument the tool takes, and some
+may widen what the fixed one bounds, including one the server adds
+later. `only` names the arguments the model may write, as it
+does for an `openapi:` block. Everything else is taken out of the
+schema the model is shown and dropped from each call, even when the model
+writes it; a `params` value still rides, and `validate` refuses an argument
+that is both listed and fixed. Because the schemas are listed live, naming
+what goes out is what keeps a new argument from reaching the model before
+anyone has declared it. An argument `only` names that the server does not
+declare is logged, and the tool is still offered: nothing is opened up by
+the miss.
 
 With more than one engine, name them once in `gete.yaml` and let each agent
 refer to one by name:
