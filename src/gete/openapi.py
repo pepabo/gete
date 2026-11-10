@@ -712,11 +712,13 @@ def _omit_problems(
             continue
         if isinstance(entry, str):
             continue
-        types = [leaf.get("type") if leaf is not None else None for _, leaf in walks]
+        types = [
+            _declared_type(leaf) if leaf is not None else None for _, leaf in walks
+        ]
         if all(declared not in (None, "array") for declared in types):
             found.append(
                 f"omit.{operation.id}: where_empty filters the elements of an "
-                f"array, and {path!r} is a {types[0]}"
+                f"array, and {path!r} is {_a(str(types[0]))}"
             )
             continue
         key = str(entry["where_empty"])
@@ -758,6 +760,28 @@ def _response_schemas(spec: Any, operation: Operation) -> list[Mapping[str, Any]
 SCALAR_TYPES = frozenset({"string", "integer", "number", "boolean"})
 
 
+def _declared_type(schema: Mapping[str, Any]) -> str | None:
+    """The one type a schema declares, or None when it does not pin one.
+
+    OpenAPI 3.1 writes a nullable value as a list such as ["string", "null"];
+    a null holds no properties either, so the other type is what a path
+    meets whenever there is a value. A list of several other types is not
+    chosen between, as oneOf is not.
+    """
+    declared = schema.get("type")
+    if isinstance(declared, str):
+        return declared
+    if not isinstance(declared, list):
+        return None
+    kinds = [kind for kind in declared if kind != "null"]
+    return kinds[0] if len(kinds) == 1 and isinstance(kinds[0], str) else None
+
+
+def _a(word: str) -> str:
+    """The word with its indefinite article."""
+    return f"{'an' if word[:1] in ('a', 'e', 'i', 'o', 'u') else 'a'} {word}"
+
+
 def _walk_result(
     spec: Any, schema: Mapping[str, Any], segments: tuple[str, ...]
 ) -> tuple[str | None, Mapping[str, Any] | None]:
@@ -777,14 +801,14 @@ def _walk_result(
         if holder is None:
             return None, None
         where = repr(".".join(trail)) if trail else "the result"
-        declared = holder.get("type")
+        declared = _declared_type(holder)
         if declared in SCALAR_TYPES:
             if stepped:
                 return (
                     f"{where} holds {declared} elements, which hold no properties",
                     None,
                 )
-            return f"{where} is a {declared}, which holds no properties", None
+            return f"{where} is {_a(declared)}, which holds no properties", None
         properties = holder.get("properties")
         properties = properties if isinstance(properties, Mapping) else {}
         if segment in properties:
@@ -816,7 +840,7 @@ def _object_schema(spec: Any, node: Any) -> tuple[Mapping[str, Any] | None, bool
             return None, stepped
         seen.add(id(node))
         node = _fold_allof(spec, node)
-        if node.get("type") != "array":
+        if _declared_type(node) != "array":
             return node, stepped
         node = node.get("items")
         stepped = True

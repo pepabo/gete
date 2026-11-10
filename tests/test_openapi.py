@@ -377,7 +377,7 @@ def test_an_omit_path_is_followed_through_the_items_of_an_array() -> None:
     assert omit_problems(spec, "ticket.custom_fields.value") == []
     assert omit_problems(spec, "ticket.custom_fields.id.x") == [
         "omit.ShowTicket: 'ticket.custom_fields.id.x' cannot be in the result; "
-        "'ticket.custom_fields.id' is a integer, which holds no properties"
+        "'ticket.custom_fields.id' is an integer, which holds no properties"
     ]
 
 
@@ -430,6 +430,43 @@ def test_an_array_that_is_its_own_items_ends_the_walk() -> None:
     endless["items"] = endless
     spec = with_ticket_response(endless)
     assert omit_problems(spec, "ticket.fields") == []
+
+
+NULLABLE_TICKET: dict[str, Any] = {
+    "type": ["object", "null"],
+    "properties": {
+        "subject": {"type": ["string", "null"]},
+        "custom_fields": {
+            "type": ["array", "null"],
+            "items": {"type": "object", "properties": {"value": {}}},
+        },
+        "external_id": {"type": ["string", "integer"]},
+    },
+}
+
+
+def test_an_omit_path_is_followed_through_a_nullable_type_list() -> None:
+    """OpenAPI 3.1 writes a nullable value as a list of types; the value is
+    still what the one other type says when it is there."""
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=NULLABLE_TICKET)
+    assert omit_problems(spec, "ticket.fields") == []
+    assert omit_problems(spec, "ticket.subject.text") == [
+        "omit.ShowTicket: 'ticket.subject.text' cannot be in the result; "
+        "'ticket.subject' is a string, which holds no properties"
+    ]
+
+
+def test_where_empty_on_a_nullable_array_passes() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=NULLABLE_TICKET)
+    entry = {"path": "ticket.custom_fields", "where_empty": "value"}
+    assert omit_problems(spec, entry) == []
+
+
+def test_a_type_list_of_several_kinds_rules_nothing_out() -> None:
+    spec = with_ticket_response(TICKET_RESPONSE, Ticket=NULLABLE_TICKET)
+    assert omit_problems(spec, "ticket.external_id.x") == []
+    entry = {"path": "ticket.external_id", "where_empty": "value"}
+    assert omit_problems(spec, entry) == []
 
 
 def test_a_fix_naming_no_parameter_of_the_operation_is_reported() -> None:
