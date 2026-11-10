@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.5.2](https://github.com/pepabo/gete/compare/v0.5.1...v0.5.2) - 2026-11-10
+
+- Bump google-auth from 2.57.1 to 2.58.0 by @dependabot[bot] in https://github.com/pepabo/gete/pull/76
+- Bump ruff from 0.16.6 to 0.16.7 by @dependabot[bot] in https://github.com/pepabo/gete/pull/78
+- Bump Songmu/tagpr from 1.20.3 to 1.21.4 by @dependabot[bot] in https://github.com/pepabo/gete/pull/99
+- Update google-adk[mcp] requirement from <2.9,>=2.6 to >=2.6,<2.10 by @dependabot[bot] in https://github.com/pepabo/gete/pull/77
+- Bump astral-sh/setup-uv from 10.0.1 to 10.3.3 by @dependabot[bot] in https://github.com/pepabo/gete/pull/100
+- Upgrade locked packages that have published security advisories by @haruotsu in https://github.com/pepabo/gete/pull/102
+- Allow google-adk up to 2.14 by @haruotsu in https://github.com/pepabo/gete/pull/103
+
 ## [v0.5.1](https://github.com/pepabo/gete/compare/v0.5.0...v0.5.1) - 2026-10-20
 
 - Let an agent's model name the Vertex AI location it is called in by @haruotsu in https://github.com/pepabo/gete/pull/95
