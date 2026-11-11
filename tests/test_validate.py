@@ -344,6 +344,29 @@ def test_mcp_without_connection_may_point_anywhere_https(
     assert problems(project) == []
 
 
+def test_mcp_params_must_name_a_tool_the_block_allows(
+    project: ProjectBuilder,
+) -> None:
+    project.write_agent(
+        "mail-triage",
+        {
+            "tools": [
+                {
+                    "mcp": {
+                        "url": "https://mcp.example.com/mcp",
+                        "allow": ["search"],
+                        "params": {"serach": {"scope": {"value": "x"}}},
+                    }
+                }
+            ]
+        },
+    )
+    assert problems(project) == [
+        "agents/mail-triage/agent.yaml: tools[0]: mcp: params: 'serach' is not "
+        "one of this block's allow"
+    ]
+
+
 def test_policy_files_must_exist_and_match_the_schema(project: ProjectBuilder) -> None:
     project.write_project(
         {

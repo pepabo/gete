@@ -250,6 +250,28 @@
                     "minLength": 1
                   }
                 },
+                "params": {
+                  "description": "Arguments fixed by the declaration, by tool name out of allow, then by argument name. A fixed argument is taken out of the schema the model is shown, and every call carries the declared value over anything the model wrote. A tool whose listed schema does not declare the argument is not offered, since the value would ride under a name the server ignores. A null value is refused: a server reads it as no value, and nothing would be fixed.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "value"
+                      ],
+                      "properties": {
+                        "value": {
+                          "not": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
                 "effect": {
                   "$ref": "#/$defs/effect"
                 },

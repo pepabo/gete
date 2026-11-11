@@ -164,6 +164,31 @@ writes are split by naming it twice — the same `url` and `connection`, two
 lists of tool names, two effects. Where a server hands out one grant for both,
 that is the only place an agent can say it means to read.
 
+`params` fixes a tool's argument, as it does for an `openapi:` block:
+
+```yaml
+tools:
+  - mcp:
+      url: https://mcp.docs.example/mcp
+      connection: docs
+      allow: [search, fetch]
+      effect: read
+      params:
+        search:
+          scope: {value: team-handbook}   # searched within this scope only
+```
+
+The argument is taken out of the schema the model is shown, and every call
+carries the declared value over anything the model wrote, so a scope asked
+for in the instruction and forgotten by the model cannot widen the search.
+The tool names come out of `allow`, and `validate` holds them against it: a
+misspelt name would otherwise fix nothing and leave the tool it meant
+offered as it is. A server's schemas are listed while the agent runs, not
+packed, so that is where each fixed argument is checked. A tool whose
+schema no longer declares it — renamed on the server, say — is not offered,
+and the log says which tool and argument, rather than the value riding
+under a name the server ignores.
+
 With more than one engine, name them once in `gete.yaml` and let each agent
 refer to one by name:
 
