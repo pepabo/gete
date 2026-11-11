@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.6.1](https://github.com/pepabo/gete/compare/v0.6.0...v0.6.1) - 2026-11-11
+
+- Let an openapi block drop parts of a result by @haruotsu in https://github.com/pepabo/gete/pull/104
+- Let an mcp block fix a tool's arguments by @haruotsu in https://github.com/pepabo/gete/pull/105
+- Let an mcp block name the arguments the model may write by @haruotsu in https://github.com/pepabo/gete/pull/106
+
 ## [v0.5.2](https://github.com/pepabo/gete/compare/v0.5.1...v0.5.2) - 2026-11-10
 
 - Bump google-auth from 2.57.1 to 2.58.0 by @dependabot[bot] in https://github.com/pepabo/gete/pull/76
