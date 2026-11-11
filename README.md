@@ -231,6 +231,12 @@ tools:
           per_page: {value: 25}
       describe:
         ListSearchResults: Search tickets. The kind is fixed to tickets.
+      omit:
+        ListSearchResults: [results.fields]   # every search result, one by one
+        ShowTicket:
+          - ticket.fields                     # the custom fields again, under another name
+          - path: ticket.custom_fields        # just the ones that hold no value
+            where_empty: value
   - openapi:
       spec: ./specs/helpdesk.yaml
       connection: helpdesk
@@ -279,6 +285,21 @@ tools:
   that parameter's, as with `params`. Counting up what goes out fails safe
   as the description grows: a new field stays unexposed until someone
   declares it.
+- **`omit` keeps results down to what the agent reads.** A published record
+  can carry far more than an agent needs — a helpdesk ticket may list its
+  custom fields twice, under two names — and every part of a result is
+  something the model may misread. A dotted path drops that part
+  of the result, stepping through every array on the way, so
+  `results.fields` drops it from each search result. With `where_empty`, the
+  path names an array that stays, minus the elements whose key holds
+  nothing: null, an empty string, an empty array or object, or no such key
+  at all. `false` and `0` are values and stay, and so does an element that
+  is no object. A result that does not carry the path is left as it came.
+  `validate` refuses a path the success responses rule out — one through a
+  value they declare as a scalar, or past an object that allows no other
+  properties — but not one they merely leave undeclared: published response
+  schemas routinely leave out fields the service sends. What is left passes
+  the policies' redaction like every other result.
 - **`describe` replaces the vendor's text.** Vendor descriptions are written
   for developers sitting next to the docs and often cite links a model
   cannot follow; `does_not` is appended to every tool, as with `mcp:`.

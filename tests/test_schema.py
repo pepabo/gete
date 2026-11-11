@@ -391,6 +391,39 @@ def test_an_optional_scope_needs_a_non_empty_explanation() -> None:
                 "base_url": "http://things.example.com",
             }
         },
+        # An empty omit list drops nothing; leaving the operation out says so.
+        {"openapi": {**OPENAPI_TOOL["openapi"], "omit": {"ListThings": []}}},
+        {"openapi": {**OPENAPI_TOOL["openapi"], "omit": {"ListThings": "a.b"}}},
+        *(
+            {"openapi": {**OPENAPI_TOOL["openapi"], "omit": {"ListThings": [path]}}}
+            for path in ("", "a..b", ".a", "a.")
+        ),
+        # The object form exists for where_empty; without it, a string says it.
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                "omit": {"ListThings": [{"path": "thing.fields"}]},
+            }
+        },
+        # where_empty names one key of each element, never a path.
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                "omit": {
+                    "ListThings": [{"path": "thing.fields", "where_empty": "a.b"}]
+                },
+            }
+        },
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                "omit": {
+                    "ListThings": [
+                        {"path": "thing.fields", "where_empty": "value", "x": 1}
+                    ]
+                },
+            }
+        },
     ],
 )
 def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
@@ -444,6 +477,17 @@ def test_tool_must_be_exactly_one_supported_kind(tool: dict[str, Any]) -> None:
                 **OPENAPI_TOOL["openapi"],
                 # A multi-API connection has no single root; the block names its own.
                 "base_url": "https://things.example.com",
+            }
+        },
+        {
+            "openapi": {
+                **OPENAPI_TOOL["openapi"],
+                "omit": {
+                    "ListThings": [
+                        "things.fields",
+                        {"path": "things.custom_fields", "where_empty": "value"},
+                    ]
+                },
             }
         },
     ],
