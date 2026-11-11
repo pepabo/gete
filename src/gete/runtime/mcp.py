@@ -51,28 +51,36 @@ def _schema_field(listed: Any) -> str:
     return "inputSchema" if hasattr(listed, "inputSchema") else "input_schema"
 
 
-class PinnedMcpTool(McpTool):
-    """An MCP tool some of whose arguments the declaration fixes.
+class NarrowedMcpTool(McpTool):
+    """An MCP tool whose arguments the declaration narrows.
 
-    The fixed arguments are taken out of the schema the model is shown, and
-    every call carries the declared values over anything the model wrote.
+    A fixed argument, and with only any argument it does not list, is taken
+    out of the schema the model is shown. Every call drops what the model
+    wrote outside only and carries the fixed values over anything else.
     """
 
-    def __init__(self, listed: McpTool, values: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        listed: McpTool,
+        *,
+        fixed: Mapping[str, Any],
+        only: Iterable[str] | None,
+    ) -> None:
         # Not McpTool.__init__: its parameters move between ADK releases, and
         # the listed tool already carries everything it was built with - the
         # session, the headers, the confirmation setting.
         self.__dict__.update(listed.__dict__)
-        self._pinned = dict(values)
+        self._fixed = dict(fixed)
+        self._only = frozenset(only) if only is not None else None
         raw = listed.raw_mcp_tool
         field = _schema_field(raw)
         schema = dict(getattr(raw, field))
         schema["properties"] = {
             name: value
-            for name, value in schema["properties"].items()
-            if name not in values
+            for name, value in schema.get("properties", {}).items()
+            if self._writes(name)
         }
-        required = [name for name in schema.get("required", ()) if name not in values]
+        required = [name for name in schema.get("required", ()) if self._writes(name)]
         if required:
             schema["required"] = required
         else:
@@ -81,16 +89,23 @@ class PinnedMcpTool(McpTool):
         # check below must find the fixed names there next time too.
         self._mcp_tool = raw.model_copy(update={field: schema})
 
+    def _writes(self, name: str) -> bool:
+        """Whether the model writes this argument."""
+        return name not in self._fixed and (self._only is None or name in self._only)
+
     @classmethod
     def holding(
         cls,
         listed: McpTool,
-        values: Mapping[str, Any],
         *,
+        fixed: Mapping[str, Any],
+        only: Iterable[str] | None,
         warn: Callable[[str], None] = logger.warning,
-    ) -> "PinnedMcpTool | None":
-        """The listed tool with its fixed arguments held, or None and a
-        warning when the server's schema does not declare them all.
+    ) -> "NarrowedMcpTool | None":
+        """The listed tool with its arguments narrowed, or None and a
+        warning when the server's schema does not declare every fixed one,
+        or requires one that is neither listed nor fixed. A listed one it
+        does not declare is logged, and the tool still offered.
 
         validate cannot see a server's schemas, so a renamed argument shows
         up only here. Offering the tool anyway would send the declared value
@@ -100,20 +115,42 @@ class PinnedMcpTool(McpTool):
         schema = getattr(raw, _schema_field(raw), None)
         properties = schema.get("properties") if isinstance(schema, Mapping) else None
         declared = properties if isinstance(properties, Mapping) else {}
-        missing = [name for name in values if name not in declared]
+        missing = [name for name in fixed if name not in declared]
         if missing:
             warn(
                 f"mcp tool {listed.name} is not offered: its input schema "
                 f"declares no {', '.join(missing)}, which the declaration fixes"
             )
             return None
-        return cls(listed, values)
+        required = schema.get("required") if isinstance(schema, Mapping) else None
+        unwritable = (
+            [name for name in required if name not in only and name not in fixed]
+            if only is not None and isinstance(required, list)
+            else []
+        )
+        if unwritable:
+            warn(
+                f"mcp tool {listed.name} is not offered: its input schema "
+                f"requires {', '.join(map(str, unwritable))}, which only does "
+                "not list and params does not fix"
+            )
+            return None
+        unknown = [name for name in only or () if name not in declared]
+        if unknown:
+            # Nothing the server takes is opened up by the miss; the model
+            # just cannot write what the declaration meant it to.
+            warn(
+                f"mcp tool {listed.name}: its input schema declares no "
+                f"{', '.join(unknown)}, which only lists"
+            )
+        return cls(listed, fixed=fixed, only=only)
 
     async def run_async(self, *, args: dict[str, Any], tool_context: Any) -> Any:
-        # The declared values come last, so a value the model smuggled into
-        # the arguments under a fixed name is overwritten, never sent.
+        written = {name: value for name, value in args.items() if self._writes(name)}
+        # The fixed values come last, so a value the model smuggled into the
+        # arguments under a fixed name is overwritten, never sent.
         return await super().run_async(
-            args={**args, **self._pinned}, tool_context=tool_context
+            args={**written, **self._fixed}, tool_context=tool_context
         )
 
 
@@ -126,7 +163,7 @@ class GeteMcpToolset(McpToolset):
     not contacted at all and nothing is offered; asking the user to authorize
     again belongs to the connection, which may back more than one toolset.
     ``does_not`` is appended to every tool description, and the tools
-    ``params`` names come with their fixed arguments held.
+    ``params`` and ``only`` name come with their arguments narrowed.
     """
 
     def __init__(
@@ -143,6 +180,7 @@ class GeteMcpToolset(McpToolset):
         confirm_names: Iterable[str] = (),
         denied: Iterable[str] = (),
         params: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+        only: Mapping[str, Iterable[str]] | None = None,
     ) -> None:
         self.url = url
         self.fixed_headers = dict(fixed_headers)
@@ -153,10 +191,11 @@ class GeteMcpToolset(McpToolset):
         self._authorization_key = authorization_key
         self._confirm_names = frozenset(confirm_names)
         self._denied = frozenset(denied)
-        self._pinned = {
+        self._fixed = {
             tool: {name: fix["value"] for name, fix in arguments.items()}
             for tool, arguments in (params or {}).items()
         }
+        self._only = {tool: tuple(names) for tool, names in (only or {}).items()}
         self._warned: set[str] = set()
         provider: Callable[[Any], dict[str, str]] | None = (
             self._authorization_headers if connection is not None else None
@@ -188,9 +227,13 @@ class GeteMcpToolset(McpToolset):
         for tool in tools:
             if tool.name in self._denied:
                 continue
-            pinned = self._pinned.get(tool.name)
-            if pinned:
-                tool = PinnedMcpTool.holding(tool, pinned, warn=self._warn_once)
+            if tool.name in self._fixed or tool.name in self._only:
+                tool = NarrowedMcpTool.holding(
+                    tool,
+                    fixed=self._fixed.get(tool.name, {}),
+                    only=self._only.get(tool.name),
+                    warn=self._warn_once,
+                )
                 if tool is None:
                     continue
             if self.does_not:
@@ -283,4 +326,5 @@ def mcp_toolset(
         confirm_names=confirm_names,
         denied=denied,
         params=spec.get("params"),
+        only=spec.get("only"),
     )

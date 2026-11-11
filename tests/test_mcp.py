@@ -31,3 +31,31 @@ def test_params_needs_an_allow_list_to_hold_its_names_against() -> None:
         "params: names tools out of allow, and this block has no allow; "
         "a misspelt name would leave the tool it meant as the server lists it"
     ]
+
+
+def test_only_must_name_a_tool_in_allow() -> None:
+    found = declaration_problems(block(only={"serach": ["query"]}))
+    assert found == ["only: 'serach' is not one of this block's allow"]
+
+
+def test_only_needs_an_allow_list_to_hold_its_names_against() -> None:
+    found = declaration_problems({"url": URL, "only": {"search": ["query"]}})
+    assert found == [
+        "only: names tools out of allow, and this block has no allow; "
+        "a misspelt name would leave the tool it meant as the server lists it"
+    ]
+
+
+def test_an_argument_listed_in_only_and_fixed_by_params_is_refused() -> None:
+    """Listing says the model writes it, fixing says it never does; the
+    declaration has to say which."""
+    found = declaration_problems(
+        block(
+            only={"search": ["query", "scope"]},
+            params={"search": {"scope": {"value": "team-handbook"}}},
+        )
+    )
+    assert found == [
+        "only.search: 'scope' is fixed by params; a fixed argument is not "
+        "the model's to write"
+    ]

@@ -272,6 +272,19 @@
                     }
                   }
                 },
+                "only": {
+                  "description": "The arguments the model may write, by tool name out of allow. Every other argument is taken out of the schema the model is shown, and dropped from each call even when the model writes it; a params value still rides. A server's schemas are listed while the agent runs, so an argument it adds later stays unexposed until someone declares it. A tool whose listed schema requires an argument that is neither listed nor fixed is not offered, since every call would be refused.",
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
                 "effect": {
                   "$ref": "#/$defs/effect"
                 },

@@ -555,3 +555,92 @@ def test_build_refuses_params_for_a_tool_allow_does_not_offer() -> None:
     misspelt = {**PINNED, "params": {"serach": {"scope": {"value": FIXED_SCOPE}}}}
     with pytest.raises(DeclarationError, match="'serach' is not one of"):
         toolset(misspelt)
+
+
+WIDE = ListedTool(
+    name="search",
+    description="Search pages.",
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "scope": {"type": "string"},
+            "within": {"type": "string"},
+        },
+        "required": ["query"],
+    },
+)
+LISTED: dict[str, Any] = {
+    "url": URL,
+    "allow": ["search"],
+    "only": {"search": ["query"]},
+}
+
+
+async def test_only_takes_the_unlisted_arguments_out_of_the_declaration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing(monkeypatch, WIDE)
+    [tool] = await toolset(LISTED).get_tools(Context({}))
+    declared = shown(tool)
+    assert set(declared["properties"]) == {"query"}
+    assert declared["required"] == ["query"]
+
+
+async def test_a_listed_argument_the_server_does_not_declare_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A miss opens nothing up, so the tool is still offered; the log says
+    the declaration and the server have drifted apart."""
+    listing(monkeypatch, WIDE)
+    drifted = {**LISTED, "only": {"search": ["query", "keyword"]}}
+    with caplog.at_level(logging.WARNING):
+        [tool] = await toolset(drifted).get_tools(Context({}))
+    assert set(shown(tool)["properties"]) == {"query"}
+    assert "search" in caplog.text
+    assert "keyword" in caplog.text
+
+
+async def test_a_listed_argument_the_server_does_not_declare_is_logged_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    listing(monkeypatch, WIDE)
+    built = toolset({**LISTED, "only": {"search": ["query", "keyword"]}})
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            await built.get_tools(Context({}))
+    assert len([r for r in caplog.records if "keyword" in r.getMessage()]) == 1
+
+
+WITHIN_REQUIRED = WIDE.model_copy(
+    update={"inputSchema": {**WIDE.inputSchema, "required": ["query", "within"]}}
+)
+
+
+async def test_a_tool_whose_required_argument_only_leaves_out_is_not_offered(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Every call would go out without an argument the server requires, and
+    the server would refuse each one; the model would be shown a tool it
+    can never use."""
+    listing(monkeypatch, WITHIN_REQUIRED)
+    with caplog.at_level(logging.WARNING):
+        assert await toolset(LISTED).get_tools(Context({})) == []
+    assert "search" in caplog.text
+    assert "within" in caplog.text
+
+
+async def test_a_required_argument_params_fixes_needs_no_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing(monkeypatch, WITHIN_REQUIRED)
+    declaration = {**LISTED, "params": {"search": {"within": {"value": "docs"}}}}
+    [tool] = await toolset(declaration).get_tools(Context({}))
+    declared = shown(tool)
+    assert set(declared["properties"]) == {"query"}
+    assert declared["required"] == ["query"]
+
+
+def test_build_refuses_only_for_a_tool_allow_does_not_offer() -> None:
+    with pytest.raises(DeclarationError, match="'serach' is not one of"):
+        toolset({**LISTED, "only": {"serach": ["query"]}})

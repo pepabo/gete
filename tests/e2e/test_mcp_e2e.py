@@ -140,3 +140,53 @@ async def test_a_fixed_argument_is_sent_over_what_the_model_wrote(
         "query": "leave policy",
         "scope": "team-handbook",
     }
+
+
+async def test_an_argument_only_leaves_out_is_never_sent(server_url: str) -> None:
+    toolset = mcp_toolset(
+        {
+            "url": server_url,
+            "connection": "freee",
+            "allow": ["lookup"],
+            "only": {"lookup": ["query"]},
+        },
+        authorizations={"freee": "finance-freee"},
+        registry=CATALOG,
+        confirm=False,
+    )
+    context = await tool_context({"finance-freee": TOKEN_A})
+    [lookup] = await toolset.get_tools(context)
+    answer = await lookup.run_async(
+        args={"query": "leave policy", "scope": "other-team"}, tool_context=context
+    )
+    # The server's own default, so the model's scope never arrived.
+    assert answer["structuredContent"] == {
+        "query": "leave policy",
+        "scope": "everywhere",
+    }
+
+
+async def test_a_fixed_argument_rides_though_only_does_not_list_it(
+    server_url: str,
+) -> None:
+    toolset = mcp_toolset(
+        {
+            "url": server_url,
+            "connection": "freee",
+            "allow": ["lookup"],
+            "only": {"lookup": ["query"]},
+            "params": {"lookup": {"scope": {"value": "team-handbook"}}},
+        },
+        authorizations={"freee": "finance-freee"},
+        registry=CATALOG,
+        confirm=False,
+    )
+    context = await tool_context({"finance-freee": TOKEN_A})
+    [lookup] = await toolset.get_tools(context)
+    answer = await lookup.run_async(
+        args={"query": "leave policy"}, tool_context=context
+    )
+    assert answer["structuredContent"] == {
+        "query": "leave policy",
+        "scope": "team-handbook",
+    }
